@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "improfy-ergaenzung",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-X", "utf8", "app.py"],
+      "port": 8100
+    }
+  ]
+}

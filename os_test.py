@@ -203,6 +203,53 @@ def main():
         pruefe("Ohne Auswahl passiert nichts, mit Meldung",
                "nichts angelegt" in r.get_data(as_text=True))
 
+    print("\n9. Kundennachrichten ueber WhatsApp")
+    import nachrichten
+    nachrichten.init()
+    pruefe("Deutsche Nummern werden korrekt umgeformt",
+           nachrichten.nummer("+49 177 2306596") == "491772306596"
+           and nachrichten.nummer("0176 81257422") == "4917681257422"
+           and nachrichten.nummer("017681257422") == "4917681257422")
+    pruefe("Auslandsnummern behalten ihre Vorwahl",
+           nachrichten.nummer("+43 660 1234567") == "436601234567"
+           and nachrichten.nummer("0043 660 1234567") == "436601234567")
+    pruefe("Unbrauchbares gibt keine Nummer zurueck",
+           nachrichten.nummer("kaputt") == "" and nachrichten.nummer("") == ""
+           and nachrichten.nummer("123") == "")
+    text = nachrichten.text_bauen(
+        {"name": "Irfanullah Hayat"},
+        [{"art": "job", "titel": "Lagerhelfer", "anbieter": "Amazon", "ort": "Köln"},
+         {"art": "wohnung", "titel": "2 Zimmer", "anbieter": "Privat", "ort": "Kalk"}])
+    pruefe("Nachricht nennt Stellen und Wohnungen getrennt",
+           "1 Stelle" in text and "1 Wohnung" in text and "Irfanullah" in text
+           and "Improfy-Team" in text, text.split(chr(10))[0])
+    link = nachrichten.wa_link("+49 176 41609534", text)
+    pruefe("WhatsApp-Link traegt Nummer und Text",
+           link.startswith("https://wa.me/4917641609534?text=") and len(link) > 100)
+    pruefe("Ohne Nummer kein Link", nachrichten.wa_link("", text) == "")
+    r = c.get("/nachrichten")
+    pruefe("Seite antwortet und nennt den Weg", r.status_code == 200
+           and "WhatsApp-Link" in r.get_data(as_text=True))
+    ang = db.hole("SELECT id FROM tf_angebot LIMIT 2")
+    for a in ang:
+        c.post(f"/taskforce/angebot/{a['id']}/status",
+               data={"status": "angeschrieben", "bearbeiter": "Test"})
+    vor = nachrichten.vorschlaege()
+    pruefe("Beworbene Angebote erscheinen als Vorschlag", bool(vor),
+           f"{len(vor)} Kunden")
+    if vor:
+        e = vor[0]
+        c.post("/nachrichten/vermerken",
+               data={"kunde": e["kunde_id"], "text": e["text"],
+                     "angebote": ",".join(str(x["id"]) for x in e["neu"])})
+        pruefe("Vermerktes wird nicht zweimal vorgeschlagen",
+               not any(v["kunde_id"] == e["kunde_id"] for v in nachrichten.vorschlaege()))
+        pruefe("Der Verlauf haelt fest, was rausging",
+               any(x["kunde_id"] == e["kunde_id"] for x in nachrichten.verlauf()))
+    pruefe("Ohne Text wird nichts vermerkt",
+           "fehler" in c.post("/nachrichten/vermerken",
+                              data={"kunde": "1", "text": ""}).headers.get("Location", ""))
+
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")
     if fehl:

@@ -1,0 +1,105 @@
+{% extends "basis.html" %}
+{% block titel %}Kundennachrichten – Improfy-Ergänzung{% endblock %}
+{% block inhalt %}
+<h1>Kundennachrichten</h1>
+<p class="unterzeile">Was die Taskforce für einen Kunden beworben hat, geht ihm per WhatsApp zu –
+  eine Nachricht statt fünf Anrufe. Das System stellt den Text zusammen, <strong>abgeschickt
+  wird er von dir.</strong></p>
+
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+{% if fehler %}<div class="warnung"><p style="margin:0">{{ fehler }}</p></div>{% endif %}
+
+<div class="gitter g4">
+  <div class="karte"><h3>Zu melden</h3>
+    <div class="zahl" {% if z.kunden_offen %}style="color:var(--gelb)"{% endif %}>{{ z.kunden_offen }}</div>
+    <div class="marke">Kunden mit unangekündigten Bewerbungen</div></div>
+  <div class="karte"><h3>Angebote</h3><div class="zahl">{{ z.angebote_offen }}</div>
+    <div class="marke">noch nicht mitgeteilt</div></div>
+  <div class="karte"><h3>Verschickt</h3><div class="zahl">{{ z.gesendet }}</div>
+    <div class="marke">Nachrichten insgesamt</div></div>
+  <div class="karte"><h3>Ohne Nummer</h3>
+    <div class="zahl" {% if z.ohne_nummer %}style="color:var(--rot)"{% endif %}>{{ z.ohne_nummer }}</div>
+    <div class="marke">keine brauchbare Mobilnummer</div></div>
+</div>
+
+<div class="karte" style="margin-top:16px">
+  <h3>Wie verschickt wird</h3>
+  <table>
+    <tr><td style="width:190px"><strong>WhatsApp-Link</strong> <span class="plakette p-gruen">läuft</span></td>
+        <td class="marke">Ein Klick öffnet WhatsApp mit fertigem Text an genau diese Nummer –
+          du drückst auf Senden. Ohne Einrichtung, ohne Vorlage, ohne Genehmigung.</td></tr>
+    <tr><td><strong>Über die zentrale Nummer</strong>
+            {% if kommo_bereit %}<span class="plakette p-gruen">läuft</span>
+            {% else %}<span class="plakette p-grau">nicht eingerichtet</span>{% endif %}</td>
+        <td class="marke">{% if kommo_hinweis %}{{ kommo_hinweis }}<br>{% endif %}
+          Zu beachten: Außerhalb von 24 Stunden nach der letzten Kundennachricht lässt Meta
+          nur freigegebene Vorlagen zu – Freitext geht nur innerhalb des Fensters.</td></tr>
+  </table>
+</div>
+
+{% for v in liste %}
+<h2 style="margin-top:22px">{{ v.name }}
+  <span class="marke" style="text-transform:none;letter-spacing:0">– {{ v.neu|length }} neu
+    {%- if v.coach %} · Coach {{ v.coach }}{% endif %}
+    {%- if v.letzte %} · zuletzt gemeldet {{ v.letzte.zeitpunkt|zeit }}{% endif %}</span></h2>
+<div class="karte">
+  <form method="post" action="{{ url_for('nachrichten_vermerken') }}">
+    <input type="hidden" name="kunde" value="{{ v.kunde_id }}">
+    <input type="hidden" name="angebote" value="{{ v.neu|map(attribute='id')|join(',') }}">
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <div style="flex:2;min-width:300px">
+        <textarea name="text" rows="{{ 8 + v.neu|length }}"
+          style="width:100%;border:1px solid var(--line-strong);border-radius:10px;padding:10px 12px;font:inherit">{{ v.text }}</textarea>
+      </div>
+      <div style="flex:1;min-width:210px">
+        <dl class="paare" style="margin:0">
+          <dt>Nummer</dt><dd>{{ v.telefon or '—' }}
+            {% if not v.nummer %}<div class="marke" style="color:var(--rot)">keine brauchbare Mobilnummer</div>{% endif %}</dd>
+          <dt>Enthält</dt><dd class="marke">
+            {{ v.neu|selectattr('art','equalto','job')|list|length }} Stellen ·
+            {{ v.neu|selectattr('art','equalto','wohnung')|list|length }} Wohnungen</dd>
+        </dl>
+        <p style="margin:12px 0 0">
+          {% if v.nummer %}
+          <a class="btn btn-primary" href="{{ v.link }}" target="_blank" rel="noopener"
+             onclick="this.closest('form').querySelector('[name=abgeschickt]').disabled=false">WhatsApp öffnen</a>
+          {% endif %}
+        </p>
+        <p style="margin:10px 0 0">
+          <button type="submit" name="abgeschickt" value="1" class="btn">als verschickt vermerken</button>
+        </p>
+        <p class="marke" style="margin:8px 0 0">Der Vermerk verhindert, dass dieselbe Stelle
+          zweimal angekündigt wird.</p>
+      </div>
+    </div>
+  </form>
+</div>
+{% else %}
+<p class="leer">Nichts zu melden – alle beworbenen Angebote sind den Kunden mitgeteilt.
+  {% if not z.gesendet %}<br>Sobald die Taskforce Angebote auf „angeschrieben" setzt, erscheinen
+  sie hier.{% endif %}</p>
+{% endfor %}
+
+{% if verlauf %}
+<h2>Was schon rausging</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Zeitpunkt</th><th>Kunde</th><th>Weg</th><th>Angebote</th><th>Wer</th></tr>
+  {% for n in verlauf %}
+  <tr><td class="marke">{{ n.zeitpunkt|zeit }}</td>
+      <td><a href="{{ url_for('kunde_detail', kid=n.kunde_id) }}">{{ n.kunde }}</a></td>
+      <td class="marke">{{ n.weg }}</td>
+      <td class="marke">{{ (n.angebote or '').split(',')|length }}</td>
+      <td class="marke">{{ n.bearbeiter or '—' }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endif %}
+
+<div class="hinweis" style="margin-top:16px">
+  <strong>Warum kein Automat.</strong> Eine Maschine, die von selbst hunderte Nachrichten an
+  echte Menschen schickt, produziert Beschwerden – und eine von Meta gesperrte Nummer kostet
+  den ganzen Kanal, samt der Anfragen, die darüber hereinkommen. Ein Klick pro Kunde kostet
+  drei Sekunden. Das Verhältnis stimmt.
+</div>
+{% endblock %}

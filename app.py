@@ -23,6 +23,7 @@ import aussenanbindung as AA
 import cv_lesen
 import dokument_lesen
 import fotos
+import nachrichten
 import cv_pdf
 import lebenslauf_bauen as LB
 import aktivitaet
@@ -285,6 +286,31 @@ def suche_seite():
                        "rechts": (z["eingang"] or "")[:10]}, 8))
     return render_template("suche.html", q=q, gruppen=gruppen,
                            gesamt=sum(len(g["treffer"]) for g in gruppen))
+
+
+@app.route("/nachrichten")
+def nachrichten_seite():
+    """Was für einen Kunden beworben wurde, geht ihm per WhatsApp zu – nach Freigabe."""
+    return render_template(
+        "nachrichten.html", liste=nachrichten.vorschlaege(), z=nachrichten.zaehler(),
+        verlauf=nachrichten.verlauf(limit=30), kommo_bereit=nachrichten.kommo_bereit(),
+        kommo_hinweis=nachrichten.kommo_hinweis(),
+        meldung=request.args.get("meldung"), fehler=request.args.get("fehler"))
+
+
+@app.route("/nachrichten/vermerken", methods=["POST"])
+def nachrichten_vermerken():
+    """Festhalten, dass eine Nachricht rausging. Verschickt wird sie in WhatsApp selbst."""
+    kid = request.form.get("kunde", type=int)
+    text = request.form.get("text") or ""
+    ids = [i for i in (request.form.get("angebote") or "").split(",") if i.strip()]
+    if not kid or not text.strip():
+        return redirect(url_for("nachrichten_seite", fehler="Kein Kunde oder kein Text."))
+    telefon = db.wert("SELECT telefon FROM kunde WHERE id=?", (kid,), "")
+    nachrichten.vermerken(kid, text, ids, "wa-link", _bearbeiter(), telefon)
+    notieren("Kundennachricht verschickt", "nachrichten", kid, f"{len(ids)} Angebote")
+    return redirect(url_for("nachrichten_seite",
+                            meldung=f"Vermerkt: {len(ids)} Angebote mitgeteilt."))
 
 
 @app.route("/trichter")
@@ -1087,6 +1113,7 @@ def _zeit(iso):
 konten.init()
 aktivitaet.init()
 fotos.init()
+nachrichten.init()
 betrieb.init()
 # Der Faden für Sicherung und nächtlichen Lauf. Startet nur im echten Betrieb, nicht in
 # den Selbsttests – die sollen nichts im Hintergrund anstoßen.
