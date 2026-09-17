@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<title>{{ d.vorname }} {{ d.nachname }}</title>
+{% include "cv_designs/_rahmen.html" %}
+<style>
+/* VORLAGE 19 – dunkelblauer Kopf über die volle Breite, Foto halb darüber.
+
+   Nachgebaut nach der Galerie-Vorlage der CV-App (cv19). Der Kopf ist ein satter
+   Marineblock mit dem Namen groß in Weiß; das Foto sitzt links und überlappt die Kante,
+   was dem Blatt Tiefe gibt, ohne dass irgendwo eine Linie nötig wäre.
+
+   Wie bei allen Vorlagen hier: Der Block wiederholt sich über einen Tabellenkopf auf
+   jeder Seite, der Inhalt fließt darunter weiter. Nichts wird abgeschnitten. */
+
+:root { --marine: #17335c; --marine-hell: #21446f; --text: #1e1e1e; --grau: #55595c; }
+@page { margin: 0 0 12mm; }
+
+table.seite { width: 100%; border-collapse: collapse; }
+table.seite > thead { display: table-header-group; }
+table.seite > tbody { display: table-row-group; }
+table.seite td { padding: 0; vertical-align: top; }
+
+.kopf { background: var(--marine); padding: 17mm 16mm 13mm; text-align: center; }
+.kopf .name { color: #fff; font-size: 24pt; font-weight: 700; line-height: 1.14;
+              letter-spacing: .02em; text-transform: uppercase; }
+.kopf .rolle { color: #ffffffcc; font-size: 10.5pt; font-weight: 600; margin-top: 3mm;
+               letter-spacing: .16em; text-transform: uppercase; }
+
+.blatt { padding: 0 16mm 14mm; }
+/* Das Foto überlappt den blauen Block – der Sprung über die Kante ist der Kniff
+   dieser Vorlage. */
+.reihe::after { content: ""; display: block; clear: both; }
+.links { float: left; width: 52mm; margin: -14mm 9mm 6mm 0; }
+.foto { width: 52mm; height: 66mm; border: 1.6mm solid #fff; border-radius: 2mm;
+        box-shadow: 0 0 0 .3mm #e3e6ea; }
+.kontakt { margin-top: 6mm; font-size: 9pt; line-height: 1.85; color: var(--grau); }
+.kontakt div { overflow-wrap: anywhere; }
+.rechts { padding-top: 8mm; }
+
+h2 { color: var(--marine); font-size: 13.5pt; font-weight: 700; letter-spacing: .12em;
+     text-transform: uppercase; padding-bottom: 1.5mm; border-bottom: .5mm solid var(--marine); }
+h3 { color: var(--marine); font-size: 11pt; font-weight: 700; letter-spacing: .1em;
+     text-transform: uppercase; margin-top: 6mm; }
+.eintrag .titel { font-weight: 700; font-size: 11pt; color: var(--marine-hell); }
+.punkte { display: flex; gap: 1.2mm; }
+.punkt { width: 2.6mm; height: 2.6mm; border-radius: 50%; background: var(--marine); }
+.punkt.leer { background: #cdd5e0; }
+.paar .was { font-size: 10pt; }
+.sprachzeile .sp { text-transform: uppercase; color: var(--marine); }
+</style></head>
+<body>
+
+<table class="seite">
+<thead><tr><td>
+  <div class="kopf">
+    <div class="name">{{ d.vorname }} {{ d.nachname }}</div>
+    {% if d.angestrebter_job %}<div class="rolle">{{ d.angestrebter_job }}</div>{% endif %}
+  </div>
+</td></tr></thead>
+<tbody><tr><td>
+<div class="blatt">
+<div class="reihe">
+  <div class="links">
+    <img class="foto" src="{{ foto }}" alt="">
+    <div class="kontakt">
+      {% if d.geburtsdatum %}<div>{{ d.geburtsdatum }}</div>{% endif %}
+      {% if d.adresse %}<div>{{ d.adresse }}</div>{% endif %}
+      {% if d.mobil %}<div>{{ d.mobil }}</div>{% endif %}
+      {% if d.email %}<div>{{ d.email }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="rechts">
+    {% if d.ueber_mich %}
+    <section class="kapitel">
+      <h2>Über mich</h2>
+      {% for absatz in d.ueber_mich.split('\n') %}{% if absatz.strip() %}<p>{{ absatz.strip() }}</p>{% endif %}{% endfor %}
+    </section>
+    {% endif %}
+
+    {% if beruf %}
+    <section class="kapitel">
+      <h2>Berufliche Laufbahn</h2>
+      {% for b in beruf %}
+      <div class="eintrag">
+        <div class="titel">({{ b.zeitraum }}){% if b.jobtitel %} {{ b.jobtitel }}{% endif %}{% if b.firma %} | {{ b.firma }}{% endif %}</div>
+        {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if d.bildung %}
+    <section class="kapitel">
+      <h2>Schulbildung</h2>
+      {% for b in d.bildung %}
+      <div class="eintrag">
+        <div class="titel">({{ b.zeitraum }}) {{ b.abschluss }}</div>
+        {% if b.institution %}<div>{{ b.institution }}{% if b.note %} · Note {{ b.note }}{% endif %}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% set fs = d.fuehrerschein or {} %}
+    {% if d.soft_skills or d.edv_kenntnisse or d.sprachen or d.zusatzqualifikationen or fs.vorhanden %}
+    <section class="kapitel">
+      <h2>Persönliche Qualifikation</h2>
+
+      {% if d.soft_skills %}
+      <h3>Soft Skills</h3>
+      <div class="paare">
+        {% for s in d.soft_skills %}
+        <div class="paar zeile"><div class="was">{{ s.eigenschaft }}</div>
+          <div class="punkte">{% for i in range(1, 6) %}<span class="punkt {{ 'leer' if i > (s.sterne or 5) }}"></span>{% endfor %}</div></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.edv_kenntnisse %}
+      <h3>EDV-Kenntnisse</h3>
+      <div class="paare">
+        {% for e in d.edv_kenntnisse %}
+        <div class="paar zeile"><div class="was">{{ e.programm }}</div>
+          <div class="punkte">{% for i in range(1, 6) %}<span class="punkt {{ 'leer' if i > (e.sterne or 4) }}"></span>{% endfor %}</div></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.zusatzqualifikationen or fs.vorhanden %}
+      <h3>Zusatzqualifikationen</h3>
+      <div class="eintrag"><ul>
+        {% if fs.vorhanden %}<li>Führerschein{% if fs.klasse %} Klasse {{ fs.klasse }}{% endif %}</li>{% endif %}
+        {% for z in d.zusatzqualifikationen or [] %}<li>{{ z }}</li>{% endfor %}
+      </ul></div>
+      {% endif %}
+
+      {% if d.sprachen %}
+      <h3>Sprachkenntnisse</h3>
+      {% for s in d.sprachen %}
+      <div class="sprachzeile"><span class="sp">{{ s.sprache }}</span>{% if s.niveau %}<span>{{ s.niveau }}</span>{% endif %}</div>
+      {% endfor %}
+      {% endif %}
+
+      {% if d.hobbys %}
+      <h3>Hobbys</h3>
+      <p>{{ d.hobbys }}</p>
+      {% endif %}
+    </section>
+    {% endif %}
+  </div>
+</div>
+</div>
+</td></tr></tbody>
+</table>
+
+</body></html>

@@ -22,16 +22,25 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 AUSGABE = os.path.join(HIER, "ausgabe", "lebenslaeufe")
 
 # Die festen Vorlagen. Reihenfolge ist die Reihenfolge in der Auswahl.
+# Die Vorlagen der Sammlung, aus der die Coaches beim Designer nach Nummer bestellen
+# („Für Frau Rezai CV Nummer 6 bitte"). Die Vorschaubilder liegen in cv/galerie/.
+# Nummer 25 ist die, die Atanas zuletzt für Köln benutzt hat.
 DESIGNS = [
-    ("klassik", "Klassik",
-     "Eine Spalte, kein Schmuck, nichts als Ordnung. Für Behörde, Konzern und "
-     "Bewerbersoftware – und die Vorlage, die am ruhigsten wirkt."),
-    ("kontur", "Kontur",
-     "Der Name als Auftritt über einer Haarlinie, darunter Ordnung. Warmer "
-     "Messingakzent, erwachsen und zurückhaltend."),
-    ("profil", "Profil",
-     "Schmale Randspalte für Person, Sprachen und Stärken, breite Spalte für den "
-     "Werdegang. Der klassische deutsche Aufbau, sauber gesetzt."),
+    ("nr25", "Vorlage 25 · Improfy-Standard",
+     "Grüner Kopf mit Sprechblase, Foto links, drei Abschnitte – die Vorlage, die "
+     "Atanas zuletzt für Köln gesetzt hat"),
+    ("nr19", "Vorlage 19 · Marine",
+     "Dunkelblauer Kopf über die volle Breite, Foto überlappt die Kante, Punkte "
+     "statt Sterne"),
+    ("nr12", "Vorlage 12 · Sand",
+     "Warmer Papierton, Name mittig, feine Bronzelinien und Balken – die ruhigste "
+     "der Sammlung"),
+    ("klassik", "Klassik · schlicht",
+     "Eine Spalte, kein Schmuck. Für Behörde, Konzern und Bewerbersoftware."),
+    ("kontur", "Kontur · schlicht",
+     "Name groß über einer Haarlinie, warmer Messingakzent."),
+    ("profil", "Profil · schlicht",
+     "Schmale Randspalte für die Person, breite Spalte für den Werdegang."),
 ]
 DESIGN_DATEI = {schluessel: f"cv_designs/cv_{schluessel}.html" for schluessel, _, _ in DESIGNS}
 
@@ -152,7 +161,7 @@ def improfy_block(daten):
                              "Aktive Kontaktaufnahme mit Unternehmen"]}
 
 
-def html_bauen(render, daten, design="klassik", foto=None):
+def html_bauen(render, daten, design="nr25", foto=None):
     """Design-Vorlage mit den Daten füllen. `render` ist Flasks render_template."""
     daten = _sprachen_lesbar(dict(daten))
     beruf = [improfy_block(daten)] + list(daten.get("berufserfahrung") or [])
@@ -160,7 +169,7 @@ def html_bauen(render, daten, design="klassik", foto=None):
     # rechts sagt dem Recruiter „Maßnahme" statt „Kandidat" – genau die Schublade, in
     # die niemand will. `zeige_foto` sagt der Vorlage, ob überhaupt eines da ist; ein
     # grauer Platzhalter sieht schlechter aus als gar kein Foto.
-    return render(DESIGN_DATEI.get(design, DESIGN_DATEI["klassik"]),
+    return render(DESIGN_DATEI.get(design, DESIGN_DATEI["nr25"]),
                   d=daten, beruf=beruf, foto=foto or PLATZHALTER_FOTO,
                   zeige_foto=bool(foto), niveau=_niveau_txt, logo="")
 
@@ -189,7 +198,7 @@ def pdf_aus_html(html, zeit=90):
         shutil.rmtree(ordner, ignore_errors=True)
 
 
-def bauen(render, daten, design="klassik", foto=None, dateiname=None):
+def bauen(render, daten, design="nr25", foto=None, dateiname=None):
     """Designtes PDF erzeugen und in ausgabe/lebenslaeufe/ ablegen."""
     pdf = pdf_aus_html(html_bauen(render, daten, design, foto))
     os.makedirs(AUSGABE, exist_ok=True)

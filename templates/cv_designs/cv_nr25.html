@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<title>{{ d.vorname }} {{ d.nachname }}</title>
+{% include "cv_designs/_rahmen.html" %}
+<style>
+/* Vorlage 25 (Improfy-Standard) – nachgebaut nach dem Lebenslauf, den Atanas für Köln gestaltet
+   (Vorbild „Herr Ebrahimi korrigiert 14.09.pdf", abgenommen am 16.09.2026).
+
+   Umgebaut am 17.09.2026: Vorher waren es drei Seiten mit fester Höhe und
+   `overflow: hidden` – wer mehr als drei Stationen hatte, verlor sie stillschweigend.
+   Jetzt fließt der Inhalt über so viele Seiten, wie er braucht; das grüne Kopfband
+   wiederholt sich dabei auf jeder Seite von selbst. */
+
+:root { --gruen: #8cc63f; --gruen-hell: #a5d65e; --text: #1e1e1e; --grau: #55595c; }
+@page { margin: 0 0 12mm; }
+
+/* ---- Kopfband auf jeder Seite ----
+   Über einen Tabellenkopf, nicht über `position: fixed`. Chrome wiederholt einen
+   `<thead>` beim Drucken von sich aus auf jeder Seite – verlässlich und ohne Tricks
+   mit negativen Rändern. Mit `fixed` landete das Band auf Folgeseiten am Fuß und der
+   Text lief darunter; nachgesehen am 17.09.2026. */
+table.seite { width: 100%; border-collapse: collapse; }
+table.seite > thead { display: table-header-group; }   /* genau das wiederholt Chrome */
+table.seite > tbody { display: table-row-group; }
+table.seite td { padding: 0; vertical-align: top; }
+.kopf {
+  position: relative; height: 52mm;
+  background: var(--gruen); padding: 16mm 16mm 0;
+}
+.kopf .name { color: #fff; font-size: 26pt; font-weight: 700; line-height: 1.12; }
+.kopf .rolle { color: #fff; opacity: .93; font-size: 10.5pt; font-weight: 600;
+               letter-spacing: 1.8px; text-transform: uppercase; margin-bottom: 2mm; }
+/* Die Sprechblasen-Spitze hängt links unten aus dem Band heraus */
+.zipfel { position: absolute; left: 18mm; bottom: -11mm; width: 0; height: 0;
+          border-left: 11mm solid var(--gruen); border-bottom: 11mm solid transparent; }
+.logo { position: absolute; right: 16mm; top: 12mm; height: 9mm;
+        filter: brightness(0) invert(1); opacity: .95; }
+
+/* ---- Spalten: links Foto und Kontakt, rechts der Inhalt ----
+   Der obere Abstand hält den Inhalt unter dem fixierten Kopfband frei. */
+/* 14 mm, damit die Sprechblasen-Spitze (11 mm hoch) nicht auf der ersten Zeile liegt. */
+.blatt { padding: 14mm 16mm 0; }
+/* Foto und Kontakt schwimmen links, der Text fließt daneben und **darunter** weiter.
+   Mit zwei festen Spalten bliebe auf jeder Folgeseite eine leere linke Spalte stehen –
+   ein Drittel der Seite weiß, nur weil das Foto einmal dort stand. */
+.reihe::after { content: ""; display: block; clear: both; }
+.links { float: left; width: 58mm; margin: 0 9mm 6mm 0; }
+.rechts { overflow: visible; }
+.foto { border: 1.2mm solid var(--gruen-hell); border-radius: 5mm; }
+.kontakt { margin-top: 6mm; text-align: right; font-size: 9pt; font-weight: 600;
+           line-height: 1.9; color: var(--grau); }
+.kontakt div { overflow-wrap: anywhere; }
+
+h2 { color: var(--gruen); font-size: 15pt; font-weight: 700; letter-spacing: .3px;
+     text-transform: uppercase; }
+h3 { color: var(--gruen); font-size: 11.5pt; font-weight: 700; letter-spacing: .3px;
+     text-transform: uppercase; margin-top: 6mm; }
+.eintrag .titel { font-weight: 700; font-size: 11pt; }
+.sterne { color: var(--gruen); font-size: 12pt; }
+.sterne .leer { color: #d8e8c0; }
+.paar .was { font-size: 10pt; }
+.sprachzeile .sp { text-transform: uppercase; }
+.sprachzeile .tr { color: #9aa0a4; }
+</style></head>
+<body>
+
+<table class="seite">
+<thead><tr><td>
+  <div class="kopf">
+    
+    {% if d.angestrebter_job %}<div class="rolle">{{ d.angestrebter_job }}</div>{% endif %}
+    <div class="name">{{ d.vorname }}<br>{{ d.nachname }}</div>
+    <div class="zipfel"></div>
+  </div>
+</td></tr></thead>
+<tbody><tr><td>
+<div class="blatt">
+<div class="reihe">
+  <div class="links">
+    <img class="foto" src="{{ foto }}" alt="">
+    <div class="kontakt">
+      {% if d.geburtsdatum %}<div>{{ d.geburtsdatum }}</div>{% endif %}
+      {% if d.adresse %}<div>{{ d.adresse }}</div>{% endif %}
+      {% if d.mobil %}<div>{{ d.mobil }}</div>{% endif %}
+      {% if d.email %}<div>{{ d.email }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="rechts">
+    {% if d.ueber_mich %}
+    <section class="kapitel">
+      <h2>Über mich</h2>
+      {% for absatz in d.ueber_mich.split('\n') %}{% if absatz.strip() %}<p>{{ absatz.strip() }}</p>{% endif %}{% endfor %}
+    </section>
+    {% endif %}
+
+    {% if beruf %}
+    <section class="kapitel">
+      <h2>Berufserfahrung</h2>
+      {% for b in beruf %}
+      <div class="eintrag">
+        <div class="titel">({{ b.zeitraum }}){% if b.jobtitel %} {{ b.jobtitel }}{% endif %}{% if b.firma %} | {{ b.firma }}{% endif %}</div>
+        {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if d.bildung %}
+    <section class="kapitel">
+      <h2>Schulbildung</h2>
+      {% for b in d.bildung %}
+      <div class="eintrag">
+        <div class="titel">({{ b.zeitraum }}) {{ b.abschluss }}</div>
+        {% if b.institution %}<div>{{ b.institution }}{% if b.note %} · Note {{ b.note }}{% endif %}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% set fs = d.fuehrerschein or {} %}
+    {% if d.soft_skills or d.edv_kenntnisse or d.sprachen or d.zusatzqualifikationen or fs.vorhanden %}
+    <section class="kapitel">
+      <h2>Persönliche Qualifikation</h2>
+
+      {% if d.soft_skills %}
+      <h3>Soft Skills</h3>
+      <div class="paare">
+        {% for s in d.soft_skills %}
+        <div class="paar zeile"><div class="was">{{ s.eigenschaft }}</div>
+          <div class="sterne">{% for i in range(1, 6) %}{% if i <= (s.sterne or 5) %}★{% else %}<span class="leer">★</span>{% endif %}{% endfor %}</div></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.edv_kenntnisse %}
+      <h3>EDV-Kenntnisse</h3>
+      <div class="paare">
+        {% for e in d.edv_kenntnisse %}
+        <div class="paar zeile"><div class="was">{{ e.programm }}</div>
+          <div class="sterne">{% for i in range(1, 6) %}{% if i <= (e.sterne or 4) %}★{% else %}<span class="leer">★</span>{% endif %}{% endfor %}</div></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.zusatzqualifikationen or fs.vorhanden %}
+      <h3>Zusatzqualifikationen</h3>
+      <div class="eintrag"><ul>
+        {% if fs.vorhanden %}<li>Führerschein{% if fs.klasse %} Klasse {{ fs.klasse }}{% endif %}</li>{% endif %}
+        {% for z in d.zusatzqualifikationen or [] %}<li>{{ z }}</li>{% endfor %}
+      </ul></div>
+      {% endif %}
+
+      {% if d.sprachen %}
+      <h3>Sprachkenntnisse</h3>
+      {% for s in d.sprachen %}
+      <div class="sprachzeile"><span class="sp">{{ s.sprache }}</span>{% if s.niveau %}<span class="tr">–</span><span>{{ s.niveau }}</span>{% endif %}</div>
+      {% endfor %}
+      {% endif %}
+
+      {% if d.hobbys %}
+      <h3>Hobbys</h3>
+      <p>{{ d.hobbys }}</p>
+      {% endif %}
+    </section>
+    {% endif %}
+  </div>
+</div>
+</div>
+</td></tr></tbody>
+</table>
+
+</body></html>
