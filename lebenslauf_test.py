@@ -179,6 +179,44 @@ def main():
            r.status_code == 200 and int(r.headers.get("X-Fehlende-Felder", 0)) > 0,
            r.headers.get("X-Fehlende-Felder") + " fehlende Felder")
 
+    print("\n9. Bewerbungsfoto")
+    import io as _io
+    import fotos
+    fotos.init()
+    try:
+        from PIL import Image
+        bild = Image.new("RGB", (2000, 2500), (150, 170, 120))
+        puffer = _io.BytesIO(); bild.save(puffer, "JPEG", quality=95)
+        gross = puffer.getvalue()
+        r = c.post(f"/kunde/{kid}/foto", data={"foto": (_io.BytesIO(gross), "Probe.jpg")},
+                   content_type="multipart/form-data")
+        f = fotos.foto(kid)
+        pruefe("Foto wird gespeichert und auf Druckgröße verkleinert",
+               r.status_code == 200 and f and f["bytes"] < len(gross) and f["breite"] <= 1200,
+               f"{len(gross)//1024} kB → {f['bytes']//1024} kB, {f['breite']}×{f['hoehe']}")
+        pruefe("Foto lässt sich wieder ausliefern",
+               c.get(f"/kunde/{kid}/foto.jpg").status_code == 200)
+        pruefe("Formular zeigt das hinterlegte Foto",
+               "Foto hinterlegt" in c.get(f"/kunde/{kid}/lebenslauf").get_data(as_text=True))
+    except ImportError:
+        pruefe("Pillow fehlt – Fototest übersprungen", True)
+    kunden = [{"id": 1, "name": "Farnam Foroutan"}, {"id": 2, "name": "Hakan Tan"}]
+    pruefe("Foto wird über den Dateinamen zugeordnet",
+           fotos.zuordnen("Farnam_Foroutan.jpg", kunden) == 1
+           and fotos.zuordnen("Bild von Hakan Tan.png", kunden) == 2)
+    pruefe("Unklare Dateinamen werden nicht zugeordnet",
+           fotos.zuordnen("IMG_2931.jpg", kunden) is None
+           and fotos.zuordnen("unbekannt.png", kunden) is None)
+    pruefe("Fotoseite antwortet", c.get("/lebenslauf/fotos").status_code == 200)
+    pruefe("Unbekannter Ordner wird gemeldet, nicht geschluckt",
+           "gibt es nicht" in c.post("/lebenslauf/fotos",
+                                     data={"ordner": "Z:/gibtesnicht"}).get_data(as_text=True))
+    c.post(f"/kunde/{kid}/foto", data={"was": "loeschen"})
+    pruefe("Foto lässt sich entfernen", fotos.foto(kid) is None)
+    with open("templates/cv_designs/cv_atanas.html", encoding="utf-8") as fh:
+        vorlage = fh.read()
+    pruefe("Das Foto hat im Design Platz (58 mm breit)", "width: 58mm" in vorlage)
+
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")
     if fehl:

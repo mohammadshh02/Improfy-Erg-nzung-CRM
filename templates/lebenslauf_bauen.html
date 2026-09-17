@@ -7,6 +7,7 @@
 <p class="unterzeile">Füllt die Improfy-Excel-Vorlage. Was das OS über {{ v.kunde_name }} weiß, steht schon drin.
   Fehlende Pflichtangaben markiert die Vorlage gelb, die Datei lässt sich trotzdem erzeugen.</p>
 
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
 {% if fehler %}<div class="warnung"><h3>Das ging nicht</h3><p style="margin:0">{{ fehler }}</p>
   {% if hinweise %}<ul style="margin:6px 0 0 18px;padding:0">{% for h in hinweise %}<li>{{ h }}</li>{% endfor %}</ul>{% endif %}
 </div>{% endif %}
@@ -232,10 +233,22 @@
     </label>
     {% endfor %}
   </div>
-  <div class="filter" style="margin:14px 0 0">
-    <label class="marke">Bewerbungsfoto (optional)
+  <div class="filter" style="margin:14px 0 0;align-items:center">
+    {% if foto %}
+    <img src="{{ url_for('lebenslauf_foto_zeigen', kid=v.kunde_id) }}?v={{ foto.geaendert }}"
+         alt="Bewerbungsfoto" style="width:66px;height:84px;object-fit:cover;object-position:center top;
+         border-radius:8px;border:2px solid var(--accent)">
+    <span class="marke">Foto hinterlegt{% if foto.breite %} · {{ foto.breite }}×{{ foto.hoehe }} Pixel{% endif %}
+      · {{ (foto.bytes / 1024)|round|int }} kB · {{ foto.quelle }}<br>
+      jeder Lebenslauf nimmt es von selbst</span>
+    {% else %}
+    <span class="marke" style="color:var(--gelb)">Noch kein Foto hinterlegt – der Lebenslauf
+      bekommt eine graue Fläche.</span>
+    {% endif %}
+    <label class="marke">{{ 'Foto austauschen' if foto else 'Bewerbungsfoto wählen' }}
       <input type="file" name="foto" accept="image/*" style="margin-left:8px"></label>
-    <span class="marke">wird auf Druckgröße verkleinert, damit das PDF per Mail verschickbar bleibt</span>
+    <span class="marke">wird verkleinert und am Kunden gemerkt ·
+      <a href="{{ url_for('lebenslauf_fotos') }}">Fotos aus der Chat-Gruppe zuordnen</a></span>
   </div>
   {% else %}
   <div class="warnung" style="margin:0"><strong>Kein Chrome gefunden.</strong> Für den PDF-Druck braucht

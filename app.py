@@ -22,6 +22,7 @@ import datenbank as db
 import aussenanbindung as AA
 import cv_lesen
 import dokument_lesen
+import fotos
 import cv_pdf
 import lebenslauf_bauen as LB
 import aktivitaet
@@ -500,7 +501,8 @@ LEER_BERUF = {"zeitraum": "", "firma": "", "jobtitel": "", "taetigkeiten": []}
 LEER_BILDUNG = {"zeitraum": "", "abschluss": "", "institution": "", "note": ""}
 
 
-def _cv_seite(kid, daten=None, fehler=None, gelesen=None, rohtext="", hinweise=None):
+def _cv_seite(kid, daten=None, fehler=None, gelesen=None, rohtext="", hinweise=None,
+              meldung=None):
     v = LB.vorbelegung(kid)
     if not v:
         abort(404)
@@ -510,7 +512,8 @@ def _cv_seite(kid, daten=None, fehler=None, gelesen=None, rohtext="", hinweise=N
         return liste + [dict(leer) for _ in range(max(0, anzahl - len(liste)))]
     return render_template(
         "lebenslauf_bauen.html", v=v, d=d, fehler=fehler, gelesen=gelesen, rohtext=rohtext,
-        hinweise=hinweise or [], lesbar=dokument_lesen.ENDUNGEN,
+        hinweise=hinweise or [], lesbar=dokument_lesen.ENDUNGEN, meldung=meldung,
+        foto=fotos.foto(kid),
         designs=cv_pdf.DESIGNS, chrome=cv_pdf.bereit(), galerie=cv_pdf.galerie(),
         beruf=auffuellen(d.get("berufserfahrung"), LEER_BERUF, 7),
         bildung=auffuellen(d.get("bildung"), LEER_BILDUNG, 4),
@@ -590,8 +593,17 @@ def lebenslauf_pdf(kid):
     from flask import render_template as _render
     daten = LB.aus_formular(request.form)
     design = request.form.get("design") or "gruen"
-    foto = request.files.get("foto")
-    foto_uri = cv_pdf.foto_uri(foto.read(), foto.mimetype) if foto and foto.filename else None
+    # Ein frisch hochgeladenes Foto gewinnt und wird gleich am Kunden gemerkt,
+    # sonst nimmt das PDF das, was schon hinterlegt ist.
+    hochgeladen = request.files.get("foto")
+    if hochgeladen and hochgeladen.filename:
+        try:
+            fotos.speichern(kid, hochgeladen.read(), hochgeladen.filename)
+            notieren("Bewerbungsfoto hinterlegt", "lebenslauf", kid, hochgeladen.filename)
+        except Exception:
+            pass
+    roh, mime = fotos.rohdaten(kid)
+    foto_uri = cv_pdf.foto_uri(roh, mime) if roh else None
     v = LB.vorbelegung(kid)
     name = LB.blattname(v["interne_id"], daten.get("vorname") or "", daten.get("nachname") or "")
     dateiname = f"{name}_{design}_{datetime.date.today():%Y-%m-%d}.pdf"
@@ -603,6 +615,57 @@ def lebenslauf_pdf(kid):
     from flask import Response
     return Response(pdf, mimetype="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{dateiname}"'})
+
+
+@app.route("/kunde/<int:kid>/foto", methods=["POST"])
+def lebenslauf_foto(kid):
+    """Bewerbungsfoto hinterlegen oder entfernen – es gehört an den Kunden, nicht an einen Klick."""
+    if request.form.get("was") == "loeschen":
+        fotos.loeschen(kid)
+        notieren("Bewerbungsfoto entfernt", "lebenslauf", kid)
+        return _cv_seite(kid, meldung="Foto entfernt.")
+    datei = request.files.get("foto")
+    if not datei or not datei.filename:
+        return _cv_seite(kid, fehler="Keine Datei gewählt.")
+    try:
+        stand = fotos.speichern(kid, datei.read(), datei.filename)
+    except Exception as e:
+        return _cv_seite(kid, fehler=f"Das Bild ließ sich nicht lesen: {e}")
+    notieren("Bewerbungsfoto hinterlegt", "lebenslauf", kid, datei.filename)
+    return _cv_seite(kid, meldung=f"Foto hinterlegt, {stand['bytes'] // 1024} kB"
+                                  + (f", {stand['breite']}×{stand['hoehe']} Pixel"
+                                     if stand["breite"] else "") + ".")
+
+
+@app.route("/kunde/<int:kid>/foto.jpg")
+def lebenslauf_foto_zeigen(kid):
+    roh, mime = fotos.rohdaten(kid)
+    if not roh:
+        abort(404)
+    from flask import Response
+    return Response(roh, mimetype=mime or "image/jpeg")
+
+
+@app.route("/lebenslauf/fotos", methods=["GET", "POST"])
+def lebenslauf_fotos():
+    """Fotos aus einem Ordner zuordnen – für den Schwung aus der Chat-Gruppe."""
+    ergebnis = None
+    if request.method == "POST":
+        pfad = (request.form.get("ordner") or "").strip()
+        try:
+            zugeordnet, offen = fotos.aus_ordner(pfad)
+            notieren(f"{len(zugeordnet)} Fotos zugeordnet", "lebenslauf", None, pfad)
+            ergebnis = {"zugeordnet": zugeordnet, "offen": offen, "ordner": pfad}
+        except Exception as e:
+            ergebnis = {"fehler": str(e), "ordner": pfad}
+    return render_template("fotos.html", stand=fotos.stand(), ergebnis=ergebnis,
+                           chat_bereit=fotos.chat_bereit(),
+                           ohne=db.hole(
+                               "SELECT k.id, k.name, m.name AS coach FROM kunde k"
+                               "  LEFT JOIN mitarbeiter m ON m.id=k.coach_id"
+                               " WHERE k.standort=? AND k.status_code IN ('H','I')"
+                               "   AND NOT EXISTS (SELECT 1 FROM kunde_foto f WHERE f.kunde_id=k.id)"
+                               " ORDER BY k.name", (db.STANDORT_STANDARD,)))
 
 
 @app.route("/lebenslauf/galerie/<path:bild>")
@@ -1023,6 +1086,7 @@ def _zeit(iso):
 # eingebunden wird (Tests, Schnittstelle) – CREATE TABLE IF NOT EXISTS kostet nichts.
 konten.init()
 aktivitaet.init()
+fotos.init()
 betrieb.init()
 # Der Faden für Sicherung und nächtlichen Lauf. Startet nur im echten Betrieb, nicht in
 # den Selbsttests – die sollen nichts im Hintergrund anstoßen.

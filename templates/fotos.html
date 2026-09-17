@@ -1,0 +1,68 @@
+{% extends "basis.html" %}
+{% block titel %}Bewerbungsfotos – Improfy-Ergänzung{% endblock %}
+{% block inhalt %}
+<p class="marke"><a href="{{ url_for('lebenslauf_uebersicht') }}">← Lebensläufe</a></p>
+<h1>Bewerbungsfotos</h1>
+<p class="unterzeile">Das Foto ist das Erste, was ein Arbeitgeber ansieht. Es gehört an den
+  Kunden – einmal hinterlegt, nimmt es jeder Lebenslauf von selbst.</p>
+
+<div class="gitter g2">
+  <div class="karte"><h3>Hinterlegt</h3><div class="zahl">{{ stand.mit }}</div>
+    <div class="marke">Kunden mit Foto</div></div>
+  <div class="karte"><h3>Fehlen</h3>
+    <div class="zahl" {% if stand.ohne_laufend %}style="color:var(--gelb)"{% endif %}>{{ stand.ohne_laufend }}</div>
+    <div class="marke">laufende Maßnahmen ohne Foto · im CRM ein Pflichtpunkt</div></div>
+</div>
+
+<h2>Einen Schwung aus der Chat-Gruppe zuordnen</h2>
+<div class="karte">
+  <p class="marke" style="margin:0 0 10px">Die Fotos liegen in der Google-Chat-Gruppe
+    „CVs Köln". Lade sie dort in einen Ordner herunter und gib den Pfad hier an – das OS
+    ordnet sie über den Dateinamen zu. <strong>Zugeordnet wird nur, was eindeutig ist:</strong>
+    Der Nachname muss im Dateinamen vorkommen, und entweder besteht der Name nur daraus oder
+    zwei Namensteile passen. Ein fremdes Gesicht im Lebenslauf wäre der peinlichste denkbare
+    Fehler – deshalb lieber offen lassen als raten.</p>
+  <form method="post" class="filter" style="margin:0">
+    <input type="text" name="ordner" placeholder="C:\Users\...\Downloads\CV-Fotos"
+           value="{{ ergebnis.ordner if ergebnis else '' }}" style="flex:1;min-width:320px">
+    <button type="submit" class="btn btn-primary">Ordner einlesen</button>
+  </form>
+
+  {% if ergebnis %}
+    {% if ergebnis.fehler %}
+    <div class="warnung" style="margin:12px 0 0"><p style="margin:0">{{ ergebnis.fehler }}</p></div>
+    {% else %}
+    <div class="hinweis" style="margin:12px 0 0">
+      <strong>{{ ergebnis.zugeordnet|length }} Fotos zugeordnet.</strong>
+      {% if ergebnis.offen %}<br>{{ ergebnis.offen|length }} nicht zugeordnet – diese Namen
+        passen zu niemandem eindeutig: {{ ergebnis.offen[:12]|join(', ') }}{% if ergebnis.offen|length > 12 %} …{% endif %}{% endif %}
+    </div>
+    {% endif %}
+  {% endif %}
+
+  <p class="marke" style="margin:12px 0 0">
+    <strong>Direkt aus dem Chat</strong> geht erst mit der Google-Chat-Schnittstelle:
+    {% if chat_bereit %}<span class="plakette p-gruen">verbunden</span>
+    {% else %}<span class="plakette p-grau">nicht verbunden</span> – dafür braucht es ein
+    Dienstkonto, das ein Google-Administrator freischaltet (<code>GOOGLE_CHAT_TOKEN</code>).
+    Ohne diese Freigabe lässt sich ein Chatraum technisch nicht auslesen.{% endif %}
+  </p>
+</div>
+
+{% if ohne %}
+<h2>Laufende Maßnahmen ohne Foto</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Kunde</th><th>Coach</th><th></th></tr>
+  {% for k in ohne %}
+  <tr><td><a href="{{ url_for('kunde_detail', kid=k.id) }}">{{ k.name }}</a></td>
+      <td class="marke">{{ k.coach or '—' }}</td>
+      <td><a class="knopf leise" style="padding:6px 12px"
+             href="{{ url_for('lebenslauf_formular', kid=k.id) }}">Foto hinterlegen</a></td></tr>
+  {% endfor %}
+</table>
+</div>
+{% else %}
+<p class="leer">Alle laufenden Maßnahmen haben ein Foto.</p>
+{% endif %}
+{% endblock %}
