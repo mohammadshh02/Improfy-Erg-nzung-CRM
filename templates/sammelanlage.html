@@ -1,0 +1,75 @@
+{% extends "basis.html" %}
+{% block titel %}Suchprofile anlegen – Improfy-Ergänzung{% endblock %}
+{% block inhalt %}
+<p class="marke"><a href="{{ url_for('taskforce_seite') }}">← Taskforce</a></p>
+<h1>Suchprofile in einem Schritt anlegen</h1>
+<p class="unterzeile">Die Taskforce sucht nur für Kunden, die ein Suchprofil haben. Hier stehen
+  alle laufenden Maßnahmen, für die noch keines angelegt ist – mit einem Vorschlag aus dem,
+  was das System ohnehin weiß. Prüfen, anhaken, anlegen.</p>
+
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+{% if fehler %}<div class="warnung"><p style="margin:0">{{ fehler }}</p></div>{% endif %}
+
+<div class="filter" style="margin-bottom:14px">
+  <a class="btn {{ 'btn-primary' if art=='job' }}" href="{{ url_for('sammelanlage_seite', art='job') }}">Jobprofile</a>
+  <a class="btn {{ 'btn-primary' if art=='wohnung' }}" href="{{ url_for('sammelanlage_seite', art='wohnung') }}">Wohnprofile</a>
+  <span class="marke">{{ zeilen|length }} laufende Maßnahmen ohne {{ 'Job' if art=='job' else 'Wohn' }}profil</span>
+</div>
+
+{% if zeilen %}
+<form method="post" action="{{ url_for('sammelanlage_anlegen') }}">
+<input type="hidden" name="art" value="{{ art }}">
+<div class="tabellenkasten">
+<table>
+  <tr>
+    <th><input type="checkbox" onclick="document.querySelectorAll('input[name=kunde]').forEach(c=>c.checked=this.checked)"></th>
+    <th>Kunde</th><th>Coach</th>
+    {% if art=='job' %}<th style="min-width:230px">Suchbegriffe</th>{% else %}<th>Suchauftrag</th>{% endif %}
+    <th style="min-width:140px">Ort</th><th>Lebenslauf</th>
+  </tr>
+  {% for z in zeilen %}
+  <tr>
+    <td><input type="checkbox" name="kunde" value="{{ z.id }}" {{ 'checked' if z.bereit }}></td>
+    <td><a href="{{ url_for('kunde_detail', kid=z.id) }}"><strong>{{ z.name }}</strong></a>
+        {% if z.massnahme %}<div class="marke">{{ z.massnahme }}</div>{% endif %}</td>
+    <td class="marke">{{ z.coach or '—' }}</td>
+    <td>
+      {% if art=='job' %}
+      <input type="text" name="begriff_{{ z.id }}" value="{{ z.begriff }}"
+             placeholder="Lagerhelfer, Kommissionierer" style="width:100%">
+      {% if z.begriff %}<div class="marke">aus dem Kurzprofil vorgeschlagen</div>
+      {% elif z.kurzprofil %}<div class="marke" style="color:var(--gelb)">kein Beruf erkannt – bitte eintragen</div>
+      {% else %}<div class="marke" style="color:var(--gelb)">kein Kurzprofil hinterlegt</div>{% endif %}
+      {% else %}
+      <input type="text" name="begriff_{{ z.id }}" value="TF-{{ z.name.split(' ')[-1] }}" style="width:100%">
+      <div class="marke">genau so den Suchauftrag in ImmoScout24 benennen</div>
+      {% endif %}
+    </td>
+    <td><input type="text" name="ort_{{ z.id }}" value="{{ z.ort }}" style="width:130px">
+        {% if z.ort_geraten %}<div class="marke" style="color:var(--gelb)">Wohnort fehlt – Standort eingesetzt</div>{% endif %}</td>
+    <td>{% if z.lebenslaeufe %}<span class="plakette p-gruen">da</span>
+        {% else %}<span class="plakette p-grau">fehlt</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<div class="karte" style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+  <label class="marke">Umkreis km<br><input type="text" name="umkreis" value="25" style="width:90px"></label>
+  <button type="submit" class="btn btn-primary">Angehakte Profile anlegen</button>
+  <span class="marke">Es wird nur angelegt, nicht gesucht – der erste Lauf passiert heute Nacht
+    oder auf Knopfdruck in der Taskforce. Zwanzig Profile gleichzeitig über zehn Portale zu
+    jagen dauert eine Viertelstunde und gehört nicht hinter einen Klick.</span>
+</div>
+</form>
+
+<div class="hinweis" style="margin-top:16px">
+  <strong>Warum der Vorschlag und nicht gleich automatisch?</strong> Der Suchbegriff entscheidet,
+  was der Agent wochenlang sucht. Ein falsch geratener Beruf produziert hunderte unpassende
+  Treffer – und dann gewöhnen sich die Coaches an, die Liste zu ignorieren. Das ist der
+  teuerste Fehler, den man hier machen kann.
+</div>
+{% else %}
+<p class="leer">Für alle laufenden Maßnahmen ist ein {{ 'Job' if art=='job' else 'Wohn' }}profil
+  angelegt. Gut.</p>
+{% endif %}
+{% endblock %}

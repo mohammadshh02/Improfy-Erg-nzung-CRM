@@ -28,6 +28,7 @@ import aktivitaet
 import aufgaben
 import betrieb
 import konten
+import sammelanlage
 import taskforce as tf
 import trichter
 from quellen import lebenslauf as L
@@ -652,6 +653,10 @@ def _tf_seite(meldungen=None):
         laeufe=tf.laeufe(limit=15), imap=tf.imap_konfiguriert(), alarm=tf.alarm_konfiguriert(),
         meldungen=meldungen, quellen=tf.quellen_stand(), kpi=tf.kpi_mitarbeiter(),
         lauf=betrieb.lauf_zustand(),
+        ohne_profil=db.wert(
+            "SELECT COUNT(*) FROM kunde k WHERE k.standort=? AND k.status_code IN ('H','I')"
+            "  AND NOT EXISTS (SELECT 1 FROM tf_profil t WHERE t.kunde_id=k.id AND t.aktiv=1)",
+            (db.STANDORT_STANDARD,)),
         wiedervorlage=tf.wiedervorlage(), wv_tage=tf.WIEDERVORLAGE_TAGE,
         leute=_tf_leute(), ohne_cv=tf.ohne_lebenslauf(),
         kunden=db.hole("SELECT id, name FROM kunde WHERE standort=? ORDER BY name",
@@ -695,6 +700,33 @@ def taskforce_lauf():
     else:
         meldung = "Es läuft bereits ein Durchgang – der zweite würde dieselben Portale doppelt fragen."
     return redirect(url_for("taskforce_seite", meldung=meldung))
+
+
+@app.route("/taskforce/profile-anlegen")
+def sammelanlage_seite():
+    """Suchprofile für alle laufenden Kunden auf einmal – der Schritt, der bisher fehlte."""
+    art = request.args.get("art") or "job"
+    return render_template("sammelanlage.html", art=art,
+                           zeilen=sammelanlage.vorschlaege(art=art),
+                           meldung=request.args.get("meldung"),
+                           fehler=request.args.get("fehler"))
+
+
+@app.route("/taskforce/profile-anlegen", methods=["POST"])
+def sammelanlage_anlegen():
+    art = request.form.get("art") or "job"
+    umkreis = request.form.get("umkreis", 25, type=int) or 25
+    auswahl = sammelanlage.aus_formular(request.form, art)
+    if not auswahl:
+        return redirect(url_for("sammelanlage_seite", art=art,
+                                fehler="Nichts angehakt – es wurde nichts angelegt."))
+    angelegt, weg = sammelanlage.anlegen(auswahl, art, umkreis)
+    notieren(f"{len(angelegt)} Suchprofile angelegt", "taskforce", None,
+             ", ".join(b for _, _, b in angelegt)[:200])
+    text = f"{len(angelegt)} Profile angelegt."
+    if weg:
+        text += f" {len(weg)} übersprungen: " + "; ".join(f"{g}" for _, g in weg[:3])
+    return redirect(url_for("sammelanlage_seite", art=art, meldung=text))
 
 
 @app.route("/taskforce/kunde")

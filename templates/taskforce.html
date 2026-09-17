@@ -248,6 +248,11 @@
 {% endif %}
 
 <h2>Profile</h2>
+{% if ohne_profil %}
+<div class="hinweis"><strong>{{ ohne_profil }} laufende Maßnahmen haben kein Suchprofil.</strong>
+  Für diese Menschen sucht der Agent nichts.
+  <a href="{{ url_for('sammelanlage_seite') }}">Profile in einem Schritt anlegen →</a></div>
+{% endif %}
 <form class="filter" method="get" action="{{ url_for('taskforce_kunde_wahl') }}">
   <select name="kid" required>
     <option value="">Kunde wählen, um ein Profil anzulegen …</option>

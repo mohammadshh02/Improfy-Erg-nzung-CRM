@@ -175,6 +175,34 @@ def main():
     pruefe("Abgeschaltete Zeitsteuerung loest nichts aus",
            not betrieb._faellig("aus", "agenten") and not betrieb._faellig("", "agenten"))
 
+    print("\n8. Suchprofile in einem Schritt")
+    import sammelanlage
+    pruefe("Berufsvorschlag erkennt einen Beruf im Kurzprofil",
+           sammelanlage.beruf_vorschlag("Lagerist bei Netto seit 2024") == "Lagerist"
+           and sammelanlage.beruf_vorschlag(
+               "Abgeschlossene Ausbildung Kaufmann für Büromanagement") == "Kaufmann für Büromanagement")
+    pruefe("Kein Beruf wird lieber leer gelassen als geraten",
+           sammelanlage.beruf_vorschlag("B.A. Öffentliche Verwaltung und Politik") == ""
+           and sammelanlage.beruf_vorschlag("") == "")
+    vor = sammelanlage.vorschlaege()
+    pruefe("Vorschlagsliste nennt laufende Kunden ohne Profil", isinstance(vor, list),
+           f"{len(vor)} Kunden")
+    r = c.get("/taskforce/profile-anlegen")
+    pruefe("Seite zeigt die Vorschlaege", r.status_code == 200
+           and 'name="kunde"' in r.get_data(as_text=True))
+    if vor:
+        kid = vor[0]["id"]
+        r = c.post("/taskforce/profile-anlegen",
+                   data={"art": "job", "umkreis": "25", "kunde": str(kid),
+                         f"begriff_{kid}": "Lagerhelfer", f"ort_{kid}": "Köln"},
+                   follow_redirects=True)
+        pruefe("Angehaktes Profil wird angelegt",
+               r.status_code == 200 and db.wert(
+                   "SELECT COUNT(*) FROM tf_profil WHERE kunde_id=? AND aktiv=1", (kid,)) == 1)
+        r = c.post("/taskforce/profile-anlegen", data={"art": "job"}, follow_redirects=True)
+        pruefe("Ohne Auswahl passiert nichts, mit Meldung",
+               "nichts angelegt" in r.get_data(as_text=True))
+
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")
     if fehl:
