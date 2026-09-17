@@ -244,9 +244,14 @@ def main():
            not any("logo" in ohne_kommentare(offen(f)).lower() for f in vorlagen_dateien()),
            [os.path.basename(f) for f in vorlagen_dateien()
             if "logo" in ohne_kommentare(offen(f)).lower()])
+    # Der Umbruchschutz steht in einem der beiden gemeinsamen Rahmen; eine Vorlage,
+    # die keinen einbindet, müsste ihn selbst mitbringen.
     pruefe("Jede Vorlage schützt Einträge vor dem Umbruch",
            all("break-inside: avoid" in offen(f) or "_fein.html" in offen(f)
-               for f in vorlagen_dateien()))
+               or "_rahmen.html" in offen(f) for f in vorlagen_dateien()),
+           [os.path.basename(f) for f in vorlagen_dateien()
+            if "break-inside: avoid" not in offen(f) and "_fein.html" not in offen(f)
+            and "_rahmen.html" not in offen(f)])
 
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")
