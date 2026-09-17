@@ -177,10 +177,26 @@ def main():
            LB._sprachen({"sprache": "Deutsch/Paschtu"}))
     pruefe("Ohne Zeitraum bleibt es bei aktuell",
            cv_pdf.improfy_block({})["zeitraum"] == "aktuell")
-    pruefe("Jede Design-Vorlage hat eine Datei",
-           all(os.path.exists(os.path.join("templates", "cv_designs", "cv_%s.html" % sch))
+    # Seit dem Umbau auf die Sammlung teilen sich alle Nummern ein Gerüst. Geprüft wird
+    # deshalb nicht mehr „jede Vorlage hat ihre eigene Datei", sondern: jede angebotene
+    # Nummer führt auf eine vorhandene Datei **und** hat eine eigene Beschreibung.
+    # Ohne das Zweite stünden im Auswahlfeld 23 Einträge, die alle gleich aussähen.
+    import cv_sammlung
+    pruefe("Jede angebotene Vorlage führt auf eine vorhandene Datei",
+           all(os.path.exists(os.path.join("templates", cv_pdf.DESIGN_DATEI[sch]))
                for sch, _, _ in cv_pdf.DESIGNS),
-           [sch for sch, _, _ in cv_pdf.DESIGNS])
+           [sch for sch, _, _ in cv_pdf.DESIGNS
+            if not os.path.exists(os.path.join("templates", cv_pdf.DESIGN_DATEI.get(sch, "")))])
+    _skins = [cv_sammlung.skin(sch) for sch, _, _ in cv_pdf.DESIGNS]
+    pruefe("Keine zwei Vorlagen sehen gleich aus",
+           len({(k["kopfform"], k["farbe"], k["farbe2"], k["bewertung"]) for k in _skins})
+           == len(_skins),
+           f"{len(_skins)} Vorlagen")
+    pruefe("Jede Vorlage nennt eine Kopfform, die das Gerüst kennt",
+           all(k["kopfform"] in ("band", "links", "ecke", "flaeche", "rahmen", "schlicht")
+               and k["bewertung"] in ("sterne", "punkte", "balken", "text") for k in _skins),
+           [k["kennung"] for k in _skins
+            if k["kopfform"] not in ("band", "links", "ecke", "flaeche", "rahmen", "schlicht")])
     with A.app.test_request_context():
         html = cv_pdf.html_bauen(flask_render,
                                  dict(daten, massnahme_zeitraum="01.01.2026 - 01.03.2026"),

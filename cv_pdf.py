@@ -23,26 +23,13 @@ AUSGABE = os.path.join(HIER, "ausgabe", "lebenslaeufe")
 
 # Die festen Vorlagen. Reihenfolge ist die Reihenfolge in der Auswahl.
 # Die Vorlagen der Sammlung, aus der die Coaches beim Designer nach Nummer bestellen
-# („Für Frau Rezai CV Nummer 6 bitte"). Die Vorschaubilder liegen in cv/galerie/.
-# Nummer 25 ist die, die Atanas zuletzt für Köln benutzt hat.
-DESIGNS = [
-    ("nr25", "Vorlage 25 · Improfy-Standard",
-     "Grüner Kopf mit Sprechblase, Foto links, drei Abschnitte – die Vorlage, die "
-     "Atanas zuletzt für Köln gesetzt hat"),
-    ("nr19", "Vorlage 19 · Marine",
-     "Dunkelblauer Kopf über die volle Breite, Foto überlappt die Kante, Punkte "
-     "statt Sterne"),
-    ("nr12", "Vorlage 12 · Sand",
-     "Warmer Papierton, Name mittig, feine Bronzelinien und Balken – die ruhigste "
-     "der Sammlung"),
-    ("klassik", "Klassik · schlicht",
-     "Eine Spalte, kein Schmuck. Für Behörde, Konzern und Bewerbersoftware."),
-    ("kontur", "Kontur · schlicht",
-     "Name groß über einer Haarlinie, warmer Messingakzent."),
-    ("profil", "Profil · schlicht",
-     "Schmale Randspalte für die Person, breite Spalte für den Werdegang."),
-]
-DESIGN_DATEI = {schluessel: f"cv_designs/cv_{schluessel}.html" for schluessel, _, _ in DESIGNS}
+# („Für Frau Rezai CV Nummer 6 bitte"). Beschrieben sind sie in `cv_sammlung.py`,
+# gesetzt werden alle vom selben Gerüst `cv_designs/cv_skin.html`.
+import cv_sammlung
+
+DESIGNS = cv_sammlung.designs()
+# Alle Nummern laufen über dasselbe Gerüst; die Unterschiede stehen im Skin.
+DESIGN_DATEI = {schluessel: "cv_designs/cv_skin.html" for schluessel, _, _ in DESIGNS}
 
 SPRACH_STUFEN = {5: "Muttersprache", 4: "Fließend", 3: "Gute Kenntnisse",
                  2: "Grundkenntnisse", 1: "Grundkenntnisse"}
@@ -169,9 +156,10 @@ def html_bauen(render, daten, design="nr25", foto=None):
     # rechts sagt dem Recruiter „Maßnahme" statt „Kandidat" – genau die Schublade, in
     # die niemand will. `zeige_foto` sagt der Vorlage, ob überhaupt eines da ist; ein
     # grauer Platzhalter sieht schlechter aus als gar kein Foto.
-    return render(DESIGN_DATEI.get(design, DESIGN_DATEI["nr25"]),
+    return render(DESIGN_DATEI.get(design, "cv_designs/cv_skin.html"),
                   d=daten, beruf=beruf, foto=foto or PLATZHALTER_FOTO,
-                  zeige_foto=bool(foto), niveau=_niveau_txt, logo="")
+                  zeige_foto=bool(foto), niveau=_niveau_txt, logo="",
+                  skin=cv_sammlung.skin(design))
 
 
 def pdf_aus_html(html, zeit=90):

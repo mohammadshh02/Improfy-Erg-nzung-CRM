@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<title>{{ d.vorname }} {{ d.nachname }} – Lebenslauf</title>
+{% include "cv_designs/_rahmen.html" %}
+<style>
+/* Das Gerüst aller Vorlagen der Sammlung.
+
+   Jede Nummer beschreibt in `cv_sammlung.py` nur, worin sie sich unterscheidet: Farbe,
+   Kopfform, Art der Bewertung. Satz, Maß und Umbruch kommen von hier – so gilt jede
+   Verbesserung sofort für alle 23, und kein Fehler muss 23-mal repariert werden.
+
+   Der Kopf läuft über einen Tabellenkopf, den Chrome beim Drucken auf jeder Seite
+   wiederholt. Der Inhalt fließt darunter über so viele Seiten, wie er braucht. */
+
+:root {
+  --farbe:  {{ skin.farbe | safe }};
+  --farbe2: {{ skin.farbe2 | safe }};
+  --text:   #1d1f21;
+  --grau:   #55595c;
+  --linie:  #dde0e2;
+}
+@page { margin: 0 0 12mm; }
+body { color: var(--text); }
+
+table.seite { width: 100%; border-collapse: collapse; }
+table.seite > thead { display: table-header-group; }
+table.seite > tbody { display: table-row-group; }
+table.seite td { padding: 0; vertical-align: top; }
+
+/* ------------------------------------------------------------------ Kopfformen */
+.kopf { position: relative; }
+.kopf .name { line-height: 1.12; font-weight: 700; }
+.kopf .rolle { font-size: 10.5pt; font-weight: 600; letter-spacing: .18em;
+               text-transform: uppercase; }
+
+{% if skin.kopfform == 'band' %}
+.kopf { background: var(--farbe); padding: 16mm 16mm 12mm; }
+.kopf .name { color: #fff; font-size: 25pt; }
+.kopf .rolle { color: #ffffffd0; margin-bottom: 2.5mm; }
+.zipfel { position: absolute; left: 18mm; bottom: -10mm; width: 0; height: 0;
+          border-left: 10mm solid var(--farbe); border-bottom: 10mm solid transparent; }
+.blatt { padding: 14mm 16mm 14mm; }
+
+{% elif skin.kopfform == 'links' %}
+/* Die farbige Randspalte läuft über die **ganze** Seite, nicht nur durch den Kopf.
+   Ein fest positioniertes Band druckt Chrome auf jeder Seite – so bleibt die Spalte
+   auch auf Seite drei stehen. Der Inhalt hält rechts davon Abstand.
+   (Ein Rahmen am Inhalt allein war auf dem Blatt kaum zu erkennen – nachgesehen
+   am 17.09.2026 an allen 23 Vorlagen nebeneinander.) */
+.randspalte { position: fixed; left: 0; top: 0; bottom: 0; width: 34mm;
+              background: var(--farbe); }
+.randspalte::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0;
+                     width: 6mm; background: var(--farbe2); }
+.kopf { background: var(--farbe2); padding: 15mm 16mm 11mm 44mm; }
+.kopf .name { color: #fff; font-size: 23pt; }
+.kopf .rolle { color: #ffffffcc; margin-bottom: 2.5mm; }
+.blatt { padding: 12mm 16mm 14mm 44mm; }
+
+{% elif skin.kopfform == 'ecke' %}
+.kopf { padding: 15mm 16mm 10mm; overflow: hidden; }
+.kopf::before { content: ""; position: absolute; right: -18mm; top: -28mm;
+                width: 72mm; height: 72mm; border-radius: 50%; background: var(--farbe2); }
+.kopf::after { content: ""; position: absolute; left: -14mm; top: -20mm;
+               width: 52mm; height: 52mm; border-radius: 50%; background: var(--farbe); }
+.kopf .inhalt { position: relative; z-index: 2; padding-left: 26mm; }
+.kopf .name { color: var(--text); font-size: 25pt; }
+.kopf .rolle { color: var(--farbe); margin-bottom: 2.5mm; }
+.blatt { padding: 8mm 16mm 14mm; }
+
+{% elif skin.kopfform == 'flaeche' %}
+body { background: var(--farbe2); }
+.kopf { background: var(--farbe2); padding: 16mm 16mm 10mm; text-align: center; }
+.kopf .name { color: var(--text); font-size: 23pt; font-weight: 300;
+              letter-spacing: .09em; text-transform: uppercase; }
+.kopf .name b { font-weight: 700; }
+.kopf .strich { width: 26mm; height: .5mm; background: var(--farbe); margin: 4mm auto 3mm; }
+.kopf .rolle { color: var(--farbe); }
+.blatt { padding: 10mm 16mm 14mm; }
+
+{% elif skin.kopfform == 'rahmen' %}
+.kopf { padding: 14mm 16mm 9mm; text-align: center; }
+.kopf::after { content: ""; position: absolute; left: 10mm; right: 10mm; bottom: 0;
+               height: .5mm; background: var(--farbe); }
+.kopf .name { color: var(--text); font-size: 24pt; letter-spacing: .04em; }
+.kopf .rolle { color: var(--farbe); margin-top: 3mm; }
+.blatt { padding: 10mm 16mm 14mm; }
+.blatt::before { content: ""; position: fixed; left: 8mm; top: 8mm; right: 8mm; bottom: 8mm;
+                 border: .4mm solid var(--farbe2); pointer-events: none; }
+
+{% else %}  {# schlicht #}
+.kopf { padding: 16mm 16mm 8mm; }
+.kopf .name { color: var(--text); font-size: 26pt; font-weight: 300; letter-spacing: .03em; }
+.kopf .name b { font-weight: 700; }
+.kopf .rolle { color: var(--farbe); margin-top: 3mm; }
+.kopf .marke { display: inline-block; height: 1.4mm; width: 18mm; background: var(--farbe);
+               margin-bottom: 4mm; }
+.blatt { padding: 6mm 16mm 14mm; }
+{% endif %}
+
+/* ---------------------------------------------------- Foto, Kontakt, Inhalt */
+.reihe::after { content: ""; display: block; clear: both; }
+.links { float: left; width: 52mm; margin: 0 9mm 6mm 0; }
+.foto { width: 52mm; height: 66mm; border-radius: 2mm;
+        {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
+        {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
+.kontakt { margin-top: 6mm; font-size: 9pt; line-height: 1.85; color: var(--grau);
+           {% if skin.kopfform in ('flaeche', 'rahmen') %}text-align: center;{% endif %} }
+.kontakt div { overflow-wrap: anywhere; }
+
+h2 { color: var(--farbe); font-size: 13.5pt; font-weight: 700; letter-spacing: .13em;
+     text-transform: uppercase; }
+{% if skin.kopfform in ('band', 'links') %}
+h2 { padding-bottom: 1.5mm; border-bottom: .5mm solid var(--farbe); }
+{% elif skin.kopfform == 'flaeche' %}
+h2::after { content: ""; display: block; width: 14mm; height: .4mm;
+            background: var(--farbe); margin-top: 2mm; }
+{% endif %}
+h3 { color: var(--farbe); font-size: 11pt; font-weight: 700; letter-spacing: .1em;
+     text-transform: uppercase; margin-top: 6mm; }
+.eintrag .titel { font-weight: 700; font-size: 11pt; }
+.paar .was { font-size: 10pt; }
+.sprachzeile .sp { text-transform: uppercase; color: var(--farbe); }
+
+/* ------------------------------------------------------------- Bewertungen */
+.sterne { color: var(--farbe); font-size: 12pt; }
+.sterne .leer { color: var(--linie); }
+.punkte { display: flex; gap: 1.2mm; }
+.punkt { width: 2.6mm; height: 2.6mm; border-radius: 50%; background: var(--farbe); }
+.punkt.leer { background: var(--linie); }
+.balken { height: 1.8mm; background: var(--linie); border-radius: 1mm; overflow: hidden; }
+.balken span { display: block; height: 100%; background: var(--farbe); }
+.grad { color: var(--grau); font-size: 9.5pt; }
+</style></head>
+<body>
+
+{% macro bewertung(wert, standard) -%}
+  {%- set n = wert or standard -%}
+  {%- if skin.bewertung == 'sterne' -%}
+  <div class="sterne">{% for i in range(1, 6) %}{% if i <= n %}★{% else %}<span class="leer">★</span>{% endif %}{% endfor %}</div>
+  {%- elif skin.bewertung == 'punkte' -%}
+  <div class="punkte">{% for i in range(1, 6) %}<span class="punkt {{ 'leer' if i > n }}"></span>{% endfor %}</div>
+  {%- elif skin.bewertung == 'balken' -%}
+  <div class="balken"><span style="width: {{ (n * 20)|int }}%"></span></div>
+  {%- else -%}
+  <div class="grad">{{ niveau(n) }}</div>
+  {%- endif -%}
+{%- endmacro %}
+
+{% if skin.kopfform == 'links' %}<div class="randspalte"></div>{% endif %}
+
+<table class="seite">
+<thead><tr><td>
+  <div class="kopf">
+    <div class="inhalt">
+      {% if skin.kopfform == 'schlicht' %}<div class="marke"></div>{% endif %}
+      {% if d.angestrebter_job and skin.kopfform in ('band', 'links', 'ecke') %}
+      <div class="rolle">{{ d.angestrebter_job }}</div>{% endif %}
+      {% if skin.kopfform in ('flaeche', 'schlicht') %}
+      <div class="name">{{ d.vorname }} <b>{{ d.nachname }}</b></div>
+      {% else %}
+      <div class="name">{{ d.vorname }}<br>{{ d.nachname }}</div>
+      {% endif %}
+      {% if skin.kopfform == 'flaeche' %}<div class="strich"></div>{% endif %}
+      {% if d.angestrebter_job and skin.kopfform not in ('band', 'links', 'ecke') %}
+      <div class="rolle">{{ d.angestrebter_job }}</div>{% endif %}
+    </div>
+    {% if skin.kopfform == 'band' %}<div class="zipfel"></div>{% endif %}
+  </div>
+</td></tr></thead>
+<tbody><tr><td>
+<div class="blatt">
+<div class="reihe">
+  <div class="links">
+    {% if zeige_foto %}<img class="foto" src="{{ foto }}" alt="">{% endif %}
+    <div class="kontakt">
+      {% if d.geburtsdatum %}<div>{{ d.geburtsdatum }}</div>{% endif %}
+      {% if d.adresse %}<div>{{ d.adresse }}</div>{% endif %}
+      {% if d.mobil %}<div>{{ d.mobil }}</div>{% endif %}
+      {% if d.email %}<div>{{ d.email }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="rechts">
+    {% if d.ueber_mich %}
+    <section class="kapitel">
+      <h2>Über mich</h2>
+      {% for absatz in d.ueber_mich.split('\n') %}{% if absatz.strip() %}<p>{{ absatz.strip() }}</p>{% endif %}{% endfor %}
+    </section>
+    {% endif %}
+
+    {% if beruf %}
+    <section class="kapitel">
+      <h2>Berufserfahrung</h2>
+      {% for b in beruf %}
+      <div class="eintrag">
+        <div class="titel">({{ b.zeitraum }}){% if b.jobtitel %} {{ b.jobtitel }}{% endif %}{% if b.firma %} | {{ b.firma }}{% endif %}</div>
+        {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if d.bildung %}
+    <section class="kapitel">
+      <h2>Schulbildung</h2>
+      {% for b in d.bildung %}
+      <div class="eintrag">
+        <div class="titel">({{ b.zeitraum }}) {{ b.abschluss }}</div>
+        {% if b.institution %}<div>{{ b.institution }}{% if b.note %} · Note {{ b.note }}{% endif %}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% set fs = d.fuehrerschein or {} %}
+    {% if d.soft_skills or d.edv_kenntnisse or d.sprachen or d.zusatzqualifikationen or fs.vorhanden %}
+    <section class="kapitel">
+      <h2>Persönliche Qualifikation</h2>
+
+      {% if d.soft_skills %}
+      <h3>Soft Skills</h3>
+      <div class="paare">
+        {% for s in d.soft_skills %}
+        <div class="paar zeile"><div class="was">{{ s.eigenschaft }}</div>{{ bewertung(s.sterne, 5) }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.edv_kenntnisse %}
+      <h3>EDV-Kenntnisse</h3>
+      <div class="paare">
+        {% for e in d.edv_kenntnisse %}
+        <div class="paar zeile"><div class="was">{{ e.programm }}</div>{{ bewertung(e.sterne, 4) }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.zusatzqualifikationen or fs.vorhanden %}
+      <h3>Zusatzqualifikationen</h3>
+      <div class="eintrag"><ul>
+        {% if fs.vorhanden %}<li>Führerschein{% if fs.klasse %} Klasse {{ fs.klasse }}{% endif %}</li>{% endif %}
+        {% for z in d.zusatzqualifikationen or [] %}<li>{{ z }}</li>{% endfor %}
+      </ul></div>
+      {% endif %}
+
+      {% if d.sprachen %}
+      <h3>Sprachkenntnisse</h3>
+      {% for s in d.sprachen %}
+      <div class="sprachzeile"><span class="sp">{{ s.sprache }}</span>{% if s.niveau %}<span class="grad">{{ s.niveau }}</span>{% endif %}</div>
+      {% endfor %}
+      {% endif %}
+
+      {% if d.hobbys %}
+      <h3>Hobbys</h3>
+      <p>{{ d.hobbys }}</p>
+      {% endif %}
+    </section>
+    {% endif %}
+  </div>
+</div>
+</div>
+</td></tr></tbody>
+</table>
+
+</body></html>
