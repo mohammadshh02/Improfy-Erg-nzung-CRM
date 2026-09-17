@@ -1,0 +1,93 @@
+{% extends "basis.html" %}
+{% block titel %}{{ kunde.name }} – Improfy-Ergänzung{% endblock %}
+{% block inhalt %}
+<p class="marke"><a href="{{ url_for('kunden') }}">← Kunden</a></p>
+<h1>{{ kunde.name }}</h1>
+<p class="unterzeile">
+  <span class="plakette p-{{ kunde.ampel }}">{{ kunde.status_code or '—' }}</span>
+  {{ kunde.status_text }}{% if kunde.coach %} · Coach {{ kunde.coach }}{% endif %}
+</p>
+
+<div class="hinweis">
+  <strong>Dieser Datensatz ist ein Spiegel.</strong> Termine, Unterrichtseinheiten, Dokumente,
+  Profiling und Abrechnung stehen im CRM – hier liegt nur, was Taskforce und Lebenslauf brauchen.
+  {% if kunde.kundennummer %}<a href="{{ crm_url }}/kunden" target="_blank" rel="noopener">Im CRM öffnen →</a>{% endif %}
+</div>
+
+<div class="gitter g2">
+  <div class="karte">
+    <h3>Stammdaten</h3>
+    <dl class="paare">
+      <dt>Telefon</dt><dd>{{ kunde.telefon or '—' }}</dd>
+      <dt>E-Mail</dt><dd>{{ kunde.email or '—' }}</dd>
+      <dt>Wohnort</dt><dd>{{ kunde.plz or '' }} {{ kunde.stadt or '—' }}
+        {% if not kunde.stadt %}<span class="marke" style="color:var(--gelb)">fehlt – die Suche läuft
+          ersatzweise am Standort</span>{% endif %}</dd>
+      <dt>Sprache</dt><dd>{{ kunde.sprache or '—' }}</dd>
+      <dt>Jobcenter</dt><dd>{{ kunde.jobcenter or kunde.ort_jc or '—' }}</dd>
+      <dt>Kundennummer</dt><dd>{{ kunde.kundennummer or '—' }}</dd>
+      <dt>Maßnahme</dt><dd>{{ kunde.massnahme or '—' }}</dd>
+      <dt>Gutschein</dt><dd>{{ kunde.gutschein_status or '—' }}{% if kunde.gutschein_nr %} · {{ kunde.gutschein_nr }}{% endif %}</dd>
+      <dt>Antrag</dt><dd>{{ kunde.antrag_datum|datum if kunde.antrag_datum else '—' }}
+        {% if kunde.chat_reaktion %}<span class="marke">{{ kunde.chat_reaktion }}</span>{% endif %}</dd>
+    </dl>
+  </div>
+
+  <div class="karte">
+    <h3>Lebenslauf</h3>
+    {% if lebenslaeufe %}
+    <table>
+      {% for l in lebenslaeufe %}
+      <tr><td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.name }}</a>
+              <div class="marke">{{ l.geaendert|datum if l.geaendert else '' }}</div></td></tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="warnung" style="margin:0 0 10px"><strong>Kein Lebenslauf.</strong>
+      Ohne ihn kann die Taskforce nicht bewerben – und im CRM bleibt der Pflicht-Slot leer.</div>
+    {% endif %}
+    <p style="margin:8px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('lebenslauf_formular', kid=kunde.id) }}">Lebenslauf bauen</a></p>
+
+    <h3 style="margin-top:18px">Suchprofile</h3>
+    {% if tf_profile %}
+    <table>
+      {% for p in tf_profile %}
+      <tr><td><a href="{{ url_for('taskforce_profil', pid=p.id) }}">
+            <span class="plakette {{ 'p-teal' if p.art=='job' else 'p-gelb' }}">{{ 'Job' if p.art=='job' else 'Wohnung' }}</span>
+            {{ p.titel }}</a>
+          {% if not p.aktiv %}<span class="marke">(pausiert)</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="marke" style="margin:0">Kein Suchprofil – der Agent sucht für diese Person nichts.</p>
+    {% endif %}
+    <p style="margin:8px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('taskforce_kunde', kid=kunde.id) }}">Taskforce öffnen</a></p>
+  </div>
+</div>
+
+{% if profil.get('kurzprofil') %}
+<h2>Kurzprofil für den Abgleich</h2>
+<div class="karte"><p style="margin:0">{{ profil.kurzprofil }}</p></div>
+{% endif %}
+
+{% if gutscheine %}
+<h2>Gutscheine</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>ID</th><th>Maßnahme</th><th>von</th><th>bis</th>
+      <th class="zahl-sp">UE bewilligt</th><th class="zahl-sp">UE gerechnet</th><th>Status</th></tr>
+  {% for g in gutscheine %}
+  <tr><td class="marke">{{ g.improfy_id or '—' }}</td><td>{{ g.massnahme or '—' }}</td>
+      <td class="marke">{{ g.von|datum if g.von else '—' }}</td>
+      <td class="marke">{{ g.bis|datum if g.bis else '—' }}</td>
+      <td class="zahl-sp">{{ g.ue_bewilligt or '—' }}</td>
+      <td class="zahl-sp">{{ g.ue_gerechnet or '—' }}</td>
+      <td class="marke">{{ g.status or '—' }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+<p class="marke" style="margin-top:8px">Diese Zeilen stammen aus der Gutscheinliste und werden
+  später vom CRM geliefert. Sie stehen hier, weil der Vertriebstrichter die Durchlaufzeit
+  daraus rechnet.</p>
+{% endif %}
+{% endblock %}

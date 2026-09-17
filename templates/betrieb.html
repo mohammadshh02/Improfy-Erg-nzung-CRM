@@ -1,0 +1,74 @@
+{% extends "basis.html" %}
+{% block titel %}Betrieb – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Betrieb</h1>
+<p class="unterzeile">Sicherung der Datenbank und der nächtliche Lauf der Agenten. Beides läuft
+  von selbst, solange das OS läuft – hier steht, ob es tatsächlich passiert ist.</p>
+
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+{% if fehler %}<div class="warnung"><p style="margin:0">{{ fehler }}</p></div>{% endif %}
+
+<div class="gitter g4">
+  <div class="karte"><h3>Zeitsteuerung</h3>
+    <div class="zahl" style="color:var({{ '--gruen' if z.faden else '--rot' }})">{{ 'läuft' if z.faden else 'aus' }}</div>
+    <div class="marke">Sicherung {{ z.sicherung_uhrzeit }} · Agenten {{ z.lauf_uhrzeit }}</div></div>
+  <div class="karte"><h3>Letzte Sicherung</h3>
+    <div class="zahl" style="font-size:22px">{{ z.letzte_sicherung.zeitpunkt|zeit if z.letzte_sicherung else 'noch nie' }}</div>
+    <div class="marke">{{ z.letzte_sicherung.ergebnis or z.letzte_sicherung.fehler if z.letzte_sicherung else 'sichere jetzt einmal von Hand' }}</div></div>
+  <div class="karte"><h3>Letzter Agentenlauf</h3>
+    <div class="zahl" style="font-size:22px">{{ z.letzter_lauf.zeitpunkt|zeit if z.letzter_lauf else 'noch nie' }}</div>
+    <div class="marke">{{ z.letzter_lauf.ergebnis or z.letzter_lauf.fehler if z.letzter_lauf else 'läuft heute Nacht zum ersten Mal' }}</div></div>
+  <div class="karte"><h3>Von Hand</h3>
+    <form method="post" action="{{ url_for('betrieb_sichern') }}" style="margin:0 0 6px">
+      <button type="submit" class="btn btn-primary">jetzt sichern</button></form>
+    <div class="marke">{{ z.staende|length }} Stände im Ordner</div></div>
+</div>
+
+{% if not z.heute_gesichert %}
+<div class="warnung" style="margin-top:16px"><strong>Heute noch nicht gesichert.</strong>
+  Die Sicherung läuft um {{ z.sicherung_uhrzeit }} – wenn das OS um diese Zeit nicht läuft,
+  holt sie der Faden beim nächsten Start desselben Tages nach. Für heute hilft der Knopf oben.</div>
+{% endif %}
+
+<h2>Sicherungsstände</h2>
+<div class="karte">
+  <p class="marke" style="margin:0 0 10px">Ordner: <code>{{ z.ordner }}</code> ·
+    es bleiben die {{ staende_max }} jüngsten Stände liegen, ältere fallen raus.
+    Gesichert wird mit der Sicherungsfunktion von SQLite, nicht mit Kopieren – das ist auch
+    dann heil, wenn gerade jemand im OS arbeitet.</p>
+  <table>
+    <tr><th>Stand</th><th>Zeitpunkt</th><th class="zahl-sp">Größe</th></tr>
+    {% for s in z.staende %}
+    <tr><td class="marke">{{ s.name }}</td><td class="marke">{{ s.zeit|zeit }}</td>
+        <td class="zahl-sp">{{ (s.bytes / 1024)|round|int }} kB</td></tr>
+    {% else %}
+    <tr><td colspan="3" class="leer">Noch kein Stand. Einmal auf „jetzt sichern" drücken.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<h2>Letzte Durchläufe</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Zeitpunkt</th><th>Art</th><th>Ergebnis</th></tr>
+  {% for l in laeufe %}
+  <tr><td class="marke">{{ l.zeitpunkt|zeit }}</td>
+      <td><span class="plakette {{ 'p-grau' if l.art=='sicherung' else 'p-teal' }}">{{ l.art }}</span></td>
+      <td style="color:var(--{{ 'rot' if l.fehler else 'leise' }})">{{ l.fehler or l.ergebnis }}</td></tr>
+  {% else %}
+  <tr><td colspan="3" class="leer">Noch nichts gelaufen.</td></tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Einstellen</h2>
+<div class="karte">
+  <p class="marke" style="margin:0">In der <code>.env</code>, danach das OS neu starten:</p>
+  <table>
+    <tr><td><code>OS_SICHERUNG_UHRZEIT</code></td><td class="marke">wann gesichert wird (Vorgabe 03:00)</td></tr>
+    <tr><td><code>OS_SICHERUNG_STAENDE</code></td><td class="marke">wie viele Stände liegen bleiben (Vorgabe 7)</td></tr>
+    <tr><td><code>OS_SICHERUNG_ORDNER</code></td><td class="marke">wohin gesichert wird – auf einem Server am besten auf eine andere Platte</td></tr>
+    <tr><td><code>TF_LAUF_UHRZEIT</code></td><td class="marke">wann die Agenten laufen (Vorgabe 05:30), <code>aus</code> schaltet ab</td></tr>
+  </table>
+</div>
+{% endblock %}

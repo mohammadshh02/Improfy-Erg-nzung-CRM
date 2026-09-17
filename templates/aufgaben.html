@@ -1,0 +1,88 @@
+{% extends "basis.html" %}
+{% block titel %}Aufgaben – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Aufgaben</h1>
+<p class="unterzeile">Was heute jemand tun muss – mit Namen, Frist und einem Link, der genau
+  dorthin führt, wo man es erledigt. Die Liste entsteht aus den Daten des OS und aktualisiert
+  sich von selbst: Wer die Ursache behebt, dem verschwindet die Zeile.</p>
+
+<div class="gitter g4">
+  <div class="karte"><h3>Dringend</h3>
+    <div class="zahl" {% if z.rot %}style="color:var(--rot)"{% endif %}>{{ z.rot }}</div>
+    <div class="marke">Geld oder Frist</div></div>
+  <div class="karte"><h3>Blockiert</h3>
+    <div class="zahl" {% if z.gelb %}style="color:var(--gelb)"{% endif %}>{{ z.gelb }}</div>
+    <div class="marke">jemand wartet</div></div>
+  <div class="karte"><h3>Später</h3>
+    <div class="zahl">{{ z.grau }}</div>
+    <div class="marke">sollte gemacht werden</div></div>
+  <div class="karte"><h3>Gesamt</h3>
+    <div class="zahl">{{ z.gesamt }}</div>
+    <div class="marke">über {{ je_coach|length }} Personen</div></div>
+</div>
+
+<h2>Je Mitarbeiter</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Person</th><th class="zahl-sp">dringend</th><th class="zahl-sp">blockiert</th>
+      <th class="zahl-sp">später</th><th class="zahl-sp">gesamt</th><th>nächste Frist</th><th></th></tr>
+  {% for e in je_coach %}
+  <tr>
+    <td><strong>{{ e.coach }}</strong></td>
+    <td class="zahl-sp">{% if e.rot %}<span class="plakette p-rot">{{ e.rot }}</span>{% else %}0{% endif %}</td>
+    <td class="zahl-sp">{% if e.gelb %}<span class="plakette p-gelb">{{ e.gelb }}</span>{% else %}0{% endif %}</td>
+    <td class="zahl-sp">{{ e.grau }}</td>
+    <td class="zahl-sp"><strong>{{ e.gesamt }}</strong></td>
+    <td class="marke">{{ e.naechste_frist|datum if e.naechste_frist else '—' }}</td>
+    <td><a class="knopf leise" style="padding:6px 12px"
+           href="{{ url_for('aufgaben_seite', coach=e.coach) }}">Liste öffnen</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="leer">Keine offenen Aufgaben. Das ist selten – und ein gutes Zeichen.</td></tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Alle Aufgaben</h2>
+<form class="reglerbank" method="get">
+  <div class="reglerreihe">
+    <label>Person
+      <select name="coach" onchange="this.form.submit()"><option value="">alle</option>
+        {% for e in je_coach %}<option value="{{ e.coach }}" {{ 'selected' if filter.coach==e.coach }}>{{ e.coach }}</option>{% endfor %}</select></label>
+    <label>Dringlichkeit
+      <select name="stufe" onchange="this.form.submit()"><option value="">alle</option>
+        <option value="rot" {{ 'selected' if filter.stufe=='rot' }}>dringend</option>
+        <option value="gelb" {{ 'selected' if filter.stufe=='gelb' }}>blockiert</option>
+        <option value="grau" {{ 'selected' if filter.stufe=='grau' }}>später</option></select></label>
+    <label>Art
+      <select name="art" onchange="this.form.submit()"><option value="">alle</option>
+        {% for a in z.arten %}<option value="{{ a }}" {{ 'selected' if filter.art==a }}>{{ a }}</option>{% endfor %}</select></label>
+  </div>
+  <div class="reglerreihe reglerfuss">
+    <button type="submit" class="btn btn-primary">filtern</button>
+    <a class="btn" href="{{ url_for('aufgaben_seite') }}">zurücksetzen</a>
+    <span class="marke">{{ liste|length }} Aufgaben</span>
+  </div>
+</form>
+
+<div class="tabellenkasten">
+<table>
+  <tr><th></th><th>Aufgabe</th><th>Kunde</th><th>Zuständig</th><th>Frist</th><th></th></tr>
+  {% for a in liste %}
+  <tr>
+    <td><span class="plakette {{ {'rot':'p-rot','gelb':'p-gelb','grau':'p-grau'}[a.stufe] }}">{{ a.art }}</span></td>
+    <td><strong>{{ a.titel }}</strong>{% if a.warum %}<div class="marke">{{ a.warum }}</div>{% endif %}</td>
+    <td>{% if a.kunde_id %}<a href="{{ url_for('kunde_detail', kid=a.kunde_id) }}">{{ a.kunde }}</a>
+        {% else %}{{ a.kunde or '—' }}{% endif %}</td>
+    <td class="marke">{{ a.coach }}</td>
+    <td class="marke">{{ a.frist|datum if a.frist else '—' }}</td>
+    <td>{% if a.link %}<a class="knopf" style="padding:6px 12px" href="{{ a.link }}">erledigen</a>{% endif %}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="leer">Nichts offen{% if filter.coach or filter.stufe or filter.art %} für diesen Filter{% endif %}.</td></tr>
+  {% endfor %}
+</table>
+</div>
+<p class="marke" style="margin-top:8px">Die Regeln stehen in <code>aufgaben.py</code> – dort an
+  einer Stelle nachlesbar und änderbar, statt über die Seiten verstreut.</p>
+{% endblock %}

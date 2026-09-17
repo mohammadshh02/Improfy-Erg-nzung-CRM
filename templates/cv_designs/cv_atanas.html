@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<title>{{ d.vorname }} {{ d.nachname }}</title>
+<style>
+/* Nachbau des Lebenslaufs, den Atanas für Köln gestaltet (Vorbild: „Herr Ebrahimi korrigiert 14.09.pdf"
+   aus der Chat-Gruppe CVs Köln, abgenommen am 16.09.2026).
+
+   Aufbau: drei Seiten, jede mit demselben Kopf – randloser grüner Block mit dem Namen und einer
+   Sprechblasen-Spitze – und links darunter das Foto mit den Kontaktdaten.
+     Seite 1  Über mich
+     Seite 2  Berufserfahrung und Bildung
+     Seite 3  Persönliche Qualifikation: Soft Skills, EDV, Sprachen                                   */
+
+@page { size: A4; margin: 0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
+  color: #1e1e1e; font-size: 11.6pt; line-height: 1.5;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+:root { --gruen: #8cc63f; --gruen-hell: #a5d65e; --grau: #3c3c3c; }
+
+.seite { position: relative; width: 210mm; height: 297mm; overflow: hidden; page-break-after: always; }
+.seite:last-child { page-break-after: auto; }
+
+/* ---- Kopf: randloser grüner Block mit Sprechblasen-Spitze ---- */
+.kopf { background: var(--gruen); padding: 26mm 18mm 12mm; position: relative; }
+.kopf .name { color: #fff; font-size: 33pt; font-weight: 700; line-height: 1.12; letter-spacing: .2px; }
+.kopf .rolle { color: #fff; opacity: .92; font-size: 12pt; font-weight: 600;
+               letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4mm; }
+/* Die Spitze hängt links unten aus dem Block heraus */
+.zipfel { position: absolute; left: 20mm; bottom: -13mm; width: 0; height: 0;
+          border-left: 13mm solid var(--gruen); border-bottom: 13mm solid transparent; }
+
+/* ---- Körper: Foto links, Inhalt rechts ---- */
+.koerper { display: flex; gap: 10mm; padding: 20mm 18mm 0; }
+.spalte-links { flex: 0 0 46mm; }
+.foto { width: 46mm; height: 58mm; object-fit: cover; display: block;
+        border: 1.2mm solid var(--gruen-hell); border-radius: 5mm; }
+.kontakt { margin-top: 7mm; text-align: right; font-size: 10pt; font-weight: 600; line-height: 2; }
+.kontakt div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spalte-rechts { flex: 1; min-width: 0; }
+
+h2 { color: var(--gruen); font-size: 19pt; font-weight: 700; margin: 0 0 6mm;
+     letter-spacing: .3px; text-transform: uppercase; }
+h3 { color: var(--gruen); font-size: 14pt; font-weight: 700; margin: 8mm 0 3mm;
+     letter-spacing: .3px; text-transform: uppercase; }
+p { margin: 0 0 4mm; }
+
+/* ---- Berufserfahrung und Bildung ---- */
+.station { margin-bottom: 5mm; }
+.station .titel { font-weight: 700; }
+.station ul { margin: 1.5mm 0 0 5mm; padding: 0; }
+.station li { margin: 0 0 .8mm; }
+
+/* ---- Soft Skills und EDV: zwei Spalten mit Sternen ---- */
+.paare { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 8mm; }
+.paar .was { font-size: 10.5pt; }
+.sterne { color: var(--gruen); font-size: 13pt; letter-spacing: 1px; line-height: 1.1; }
+.sterne .leer { color: #d8e8c0; }
+
+/* ---- Sprachen ---- */
+.sprachen { margin-top: 2mm; }
+.sprachen .zeile { display: flex; gap: 4mm; margin-bottom: 1mm; }
+.sprachen .sp { font-weight: 700; min-width: 30mm; text-transform: uppercase; }
+.sprachen .tr { color: #8a8a8a; }
+
+/* Der grüne Bogen am Fuß der ersten Seite */
+.bogen { position: absolute; left: 50%; bottom: -76mm; transform: translateX(-50%);
+         width: 170mm; height: 105mm; background: var(--gruen); border-radius: 50%; }
+.logo { position: absolute; right: 16mm; top: 12mm; height: 9mm; filter: brightness(0) invert(1); opacity: .95; }
+</style></head>
+<body>
+
+{% macro kopf(mit_rolle) -%}
+<div class="kopf">
+  {% if logo %}<img class="logo" src="{{ logo }}" alt="">{% endif %}
+  {% if mit_rolle and d.angestrebter_job %}<div class="rolle">{{ d.angestrebter_job }}</div>{% endif %}
+  <div class="name">{{ d.vorname }}<br>{{ d.nachname }}</div>
+  <div class="zipfel"></div>
+</div>
+{%- endmacro %}
+
+{% macro linke_spalte() -%}
+<div class="spalte-links">
+  <img class="foto" src="{{ foto }}" alt="">
+  <div class="kontakt">
+    {% if d.geburtsdatum %}<div>{{ d.geburtsdatum }}</div>{% endif %}
+    {% if d.adresse %}<div>{{ d.adresse }}</div>{% endif %}
+    {% if d.mobil %}<div>{{ d.mobil }}</div>{% endif %}
+    {% if d.email %}<div>{{ d.email }}</div>{% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro sterne(n) -%}
+<div class="sterne">{% for i in range(1, 6) %}{% if i <= n %}★{% else %}<span class="leer">★</span>{% endif %}{% endfor %}</div>
+{%- endmacro %}
+
+<!-- ===================== Seite 1: Über mich ===================== -->
+<div class="seite">
+  {{ kopf(true) }}
+  <div class="koerper">
+    {{ linke_spalte() }}
+    <div class="spalte-rechts">
+      <h2>Über mich</h2>
+      {% for absatz in (d.ueber_mich or '').split('\n') %}{% if absatz.strip() %}<p>{{ absatz.strip() }}</p>{% endif %}{% endfor %}
+    </div>
+  </div>
+  <div class="bogen"></div>
+</div>
+
+<!-- ============ Seite 2: Berufserfahrung und Bildung ============ -->
+<div class="seite">
+  {{ kopf(false) }}
+  <div class="koerper">
+    {{ linke_spalte() }}
+    <div class="spalte-rechts">
+      <h2>Berufserfahrung</h2>
+      {% for b in beruf %}
+      <div class="station">
+        <div class="titel">({{ b.zeitraum }}){% if b.jobtitel %} {{ b.jobtitel }}{% endif %}{% if b.firma %} | {{ b.firma }}{% endif %}</div>
+        {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+      </div>
+      {% endfor %}
+
+      {% if d.bildung %}
+      <h3>Schulbildung</h3>
+      {% for b in d.bildung %}
+      <div class="station">
+        <div class="titel">({{ b.zeitraum }}) {{ b.abschluss }}</div>
+        {% if b.institution %}<div>{{ b.institution }}{% if b.note %} · Note {{ b.note }}{% endif %}</div>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- =========== Seite 3: Persönliche Qualifikation ============== -->
+<div class="seite">
+  {{ kopf(false) }}
+  <div class="koerper">
+    {{ linke_spalte() }}
+    <div class="spalte-rechts">
+      <h2>Persönliche Qualifikation</h2>
+
+      {% if d.soft_skills %}
+      <h3>Soft Skills</h3>
+      <div class="paare">
+        {% for s in d.soft_skills %}
+        <div class="paar"><div class="was">{{ s.eigenschaft }}</div>{{ sterne(s.sterne or 5) }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.edv_kenntnisse %}
+      <h3>EDV-Kenntnisse</h3>
+      <div class="paare">
+        {% for e in d.edv_kenntnisse %}
+        <div class="paar"><div class="was">{{ e.programm }}</div>{{ sterne(e.sterne or 4) }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% set fs = d.fuehrerschein or {} %}
+      {% if d.zusatzqualifikationen or fs.vorhanden %}
+      <h3>Zusatzqualifikationen</h3>
+      <div class="station"><ul>
+        {% if fs.vorhanden %}<li>Führerschein{% if fs.klasse %} Klasse {{ fs.klasse }}{% endif %}</li>{% endif %}
+        {% for z in d.zusatzqualifikationen or [] %}<li>{{ z }}</li>{% endfor %}
+      </ul></div>
+      {% endif %}
+
+      {% if d.sprachen %}
+      <h3>Sprachkenntnisse</h3>
+      <div class="sprachen">
+        {% for s in d.sprachen %}
+        <div class="zeile"><span class="sp">{{ s.sprache }}</span>{% if s.niveau %}<span class="tr">-</span><span>{{ s.niveau }}</span>{% endif %}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.hobbys %}
+      <h3>Hobbys</h3>
+      <p>{{ d.hobbys }}</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+</body></html>

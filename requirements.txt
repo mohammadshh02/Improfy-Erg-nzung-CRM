@@ -1,0 +1,10 @@
+flask>=3.0
+openpyxl>=3.1
+
+# Für „Alte Unterlagen ablegen" (dokument_lesen.py). Ohne diese Pakete läuft das OS
+# weiter, es liest dann aber nur Excel und reinen Text; PDF und Word werden abgelehnt.
+pymupdf>=1.24        # PDF-Text in Lesereihenfolge
+pypdf>=4.0           # Rückfall für PDF
+python-docx>=1.1     # Word
+odfpy>=1.4           # OpenOffice
+pillow>=10.0         # Bewerbungsfoto auf Druckgröße bringen

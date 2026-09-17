@@ -1,0 +1,40 @@
+{# Jobregler – erwartet k (dict), jobkriterien, jobwahlen, jobmehrfach. #}
+<dt>Art der Stelle</dt><dd style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+  <label class="marke">Art<br><select name="k_angebotsart">
+    {% for code, name in jobwahlen.angebotsart %}<option value="{{ code }}" {{ 'selected' if (k.get('angebotsart') or '1')==code }}>{{ name }}</option>{% endfor %}
+  </select></label>
+  <label class="marke">Befristung<br><select name="k_befristung">
+    {% for code, name in jobwahlen.befristung %}<option value="{{ code }}" {{ 'selected' if (k.get('befristung') or '')==code }}>{{ name }}</option>{% endfor %}
+  </select></label>
+  <label class="marke">veröffentlicht in den letzten … Tagen<br>
+    <input type="text" name="k_tage" value="{{ k.get('tage') if k.get('tage') is not none else '' }}" placeholder="14" style="width:90px"></label>
+</dd>
+
+<dt>Arbeitszeit</dt><dd>
+  {% for code, name in jobmehrfach.arbeitszeiten %}
+  <label style="display:inline-block;margin:0 14px 6px 0"><input type="checkbox" name="k_arbeitszeiten" value="{{ code }}" {{ 'checked' if code in (k.get('arbeitszeiten') or []) }}> {{ name }}</label>
+  {% endfor %}
+  <label style="display:inline-block;margin:0 14px 6px 0"><input type="checkbox" name="k_behinderung" value="1" {{ 'checked' if k.get('behinderung') }}> für Schwerbehinderte geeignet</label>
+  <label style="display:inline-block;margin:0 14px 6px 0"><input type="checkbox" name="k_nur_quereinstieg" value="1" {{ 'checked' if k.get('nur_quereinstieg') }}> nur für Quereinsteiger</label>
+  <div class="marke">Nichts angekreuzt = jede Arbeitszeit. Angebote ohne Angabe bleiben immer drin.</div></dd>
+
+<dt>Rahmen</dt><dd style="display:flex;gap:14px;flex-wrap:wrap">
+  <label class="marke">max. Entfernung km<br><input type="text" name="k_max_entfernung" value="{{ k.get('max_entfernung') if k.get('max_entfernung') is not none else '' }}" style="width:110px"></label>
+  <label class="marke">min. Gehalt € im Monat<br><input type="text" name="k_min_gehalt" value="{{ k.get('min_gehalt') if k.get('min_gehalt') is not none else '' }}" style="width:130px"></label>
+  <div class="marke" style="align-self:flex-end;max-width:360px">Der Umkreis oben steuert die Abfrage, die Entfernung hier
+    sortiert das Ergebnis jeder Quelle nach. Ohne Angabe im Angebot bleibt es stehen.</div></dd>
+
+<dt>Wörter</dt><dd style="display:flex;gap:14px;flex-wrap:wrap">
+  <label class="marke" style="flex:1;min-width:220px">muss im Text stehen<br>
+    <input type="text" name="k_muss_woerter" value="{{ k.get('muss_woerter') or '' }}" placeholder="Stapler, Schicht" style="width:100%"></label>
+  <label class="marke" style="flex:1;min-width:220px">darf nicht im Text stehen<br>
+    <input type="text" name="k_ohne_woerter" value="{{ k.get('ohne_woerter') or '' }}" placeholder="Zeitarbeit, Führerschein C" style="width:100%"></label>
+  <div class="marke" style="width:100%">Mit Komma trennen. „Muss" heißt: eines der Wörter reicht.</div></dd>
+
+<dt>Arbeitgeber</dt><dd style="display:flex;gap:14px;flex-wrap:wrap">
+  <label class="marke" style="flex:1;min-width:220px">nur diese<br>
+    <input type="text" name="k_nur_arbeitgeber" value="{{ k.get('nur_arbeitgeber') or '' }}" placeholder="Amazon, REWE" style="width:100%"></label>
+  <label class="marke" style="flex:1;min-width:220px">diese ausschließen<br>
+    <input type="text" name="k_ohne_arbeitgeber" value="{{ k.get('ohne_arbeitgeber') or '' }}" placeholder="Randstad, Adecco" style="width:100%"></label></dd>
+
+<dt>Extra-Notizen</dt><dd><textarea name="k_extra" rows="3" placeholder="Alles, was der Agent und die Taskforce wissen müssen: kein Nachtdienst wegen Kinderbetreuung, nur mit Einarbeitung, Kunde hat kein Auto, …" style="width:100%;border:1px solid var(--rand-stark);border-radius:12px;padding:10px 14px;font:inherit;color:var(--text);background:var(--karte)">{{ k.get('extra') or '' }}</textarea></dd>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<style>
+  @page { size:A4; margin: 0 0 14mm 0; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; color:#2c352f;
+    font-family:-apple-system,"Helvetica Neue","Segoe UI",Arial,sans-serif; font-size:12.5px; line-height:1.55; }
+  :root{ --dark:#0f5c3f; --lime:#8DC63F; --lime-d:#5bbf3c; --gray:#8a938d; --ink:#26302a; --tint:#eef6ef; --line:#e4eae5; }
+  .pad{ padding:0 17mm; }
+
+  /* Organischer Blob-Kopf */
+  .hero{ position:relative; height:250px; overflow:hidden; margin-bottom:8px; }
+  .hero svg{ position:absolute; top:0; left:0; width:100%; height:100%; }
+  .hero .inner{ position:relative; padding:34px 17mm 0; display:flex; align-items:flex-start; gap:24px; }
+  .hero .name{ font-size:38px; font-weight:800; color:var(--dark); line-height:1.05; letter-spacing:.3px; }
+  .hero .role{ color:var(--lime-d); font-weight:700; font-size:13px; letter-spacing:2px; text-transform:uppercase; margin-top:6px; }
+  .hero .logo{ height:26px; margin-top:14px; }
+  .hero .photo, .hero .ph{ width:132px; height:160px; flex:0 0 132px; object-fit:cover; display:block; margin-left:auto;
+    border:4px solid #fff; box-shadow:0 2px 10px rgba(0,0,0,.12);
+    border-radius:60% 40% 55% 45% / 55% 50% 50% 45%; }
+  .hero .ph{ background:var(--tint); }
+
+  h2{ color:var(--dark); font-size:16px; font-weight:800; text-transform:uppercase; letter-spacing:1px;
+      margin:18px 0 8px; }
+  h2 + .swz{ height:5px; width:56px; background:var(--lime); border-radius:4px; margin:-4px 0 10px; }
+  h3.sub{ color:var(--gray); font-size:12px; text-transform:uppercase; letter-spacing:1px; margin:12px 0 5px; font-weight:800; }
+
+  .contact{ display:flex; flex-wrap:wrap; gap:5px 20px; margin:2px 0 4px; font-size:12px; color:#44504a; }
+  .contact .l{ color:var(--dark); font-weight:700; }
+  .um{ background:var(--tint); border-radius:12px; padding:13px 16px; }
+  .um p{ margin:0 0 8px; } .um p:last-child{ margin:0; }
+  .block{ margin:0 0 12px; break-inside:avoid; padding-left:15px; border-left:3px solid var(--lime); }
+  .block .t{ font-weight:800; color:var(--ink); } .block .t .zr{ color:var(--dark); }
+  .block ul{ margin:4px 0 0 16px; padding:0; } .block li{ margin:2px 0; } .block li::marker{ color:var(--lime-d); }
+  .kv{ display:flex; gap:12px; margin:4px 0; break-inside:avoid; }
+  .kv .k{ font-weight:700; min-width:190px; color:var(--ink); }
+  .stars{ color:var(--lime-d); letter-spacing:1px; }
+  .foot{ margin-top:18px; padding-top:8px; border-top:1px solid var(--line); color:var(--gray); font-size:10.5px; text-align:center; }
+</style></head>
+<body>
+  <div class="hero">
+    <svg viewBox="0 0 600 250" preserveAspectRatio="none">
+      <path d="M0,0 L600,0 L600,120 C520,175 430,150 340,175 C230,205 150,150 60,180 C35,188 15,185 0,178 Z" fill="#eef6ef"/>
+      <path d="M0,0 L600,0 L600,95 C520,150 450,120 360,145 C250,178 170,120 70,150 C45,158 20,150 0,140 Z" fill="#dff0d8"/>
+      <circle cx="470" cy="60" r="4" fill="#8DC63F"/><circle cx="500" cy="90" r="3" fill="#8DC63F"/>
+      <circle cx="440" cy="95" r="3" fill="#5bbf3c"/><circle cx="520" cy="55" r="3" fill="#5bbf3c"/>
+    </svg>
+    <div class="inner">
+      <div>
+        <div class="name">{{ d.vorname }}<br>{{ d.nachname }}</div>
+        {% if d.angestrebter_job %}<div class="role">{{ d.angestrebter_job }}</div>{% endif %}
+        {% if logo %}<img class="logo" src="{{ logo }}">{% endif %}
+      </div>
+      {% if foto %}<img class="photo" src="{{ foto }}">{% else %}<div class="ph"></div>{% endif %}
+    </div>
+  </div>
+
+  <div class="pad">
+    <div class="contact">
+      {% if d.geburtsdatum %}<span><span class="l">Geboren</span> {{ d.geburtsdatum }}</span>{% endif %}
+      {% if d.adresse %}<span><span class="l">Adresse</span> {{ d.adresse }}</span>{% endif %}
+      {% if d.mobil %}<span><span class="l">Telefon</span> {{ d.mobil }}</span>{% endif %}
+      {% if d.email %}<span><span class="l">E-Mail</span> {{ d.email }}</span>{% endif %}
+    </div>
+
+    {% if d.ueber_mich %}
+    <h2>Über mich</h2><div class="swz"></div>
+    <div class="um">{% for p in d.ueber_mich.split('\n\n') %}<p>{{ p.replace('\n',' ')|trim }}</p>{% endfor %}</div>
+    {% endif %}
+
+    {% if beruf %}
+    <h2>Berufserfahrung</h2><div class="swz"></div>
+    {% for b in beruf %}
+    <div class="block">
+      <div class="t">{% if b.zeitraum %}<span class="zr">({{ b.zeitraum }})</span> {% endif %}{{ b.jobtitel }}{% if b.firma %} | {{ b.firma }}{% endif %}</div>
+      {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if d.edv_kenntnisse or d.soft_skills %}
+    <h2>Persönliche Qualifikation</h2><div class="swz"></div>
+    {% if d.edv_kenntnisse %}<h3 class="sub">EDV-Kenntnisse</h3>
+    {% for k in d.edv_kenntnisse %}<div class="kv"><span class="k">{{ k.programm }}</span><span>{{ niveau(k.sterne) }}</span></div>{% endfor %}{% endif %}
+    {% if d.soft_skills %}<h3 class="sub">Stärken</h3>
+    {% for k in d.soft_skills %}<div class="kv"><span class="k">{{ k.eigenschaft }}</span><span class="stars">{{ '★' * k.sterne }}{{ '☆' * (5 - k.sterne) }}</span></div>{% endfor %}{% endif %}
+    {% endif %}
+
+    {% if d.bildung or d.zusatzqualifikationen %}
+    <h2>Schul- &amp; Ausbildung</h2><div class="swz"></div>
+    {% for e in d.bildung %}<div class="block"><div class="t">{% if e.zeitraum %}<span class="zr">({{ e.zeitraum }})</span> {% endif %}{{ e.abschluss }}{% if e.institution %} | {{ e.institution }}{% endif %}</div></div>{% endfor %}
+    {% for z in d.zusatzqualifikationen %}<div class="block"><div class="t">{{ z }}</div></div>{% endfor %}
+    {% endif %}
+
+    {% if d.sprachen %}
+    <h2>Sprachkenntnisse</h2><div class="swz"></div>
+    {% for s in d.sprachen %}<div class="kv"><span class="k">{{ s.sprache }}</span><span>{{ s.niveau }}</span></div>{% endfor %}
+    {% endif %}
+
+    <div class="foot">Improfy GmbH · www.improfy.de · In 4 Schritten zum beruflichen Neustart</div>
+  </div>
+</body></html>

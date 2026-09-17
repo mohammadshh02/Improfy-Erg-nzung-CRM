@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<style>
+  /*
+    Improfy Profi
+    -------------
+    Zweispaltig: links die Fakten (Foto, Kontakt, Sprachen, EDV, Stärken),
+    rechts der Fließtext. Sobald die linke Spalte endet, läuft der Text über
+    die volle Breite weiter — auch auf Folgeseiten. Genau dafür steht hier
+    KEIN margin-left auf .main: der Text soll um die Spalte herumfließen und
+    danach die ganze Seite nutzen, statt einen leeren Streifen zu hinterlassen.
+  */
+  /* Seitenränder gehören ans @page, nicht als padding an den Inhalt: sonst
+     bekommt nur Seite 1 einen Rand und Seite 2 klebt am Papierrand. */
+  @page { size:A4; margin:14mm 16mm 20mm; }
+  *{ box-sizing:border-box; }
+  :root{
+    --lime:#8CC63F;          /* Improfy-Limette: Flächen und Akzente */
+    --tann:#0f5c3f;          /* Improfy-Tannengrün: alles, was gelesen wird */
+    --ink:#2f2f2f; --grau:#5b6470; --linie:#e3e7ea;
+  }
+  html,body{ margin:0; padding:0; color:var(--ink); font-size:14.5px; line-height:1.65;
+    font-family:-apple-system,"Helvetica Neue","Segoe UI",Arial,sans-serif; }
+
+  /* Kopf nur auf Seite 1. Vorher steckte er im <thead> und wiederholte sich
+     in voller Höhe auf jeder Seite - Seite 2 begann dadurch erst im unteren
+     Drittel. Die Marke traegt jetzt die Fusszeile. */
+  /* Kein randloser Kopf: mit negativen Rändern schneidet Chrome beim Drucken
+     alles ab, was über den Satzspiegel hinausragt — Zeile und Logo waren weg. */
+  .kopf{ position:relative; background:var(--lime); padding:9mm 11mm 8mm;
+    margin:0 0 13mm; border-radius:3mm; }
+  .kopf .name{ color:#123d16; font-weight:800; font-size:32px; line-height:1.06;
+               letter-spacing:-.01em; }
+  .kopf .ziel{ color:#1d5424; font-weight:700; font-size:13px; text-transform:uppercase;
+               letter-spacing:.14em; margin-bottom:5px; }
+  .kopf .logo{ position:absolute; top:9mm; right:11mm; height:23px;
+               filter:brightness(0) invert(1); opacity:.95; }
+  .kopf .tail{ position:absolute; bottom:-8mm; left:14mm; width:0; height:0; z-index:2;
+    border-left:7mm solid transparent; border-right:7mm solid transparent;
+    border-top:8mm solid var(--lime); }
+
+
+  /* Linke Spalte: die harten Fakten */
+  .side{ float:left; width:33%; padding-right:10mm; }
+  .side .photo, .side .ph{ width:100%; max-width:46mm; height:56mm; object-fit:cover;
+    display:block; margin:0 0 7mm; border-radius:12px; border:3px solid var(--lime); }
+  .side .ph{ background:#e9edf0; }
+  .side .kasten{ margin:0 0 7mm; }
+  .side .titel{ color:var(--tann); font-weight:800; font-size:12px; text-transform:uppercase;
+    letter-spacing:.1em; margin:0 0 7px; padding-bottom:5px; border-bottom:2px solid var(--lime); }
+  .side .z{ font-size:12.5px; line-height:1.5; margin:0 0 7px; color:var(--ink); }
+  .side .z b{ display:block; color:var(--grau); font-size:10.5px; font-weight:700;
+    text-transform:uppercase; letter-spacing:.06em; }
+  .side .paar{ display:flex; justify-content:space-between; gap:8px; align-items:baseline;
+    font-size:12.5px; margin:5px 0; break-inside:avoid; }
+  .side .paar span:first-child{ font-weight:700; }
+  .side .paar span:last-child{ color:var(--grau); text-align:right; }
+
+  /* Rechte Spalte / Fließtext */
+  h2{ overflow:hidden; color:var(--tann); font-size:21px; font-weight:800; text-transform:uppercase;
+    letter-spacing:.02em; margin:0 0 4px; break-after:avoid; }
+  h2::after{ content:""; display:block; width:34px; height:3px; background:var(--lime);
+    border-radius:2px; margin:6px 0 12px; }
+  h2.mt{ margin-top:22px; }
+  .um p{ margin:0 0 10px; }
+  .exp{ margin:0 0 13px; break-inside:avoid; }
+  .exp .t{ font-weight:800; color:var(--tann); font-size:14.5px; margin-bottom:3px; }
+  .exp .t .zeit{ color:var(--grau); font-weight:700; }
+  .exp ul{ margin:0 0 0 19px; padding:0; }
+  .exp li{ margin:3px 0; } .exp li::marker{ color:var(--lime); }
+  .liste{ margin:0 0 13px; break-inside:avoid; }
+  .liste .p{ font-weight:700; color:var(--ink); margin:5px 0; padding-left:14px;
+    position:relative; }
+  .liste .p::before{ content:""; position:absolute; left:0; top:8px; width:6px; height:6px;
+    border-radius:50%; background:var(--lime); }
+
+  /* Fusszeile auf JEDER Seite - traegt die Marke, kostet aber kaum Platz */
+  .fuss{ position:fixed; bottom:-14mm; left:0; right:0; height:10mm; padding:0;
+    display:flex; align-items:center; justify-content:space-between;
+    border-top:1px solid var(--linie); background:#fff;
+    font-size:10.5px; color:var(--grau); }
+  .fuss .marke{ font-weight:700; color:var(--tann); }
+</style></head>
+<body>
+  <div class="kopf">
+    {% if logo %}<img class="logo" src="{{ logo }}">{% endif %}
+    {% if d.angestrebter_job %}<div class="ziel">{{ d.angestrebter_job }}</div>{% endif %}
+    <div class="name">{{ d.vorname }}<br>{{ d.nachname }}</div>
+    <div class="tail"></div>
+  </div>
+
+  <div>
+    <div class="side">
+      {% if foto %}<img class="photo" src="{{ foto }}">{% else %}<div class="ph"></div>{% endif %}
+
+      <div class="kasten">
+        <div class="titel">Kontakt</div>
+        {% if d.geburtsdatum %}<div class="z"><b>Geboren</b>{{ d.geburtsdatum }}</div>{% endif %}
+        {% if d.adresse %}<div class="z"><b>Adresse</b>{{ d.adresse }}</div>{% endif %}
+        {% if d.mobil %}<div class="z"><b>Telefon</b>{{ d.mobil }}</div>{% endif %}
+        {% if d.email %}<div class="z"><b>E-Mail</b>{{ d.email }}</div>{% endif %}
+        {% if d.fuehrerschein and d.fuehrerschein.vorhanden %}
+        <div class="z"><b>Führerschein</b>Klasse {{ d.fuehrerschein.klasse or 'B' }}</div>{% endif %}
+      </div>
+
+      {% if d.sprachen %}
+      <div class="kasten">
+        <div class="titel">Sprachen</div>
+        {% for s in d.sprachen %}
+        <div class="paar"><span>{{ s.sprache }}</span><span>{{ s.niveau }}</span></div>{% endfor %}
+      </div>{% endif %}
+
+      {% if d.edv_kenntnisse %}
+      <div class="kasten">
+        <div class="titel">EDV-Kenntnisse</div>
+        {% for k in d.edv_kenntnisse %}
+        <div class="paar"><span>{{ k.programm }}</span>
+          <span style="color:var(--lime);letter-spacing:1px">{{ '★' * k.sterne }}{{ '☆' * (5 - k.sterne) }}</span></div>{% endfor %}
+      </div>{% endif %}
+
+      {% if d.soft_skills %}
+      <div class="kasten">
+        <div class="titel">Stärken</div>
+        {% for k in d.soft_skills %}
+        <div class="paar"><span>{{ k.eigenschaft }}</span>
+          <span style="color:var(--lime);letter-spacing:1px">{{ '★' * k.sterne }}{{ '☆' * (5 - k.sterne) }}</span></div>{% endfor %}
+      </div>{% endif %}
+
+      {% if d.hobbys %}
+      <div class="kasten">
+        <div class="titel">Interessen</div>
+        <div class="z">{{ d.hobbys }}</div>
+      </div>{% endif %}
+    </div>
+
+    {% if d.ueber_mich %}
+    <h2>Über mich</h2>
+    <div class="um">{% for p in d.ueber_mich.split('\n\n') %}<p>{{ p.replace('\n',' ')|trim }}</p>{% endfor %}</div>
+    {% endif %}
+
+    {% if beruf %}
+    <h2 class="mt">Berufserfahrung</h2>
+    {% for b in beruf %}
+    <div class="exp">
+      <div class="t">{% if b.zeitraum %}<span class="zeit">{{ b.zeitraum }}</span> · {% endif %}{{ b.jobtitel }}{% if b.firma %} · {{ b.firma }}{% endif %}</div>
+      {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if d.bildung %}
+    <h2 class="mt">Schul- &amp; Ausbildung</h2>
+    {% for e in d.bildung %}
+    <div class="exp"><div class="t">{% if e.zeitraum %}<span class="zeit">{{ e.zeitraum }}</span> · {% endif %}{{ e.abschluss }}{% if e.institution %} · {{ e.institution }}{% endif %}{% if e.note %} (Note {{ e.note }}){% endif %}</div></div>
+    {% endfor %}
+    {% endif %}
+
+    {# Eigene Überschrift: vorher standen die Zusatzqualifikationen ohne Titel
+       unter der Schulbildung und sahen aus wie Schulabschlüsse. #}
+    {% if d.zusatzqualifikationen %}
+    <h2 class="mt">Zusatzqualifikationen</h2>
+    <div class="liste">
+      {% for z in d.zusatzqualifikationen %}<div class="p">{{ z }}</div>{% endfor %}
+    </div>{% endif %}
+  </div>
+
+  <div class="fuss">
+    <span class="marke">Improfy GmbH</span>
+    <span>{{ d.vorname }} {{ d.nachname }}{% if d.angestrebter_job %} · {{ d.angestrebter_job }}{% endif %}</span>
+    <span>www.improfy.de</span>
+  </div>
+</body></html>

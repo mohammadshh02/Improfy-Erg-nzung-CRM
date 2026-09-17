@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<style>
+  /*
+    Improfy Standard (Altrosa)
+    --------------------------
+    Nachbau der freigegebenen Kundenvorlage. Alle Maße sind aus dem Original-PDF
+    gemessen und stehen hier in Millimetern, damit es im Druck exakt sitzt.
+
+    Zwei Dinge, die beim Bauen Zeit gekostet haben und deshalb so bleiben müssen:
+
+    1) @page margin ist 0. Chrome bezieht position:fixed beim Drucken auf den
+       Satzspiegel, nicht aufs Papier, und schneidet alles ab, was links davon
+       liegt. Nur mit Rand 0 stimmen Papier- und Rahmenkoordinaten überein.
+    2) Weil damit auch der Text am Papierrand kleben würde, sitzt der Inhalt in
+       einer Tabelle: <thead> und <tfoot> sind leere Abstandszeilen, und die
+       wiederholt Chrome auf JEDER Seite. So bekommt Seite 2 denselben Einzug
+       wie Seite 1.
+  */
+  @page { size:A4; margin:0; }
+  *{ box-sizing:border-box; }
+  :root{
+    --rose:#d8a0a0;      /* Rahmen, Überschriften, Nachname */
+    --grau:#ebebeb;      /* Kontaktspalte */
+    --ink:#000;
+  }
+  html,body{ margin:0; padding:0; color:var(--ink);
+    font-size:10.5pt; line-height:1.42;
+    font-family:"Lato","Calibri","Helvetica Neue",Arial,sans-serif; }
+
+  /* ------------------------------------------- Rahmen: echte Papierkoordinaten */
+  /* Nur die direkten Kinder: sonst wird auch die Überschrift IM Kontaktblock
+     fest positioniert und landet oben links auf dem Papier. */
+  .rahmen > div, .rahmen > img{ position:fixed; }
+  .grau         { left:6mm;     top:6mm;     width:73.7mm;  height:285mm;   background:var(--grau); z-index:1; }
+  .foto-grund   { left:7.4mm;   top:54mm;    width:76.6mm;  height:118.2mm; background:var(--rose); z-index:2; }
+  .foto         { left:14.8mm;  top:57.5mm;  width:61.4mm;  height:111.1mm; z-index:3;
+                  object-fit:cover; object-position:center 20%; }
+  .band         { left:6mm;     top:6mm;     width:197.9mm; height:55mm;    background:var(--rose); z-index:4; }
+  .strich-links { left:6mm;     top:61mm;    width:8.8mm;   height:230mm;   background:var(--rose); z-index:5; }
+  .strich-rechts{ left:195.1mm; top:158mm;   width:8.8mm;   height:133.4mm; background:var(--rose); z-index:5; }
+  .strich-unten { left:6mm;     top:282.6mm; width:197.6mm; height:8.8mm;   background:var(--rose); z-index:6; }
+
+  /* Name im Kopfband: linksbündig ab 89,6 mm, Vorname schwarz, Nachname weiß */
+  .name{ left:89.6mm; top:16mm; width:110mm; z-index:7;
+         font-weight:700; font-size:26pt; line-height:1.34; text-transform:uppercase; }
+  .name .vor{ color:var(--ink); display:block; }
+  .name .nach{ color:#fff; display:block; }
+
+  /* Kontaktblock in der grauen Spalte */
+  .kontakt{ left:18.7mm; top:174mm; width:57mm; z-index:7; }
+  .kontakt .titel{ margin:0 0 6.5mm; color:var(--rose); font-size:20pt; font-weight:700;
+                   line-height:1; text-transform:uppercase; }
+  .kontakt p{ margin:0 0 4.2mm; font-size:9.5pt; font-weight:700; line-height:1.32; }
+
+  /* ------------------------------------------------- Inhalt (fließt, bricht um) */
+  /* 210 − 88,2 links − 20 rechts = 101,8 mm Satzbreite */
+  table.seite{ width:101.8mm; margin:0 0 0 88.2mm; border-collapse:collapse; }
+  table.seite td{ padding:0; vertical-align:top; }
+  /* thead/tfoot wiederholt Chrome auf jeder Seite - so bekommt auch Seite 2
+     den Einzug. Die Hoehe muss am DIV stehen und absolut sein: an der Zelle
+     wird sie ignoriert, height:100% ergibt ohne Elternhoehe 0. */
+  /* Das &nbsp; muss drin bleiben: eine voellig leere Zelle laesst Chrome
+     zusammenfallen, dann wiederholt sich der Abstand auf Seite 2 nicht. */
+  .luft-oben { height:82mm; font-size:0; line-height:0; }
+  .luft-unten{ height:26mm; font-size:0; line-height:0; }
+
+  h1{ color:var(--rose); font-size:22pt; font-weight:700; line-height:1.1;
+      text-transform:uppercase; margin:0 0 5.5mm; break-after:avoid; }
+  h1.weiter{ margin-top:10mm; }
+  .abs{ margin:0 0 4.2mm; }
+  .posten{ margin:0 0 4.2mm; break-inside:avoid; }
+  .posten .kopf{ font-weight:700; margin:0 0 1.2mm; }
+  .posten ul{ margin:1.2mm 0 0; padding-left:6mm; }
+  .posten li{ margin:.5mm 0; }
+  .paare{ margin:0 0 4.2mm; }
+  .paar{ display:flex; gap:2mm; margin:.8mm 0; break-inside:avoid; }
+  .paar .b{ font-weight:700; min-width:34mm; text-transform:uppercase; }
+  .paar .w::before{ content:"–  "; }
+</style></head>
+<body>
+  <div class="rahmen">
+    <div class="grau"></div>
+    <div class="foto-grund"></div>
+    {% if foto %}<img class="foto" src="{{ foto }}">{% endif %}
+    <div class="band"></div>
+    <div class="strich-links"></div>
+    <div class="strich-rechts"></div>
+    <div class="strich-unten"></div>
+
+    <div class="name">
+      <span class="vor">{{ d.vorname }}</span>
+      <span class="nach">{{ d.nachname }}</span>
+    </div>
+
+    <div class="kontakt">
+      <div class="titel">Kontaktdaten</div>
+      {% if d.geburtsdatum %}<p>{{ d.geburtsdatum }}</p>{% endif %}
+      {% if d.mobil %}<p>{{ d.mobil }}</p>{% endif %}
+      {% if d.email %}<p>{{ d.email }}</p>{% endif %}
+      {% if d.adresse %}<p>{{ d.adresse }}</p>{% endif %}
+    </div>
+  </div>
+
+  <table class="seite">
+    <thead><tr><td><div class="luft-oben">&nbsp;</div></td></tr></thead>
+    <tfoot><tr><td><div class="luft-unten">&nbsp;</div></td></tr></tfoot>
+    <tbody><tr><td>
+
+      {% if d.ueber_mich %}
+      <h1>Über mich</h1>
+      {% for p in d.ueber_mich.split('\n\n') %}<div class="abs">{{ p.replace('\n',' ')|trim }}</div>{% endfor %}
+      {% endif %}
+
+      {% if beruf %}
+      <h1 class="weiter">Berufserfahrung</h1>
+      {% for b in beruf %}
+      <div class="posten">
+        <div class="kopf">{% if b.zeitraum %}({{ b.zeitraum }}) {% endif %}{{ b.jobtitel }}{% if b.firma %} | {{ b.firma }}{% endif %}</div>
+        {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if d.bildung %}
+      <h1 class="weiter">Schulbildung</h1>
+      {% for e in d.bildung %}
+      <div class="posten">
+        <div class="kopf">{% if e.zeitraum %}({{ e.zeitraum }}) {% endif %}{{ e.abschluss }}{% if e.institution %} | {{ e.institution }}{% endif %}</div>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if d.zusatzqualifikationen %}
+      <h1 class="weiter">Zusatzqualifikationen</h1>
+      {% for z in d.zusatzqualifikationen %}<div class="posten"><div class="kopf">{{ z }}</div></div>{% endfor %}
+      {% endif %}
+
+      {% if d.edv_kenntnisse %}
+      <h1 class="weiter">EDV Kenntnisse</h1>
+      <div class="paare">
+        {% for k in d.edv_kenntnisse %}
+        <div class="paar"><span class="b">{{ k.programm }}</span><span class="w">{{ niveau(k.sterne) }}</span></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.soft_skills %}
+      <h1 class="weiter">Stärken</h1>
+      <div class="paare">
+        {% for k in d.soft_skills %}
+        <div class="paar"><span class="b">{{ k.eigenschaft }}</span><span class="w">{{ niveau(k.sterne) }}</span></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if d.sprachen %}
+      <h1 class="weiter">Sprachkenntnisse</h1>
+      <div class="paare">
+        {% for s in d.sprachen %}
+        <div class="paar"><span class="b">{{ s.sprache }}</span><span class="w">{{ s.niveau }}</span></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+    </td></tr></tbody>
+  </table>
+</body></html>

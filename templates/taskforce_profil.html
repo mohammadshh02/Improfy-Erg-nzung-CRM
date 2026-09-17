@@ -1,0 +1,176 @@
+{% extends "basis.html" %}
+{% block titel %}{{ p.titel }} · {{ p.kunde }} – Improfy-OS{% endblock %}
+{% block inhalt %}
+<p class="marke"><a href="{{ url_for('taskforce_seite') }}">← Taskforce</a> ·
+   <a href="{{ url_for('taskforce_kunde', kid=p.kunde_id) }}">{{ p.kunde }}</a></p>
+<h1><span class="plakette {{ 'p-teal' if p.art=='job' else 'p-gelb' }}">{{ 'Job' if p.art=='job' else 'Wohnung' }}</span> {{ p.titel }}</h1>
+<p class="unterzeile">{{ p.kunde }}{% if p.coach %} · Coach {{ p.coach }}{% endif %} ·
+  letzter Lauf {{ p.letzter_lauf|zeit if p.letzter_lauf else 'noch nie' }}{% if not p.aktiv %} · <strong>pausiert</strong>{% endif %}</p>
+
+{% if fehler %}<div class="warnung"><h3>Das ging nicht</h3><p style="margin:0">{{ fehler }}</p></div>{% endif %}
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+
+<div class="gitter g4">
+  <div class="karte"><h3>Neu</h3><div class="zahl" {% if zaehler.neu %}style="color:var(--rot)"{% endif %}>{{ zaehler.neu }}</div></div>
+  <div class="karte"><h3>Gesehen</h3><div class="zahl">{{ zaehler.gesehen }}</div></div>
+  <div class="karte"><h3>Angeschrieben</h3><div class="zahl">{{ zaehler.angeschrieben + zaehler.antwort + zaehler.erfolg }}</div>
+    <div class="marke">{{ zaehler.antwort }} Antworten · {{ zaehler.erfolg }} Erfolge</div></div>
+  <div class="karte"><h3>Agent</h3>
+    <form method="post" action="{{ url_for('taskforce_profil_lauf', pid=p.id) }}" style="margin:0 0 6px"><button>jetzt laufen lassen</button></form>
+    <form method="post" action="{{ url_for('taskforce_profil_abgleich', pid=p.id) }}" style="margin:0"><button class="knopf leise">Beschreibungen laden &amp; abgleichen</button></form>
+    <div class="marke" style="margin-top:8px">{{ ohne_abgleich }} neue noch ohne Abgleich{% if p.art=='wohnung' %} · Postfach {% if imap %}verbunden{% else %}nicht verbunden{% endif %}{% endif %}</div></div>
+</div>
+
+{% include "_tf_kunde.html" %}
+
+{% if p.art=='job' and kriterien_text %}
+<div class="karte" style="margin-top:16px">
+  <h3>Eingestellte Filter</h3>
+  <div class="marke">{{ kriterien_text }}</div>
+  {% if k.get('extra') %}<div class="hinweis" style="margin:8px 0 0"><strong>Extra-Notizen:</strong> {{ k.get('extra') }}</div>{% endif %}
+</div>
+{% endif %}
+
+{% if p.art=='wohnung' %}
+<div class="karte" style="margin-top:16px">
+  <h3>ImmoScout24 (Premium-Konto)</h3>
+  <p style="margin:0 0 8px"><a class="knopf" href="{{ is24 }}" target="_blank" rel="noopener">IS24-Suche mit diesen Kriterien öffnen</a>
+    <span class="marke">→ dort „Suchauftrag speichern" und exakt <strong>{{ p.suchauftrag or '(Suchauftragsname fehlt)' }}</strong> nennen.
+    Die Alarm-Mails liest der Agent aus dem Taskforce-Postfach, jedes Exposé landet genau einmal hier.</span></p>
+  {% if kriterien_text %}<div class="marke">Kriterien: {{ kriterien_text }}</div>{% endif %}
+  {% if k.get('extra') %}<div class="hinweis" style="margin:8px 0 0"><strong>Extra-Notizen:</strong> {{ k.get('extra') }}</div>{% endif %}
+</div>
+{% endif %}
+
+<h2>Angebote</h2>
+<form class="filter" method="get">
+  <select name="status" onchange="this.form.submit()">
+    <option value="">alle Status</option>
+    {% for s in status_liste %}<option value="{{ s }}" {{ 'selected' if s==status }}>{{ status_text[s] }}</option>{% endfor %}
+  </select>
+</form>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Status</th><th>Rel.</th><th>Angebot</th><th>Anbieter · Ort</th><th>Abgleich</th><th>Details</th><th>Bearbeiter / Notiz</th><th></th></tr>
+  {% for a in liste %}
+  {% set ab = a|abgleich %}
+  <tr>
+    <td><span class="plakette {{ {'neu':'p-rot','gesehen':'p-gelb','angeschrieben':'p-teal','antwort':'p-gruen','erfolg':'p-gruen','verworfen':'p-grau','doppelt':'p-grau'}[a.status] }}">{{ a.status }}</span>
+        {% if a.status_am %}<div class="marke">{{ a.status_am|zeit }}</div>{% endif %}
+        <div class="marke">{{ a.gefunden_am|zeit }}</div></td>
+    <td><span class="plakette {{ 'p-gruen' if (a.score or 0) >= 6 else ('p-gelb' if (a.score or 0) >= 3 else 'p-grau') }}" title="Relevanz 0–10">{{ (a.score or 0)|round(0)|int }}</span></td>
+    <td><a href="{{ a.url }}" target="_blank" rel="noopener"><strong>{{ a.titel }}</strong></a>
+        <div class="marke">{{ a.quelle }} · {{ a.extern_id }}</div>
+        {% if a.beschreibung_lang %}
+        <details><summary class="marke" style="cursor:pointer">Beschreibung ({{ a.beschreibung_lang|length }} Zeichen)</summary>
+          <div class="marke" style="white-space:pre-wrap;max-width:460px;max-height:260px;overflow:auto;margin-top:4px">{{ a.beschreibung_lang }}</div></details>
+        {% elif a.beschreibung %}<div class="marke" style="max-width:380px">{{ a.beschreibung[:140] }}…</div>{% endif %}</td>
+    <td>{{ a.anbieter or '—' }}<div class="marke">{{ a.ort or '' }}{% if a.entfernung_km is not none %} · {{ a.entfernung_km }} km{% endif %}</div></td>
+    <td style="max-width:230px">
+        {% if ab.fehler %}<span class="plakette p-grau" title="{{ ab.fehler }}">kein Abruf</span>
+        {% elif a.abgleich %}
+          {% if a.match is not none %}<span class="plakette {{ 'p-gruen' if a.match >= 67 else ('p-gelb' if a.match >= 34 else 'p-rot') }}">{{ a.match|int }} %</span>
+          {% else %}<span class="plakette p-grau">keine Anforderung erkannt</span>{% endif %}
+          {% if ab.passt %}<div class="marke" style="color:var(--gruen)">✓ {{ ab.passt|join(', ') }}</div>{% endif %}
+          {% if ab.fehlt %}<div class="marke" style="color:var(--rot)">✗ {{ ab.fehlt|join(', ') }}</div>{% endif %}
+          {% if ab.unklar %}<div class="marke">? {{ ab.unklar|join(', ') }}</div>{% endif %}
+          {% if ab.plus %}<div class="marke">+ {{ ab.plus|join(', ') }}</div>{% endif %}
+        {% else %}
+          <form method="post" action="{{ url_for('taskforce_angebot_abgleich', aid=a.id) }}" style="margin:0">
+            <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+            <button class="knopf leise" style="padding:4px 10px">abgleichen</button></form>
+        {% endif %}</td>
+    <td class="marke">{% set z = a|zusatz %}
+        {{ [z.beruf, z.arbeitszeit, z.vertrag, z.gehalt, z.portal, z.quereinstieg and 'Quereinstieg', z.eintritt and 'ab ' ~ z.eintritt, z.preis and z.preis ~ ' kalt', z.warmmiete and z.warmmiete ~ ' warm', z.zimmer and z.zimmer ~ ' Zi.', z.flaeche, z.etage and 'Etage ' ~ z.etage, z.wohnungstyp, z.verfuegbar and 'frei ab ' ~ z.verfuegbar, z.merkmale, z.suchbegriff and '„' ~ z.suchbegriff ~ '"']|select|join(' · ') }}
+        {% if a.veroeffentlicht %}<br>veröffentlicht {{ a.veroeffentlicht|datum }}{% endif %}</td>
+    <td>
+      <form method="post" action="{{ url_for('taskforce_status', aid=a.id) }}" style="margin:0">
+        <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+        <select name="bearbeiter" style="padding:6px 10px"><option value="">wer?</option>{% for l in leute %}<option {{ 'selected' if l==a.bearbeiter }}>{{ l }}</option>{% endfor %}</select>
+        <input type="text" name="notiz" value="{{ a.notiz or '' }}" placeholder="Notiz" style="width:150px;padding:6px 10px">
+    </td>
+    <td style="white-space:nowrap">
+        {% if a.status in ('neu','gesehen') %}
+        <button name="status" value="angeschrieben" class="knopf" style="padding:6px 12px">angeschrieben</button>
+        <button name="status" value="gesehen" class="knopf leise" style="padding:6px 12px">gesehen</button>
+        {% elif a.status == 'angeschrieben' %}
+        <button name="status" value="antwort" class="knopf" style="padding:6px 12px">Antwort</button>
+        <button name="status" value="erfolg" class="knopf" style="padding:6px 12px;background:var(--gruen);border-color:var(--gruen)">Erfolg</button>
+        {% elif a.status == 'antwort' %}
+        <button name="status" value="erfolg" class="knopf" style="padding:6px 12px;background:var(--gruen);border-color:var(--gruen)">Erfolg</button>
+        {% endif %}
+        {% if a.status != 'verworfen' %}<button name="status" value="verworfen" class="knopf leise" style="padding:6px 12px">weg</button>{% endif %}
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="leer">Noch keine Angebote{% if status %} mit Status „{{ status }}"{% endif %}.
+    {% if p.art=='job' %}Klick auf „jetzt laufen lassen".{% else %}Der Agent liest die Suchauftrags-Mails und Kleinanzeigen; bis dahin Exposé-Links unten von Hand eintragen.{% endif %}</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% if seiten > 1 %}
+<p class="marke" style="margin-top:10px">Seite {{ seite }} von {{ seiten }} ({{ gesamt }} Angebote) ·
+  {% if seite > 1 %}<a href="?status={{ status or '' }}&seite={{ seite-1 }}">← zurück</a>{% endif %}
+  {% if seite < seiten %}<a href="?status={{ status or '' }}&seite={{ seite+1 }}">weiter →</a>{% endif %}</p>
+{% endif %}
+
+{% if p.art=='wohnung' %}
+<h2>Exposé von Hand eintragen</h2>
+<div class="karte">
+  <form method="post" action="{{ url_for('taskforce_wohnung_link', pid=p.id) }}" class="filter" style="margin:0">
+    <input type="text" name="url" required placeholder="https://www.immobilienscout24.de/expose/…" style="flex:1;min-width:320px">
+    <input type="text" name="titel" placeholder="Titel" style="width:220px">
+    <input type="text" name="preis" placeholder="Kaltmiete" style="width:110px">
+    <button type="submit">eintragen</button>
+  </form>
+</div>
+{% endif %}
+
+<h2>Profil bearbeiten</h2>
+<div class="karte">
+  <form method="post" action="{{ url_for('taskforce_profil_speichern', pid=p.id) }}">
+    <input type="hidden" name="art" value="{{ p.art }}">
+    {# Sagt dem Server, dass ein vollständiges Formular ankommt: abgewählte Haken zählen dann als aus. #}
+    <input type="hidden" name="formular" value="1">
+    <dl class="paare">
+      <dt>Titel</dt><dd><input type="text" name="titel" value="{{ p.titel }}" style="width:100%"></dd>
+      {% if p.art=='job' %}
+      <dt>Suchbegriffe</dt><dd><input type="text" name="suchbegriffe" value="{{ p.suchbegriffe or '' }}" style="width:100%"></dd>
+      <dt>Ort</dt><dd><input type="text" name="ort" value="{{ p.ort or '' }}" style="width:100%"></dd>
+      <dt>Umkreis km</dt><dd><input type="text" name="umkreis_km" value="{{ p.umkreis_km }}" style="width:120px"></dd>
+      <dt>Zeitarbeit</dt><dd><label><input type="checkbox" name="zeitarbeit" value="1" {{ 'checked' if p.zeitarbeit }}> zulassen</label>
+        <span class="marke" style="margin-left:8px">aus: Zeitarbeitsfirmen fliegen schon bei der Abfrage raus</span></dd>
+      {% include "_tf_jobkriterien.html" %}
+      {% else %}
+      <dt>Suchauftrag (IS24)</dt><dd><input type="text" name="suchauftrag" value="{{ p.suchauftrag or '' }}" style="width:100%"></dd>
+      <dt>Ort</dt><dd><input type="text" name="ort" value="{{ p.ort or '' }}" style="width:100%"></dd>
+      <dt>Umkreis km</dt><dd><input type="text" name="umkreis_km" value="{{ p.umkreis_km }}" style="width:120px"></dd>
+      <dt>Miete</dt><dd style="display:flex;gap:14px;flex-wrap:wrap">
+        <label class="marke">max. Kaltmiete €<br><input type="text" name="max_miete" value="{{ p.max_miete or '' }}" style="width:110px"></label>
+        <label class="marke">min. Zimmer<br><input type="text" name="min_zimmer" value="{{ p.min_zimmer or '' }}" style="width:110px"></label>
+        <label class="marke">min. Fläche m²<br><input type="text" name="min_flaeche" value="{{ p.min_flaeche or '' }}" style="width:110px"></label></dd>
+      {% include "_tf_kriterien.html" %}
+      {% endif %}
+      <dt>Quellen</dt><dd>{% for q in quellen if q.art==p.art %}<label style="display:inline-block;margin:0 12px 4px 0"><input type="checkbox" name="quellen" value="{{ q.schluessel }}" {{ 'checked' if (not gewaehlt or q.schluessel in gewaehlt) }} {{ 'disabled' if not q.bereit }}> {{ q.name }}{% if not q.bereit %} (nicht verbunden){% endif %}</label>{% endfor %}</dd>
+      <dt>Notiz</dt><dd><input type="text" name="notiz" value="{{ p.notiz or '' }}" style="width:100%"></dd>
+      <dt>Aktiv</dt><dd><label><input type="checkbox" name="aktiv" value="1" {{ 'checked' if p.aktiv }}> Agent läuft mit</label></dd>
+    </dl>
+    <p style="margin:12px 0 0"><button type="submit">speichern</button>
+      <button formaction="{{ url_for('taskforce_profil_loeschen', pid=p.id) }}" class="knopf leise"
+              onclick="return confirm('Profil samt allen Angeboten löschen?')">Profil löschen</button></p>
+  </form>
+</div>
+
+<h2>Läufe</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Zeitpunkt</th><th>Quelle</th><th class="zahl-sp">gefunden</th><th class="zahl-sp">neu</th><th>Meldung</th></tr>
+  {% for l in laeufe %}
+  <tr><td class="marke">{{ l.zeitpunkt|zeit }}</td><td><span class="plakette p-grau">{{ l.quelle }}</span></td>
+      <td class="zahl-sp">{{ l.gefunden }}</td><td class="zahl-sp">{{ l.neu }}</td>
+      <td style="color:var(--{{ 'rot' if l.meldung else 'leise' }})">{{ l.meldung or 'ok' }}</td></tr>
+  {% else %}<tr><td colspan="5" class="leer">Noch kein Lauf.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

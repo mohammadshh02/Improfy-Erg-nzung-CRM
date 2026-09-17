@@ -1,0 +1,93 @@
+{% extends "basis.html" %}
+{% block titel %}Außenanbindungen – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Außenanbindungen</h1>
+<p class="unterzeile">Jede Verbindung des OS nach draußen: welches Portal, auf welchem Weg, was es dafür
+  braucht und ob es gerade antwortet. Live prüfbar, ohne etwas zu verändern.</p>
+
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+
+<div class="kpi-grid">
+  <div class="karte"><h3>Anbindungen</h3><div class="zahl">{{ zeilen|length }}</div>
+    <div class="marke">{{ zeilen|selectattr('art','equalto','holen')|list|length }} holen ·
+      {{ zeilen|selectattr('art','equalto','senden')|list|length }} senden</div></div>
+  <div class="karte"><h3>Verbunden</h3><div class="zahl">{{ zeilen|selectattr('bereit')|list|length }}</div>
+    <div class="marke">von {{ zeilen|length }}</div></div>
+  <div class="karte"><h3>Offizielle Schnittstelle</h3><div class="zahl">{{ zeilen|selectattr('zugriff','equalto','api')|list|length }}</div>
+    <div class="marke">Rest liest öffentliche Seiten oder Postfach</div></div>
+  <div class="karte"><h3>Live prüfen</h3>
+    <form method="post" action="{{ url_for('aussen_pruefen') }}" style="margin:0">
+      <button type="submit">alle verbundenen aufrufen</button></form>
+    <div class="marke" style="margin-top:8px">dauert je nach Portal bis zu zwei Minuten</div></div>
+</div>
+
+<h2>Stellen und Wohnungen</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Portal</th><th>Weg</th><th>Braucht</th><th>Zuletzt geliefert</th><th>Live</th><th></th></tr>
+  {% for z in zeilen if z.taskforce %}
+  <tr>
+    <td><strong>{{ z.name }}</strong>
+        <div class="marke">{{ z.bereich }} · <span class="mono">{{ z.endpunkt }}</span></div></td>
+    <td><span class="plakette {{ {'api':'p-gruen','mail':'p-teal','seite':'p-gelb','datei':'p-grau','webhook':'p-teal'}[z.zugriff] }}">
+          {{ {'api':'offizielle Schnittstelle','seite':'öffentliche Seite','mail':'Postfach','datei':'Export','webhook':'Webhook'}[z.zugriff] }}</span>
+        <div class="marke">Stabilität {{ z.stabil }}</div></td>
+    <td class="marke">{% if z.bereit %}<span class="plakette p-gruen">verbunden</span>{% else %}<span class="plakette p-gelb">{{ z.braucht }}</span>{% endif %}</td>
+    <td class="marke">{% set l = laeufe.get(z.schluessel) %}
+        {% if l %}{{ l.gefunden or 0 }} Treffer in {{ l.laeufe }} Läufen
+          <div>zuletzt {{ l.zuletzt|zeit }}{% if l.fehler %} · <span style="color:var(--red)">{{ l.fehler }} mit Meldung</span>{% endif %}</div>
+          {% if l.letzte_meldung %}<div style="color:var(--red)">{{ l.letzte_meldung[:70] }}</div>{% endif %}
+        {% else %}noch kein Lauf{% endif %}</td>
+    <td>{% set p = probe.get(z.schluessel) %}
+        {% if p and p.ok %}<span class="plakette p-gruen">{{ p.meldung }}</span><div class="marke">{{ p.dauer }} s</div>
+        {% elif p and p.ok is false %}<span class="plakette p-rot">Fehler</span><div class="marke">{{ p.meldung[:60] }}</div>
+        {% elif p %}<span class="plakette p-grau">{{ p.meldung }}</span>
+        {% else %}<span class="marke">—</span>{% endif %}</td>
+    <td><form method="post" action="{{ url_for('aussen_pruefen') }}" style="margin:0">
+          <input type="hidden" name="quelle" value="{{ z.schluessel }}">
+          <button class="knopf leise" style="padding:6px 12px">prüfen</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Systeme und Ablage</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>System</th><th>Richtung</th><th>Weg</th><th>Braucht</th><th>Stand</th></tr>
+  {% for z in zeilen if not z.taskforce %}
+  <tr>
+    <td><strong>{{ z.name }}</strong><div class="marke">{{ z.bereich }} · <span class="mono">{{ z.endpunkt }}</span></div></td>
+    <td><span class="plakette {{ 'p-teal' if z.art=='senden' else 'p-grau' }}">{{ 'sendet' if z.art=='senden' else 'holt' }}</span></td>
+    <td class="marke">{{ {'api':'offizielle Schnittstelle','seite':'öffentliche Seite','mail':'Postfach','datei':'Export','webhook':'Webhook'}[z.zugriff] }}</td>
+    <td class="marke">{{ z.braucht }}</td>
+    <td>{% if z.bereit %}<span class="plakette p-gruen">verbunden</span>
+        {% else %}<span class="plakette p-gelb">offen</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Was jede Anbindung bedeutet</h2>
+<div class="gitter g2">
+  {% for z in zeilen %}
+  <div class="karte">
+    <h3>{{ z.name }}</h3>
+    <dl class="paare">
+      <dt>Weg</dt><dd>{{ {'api':'offizielle Schnittstelle','seite':'öffentliche Ergebnisliste','mail':'E-Mail-Postfach','datei':'Exportdatei','webhook':'Webhook'}[z.zugriff] }}</dd>
+      <dt>Regel des Anbieters</dt><dd>{{ z.vertrag }}</dd>
+      <dt>Braucht</dt><dd>{{ z.braucht }}</dd>
+    </dl>
+    <p class="marke" style="margin:10px 0 0">{{ z.hinweis }}</p>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="hinweis" style="margin-top:16px">
+  <strong>Warum nicht überall eine offizielle Schnittstelle steht.</strong> Nur ein Teil der Portale bietet
+  eine an. Wo es keine gibt, liest das OS die öffentliche Ergebnisliste, so wie ein Mensch sie im Browser
+  sieht. Das funktioniert, kann aber brechen, wenn der Anbieter seine Seite umbaut, und Indeed sperrt
+  zeitweise. Bei ImmoScout24 wird bewusst nicht gelesen: der Anbieter untersagt es, deshalb läuft die
+  Wohnungssuche über Suchaufträge im Premium-Konto und deren E-Mails.
+</div>
+{% endblock %}

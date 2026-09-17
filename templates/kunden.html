@@ -1,0 +1,55 @@
+{% extends "basis.html" %}
+{% block titel %}Kunden – Improfy-Ergänzung{% endblock %}
+{% block inhalt %}
+<h1>Kunden</h1>
+<p class="unterzeile">Ein Spiegel des CRM, keine zweite Kundenverwaltung. Gezeigt wird, was
+  Taskforce und Lebenslauf brauchen – alles Übrige steht im CRM.</p>
+
+<form class="reglerbank" method="get">
+  <div class="reglerreihe">
+    <label style="flex:1;min-width:200px">Suche
+      <input type="text" name="q" value="{{ suche or '' }}" placeholder="Name, Ort, Kundennummer"></label>
+    <label>Coach
+      <select name="coach" onchange="this.form.submit()"><option value="">alle</option>
+        {% for c in coaches %}<option value="{{ c.id }}" {{ 'selected' if coach==c.id }}>{{ c.name }}</option>{% endfor %}</select></label>
+    <label>Zeigen
+      <select name="nur" onchange="this.form.submit()">
+        <option value="" {{ 'selected' if not nur }}>alle</option>
+        <option value="laufend" {{ 'selected' if nur=='laufend' }}>nur laufende Maßnahmen</option>
+        <option value="ohne_cv" {{ 'selected' if nur=='ohne_cv' }}>ohne Lebenslauf</option>
+        <option value="ohne_profil" {{ 'selected' if nur=='ohne_profil' }}>ohne Suchprofil</option></select></label>
+  </div>
+  <div class="reglerreihe reglerfuss">
+    <button type="submit" class="btn btn-primary">filtern</button>
+    <a class="btn" href="{{ url_for('kunden') }}">zurücksetzen</a>
+    <span class="marke">{{ zeilen|length }} Kunden</span>
+  </div>
+</form>
+
+<div class="tabellenkasten">
+<table>
+  <tr><th>Kunde</th><th>Status</th><th>Coach</th><th>Ort</th><th>Maßnahme</th>
+      <th>Lebenslauf</th><th>Suchprofil</th><th></th></tr>
+  {% for z in zeilen %}
+  <tr>
+    <td><a href="{{ url_for('kunde_detail', kid=z.id) }}"><strong>{{ z.name }}</strong></a>
+        {% if z.telefon %}<div class="marke">{{ z.telefon }}</div>{% endif %}</td>
+    <td><span class="plakette p-{{ z.ampel }}">{{ z.status_code or '—' }}</span>
+        <div class="marke">{{ z.status_text }}</div></td>
+    <td class="marke">{{ z.coach or '—' }}</td>
+    <td class="marke">{{ z.stadt or '—' }}</td>
+    <td class="marke">{{ z.massnahme or '—' }}</td>
+    <td>{% if z.lebenslaeufe %}<span class="plakette p-gruen">{{ z.lebenslaeufe }}</span>
+        {% else %}<span class="plakette p-grau">keiner</span>{% endif %}</td>
+    <td>{% if z.profile %}<span class="plakette p-gruen">{{ z.profile }}</span>
+        {% else %}<span class="plakette p-grau">keins</span>{% endif %}</td>
+    <td style="white-space:nowrap">
+      <a class="knopf leise" style="padding:6px 10px" href="{{ url_for('lebenslauf_formular', kid=z.id) }}">Lebenslauf</a>
+      <a class="knopf leise" style="padding:6px 10px" href="{{ url_for('taskforce_kunde', kid=z.id) }}">Taskforce</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="leer">Keine Kunden für diesen Filter.</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

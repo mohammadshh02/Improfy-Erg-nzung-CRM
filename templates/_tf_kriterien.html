@@ -1,0 +1,17 @@
+{# Wohnkriterien – alle Regler, die ImmoScout24 kennt. Erwartet k (dict), kriterien, wohnungstypen. #}
+<dt>Ausstattung</dt><dd>
+  {% for schl, bez, typ, code in kriterien if typ == 'ja' %}
+  <label style="display:inline-block;margin:0 14px 6px 0"><input type="checkbox" name="k_{{ schl }}" value="1" {{ 'checked' if k.get(schl) }}> {{ bez }}</label>
+  {% endfor %}
+  <div class="marke">WBS und Haustiere prüft der Agent im Anzeigentext; Balkon, Aufzug &amp; Co. gehen zusätzlich in den ImmoScout24-Suchlink.</div></dd>
+<dt>Rahmen</dt><dd style="display:flex;gap:14px;flex-wrap:wrap">
+  {% for schl, bez, typ, code in kriterien if typ == 'zahl' %}
+  <label class="marke" style="display:inline-block">{{ bez }}<br><input type="text" name="k_{{ schl }}" value="{{ k.get(schl) if k.get(schl) is not none else '' }}" style="width:110px"></label>
+  {% endfor %}
+  <label class="marke" style="display:inline-block">Einzug ab<br><input type="text" name="k_einzug_ab" value="{{ k.get('einzug_ab') or '' }}" placeholder="01.11.2026 / sofort" style="width:150px"></label></dd>
+<dt>Wohnungstyp</dt><dd>
+  {% for code, name in wohnungstypen %}
+  <label style="display:inline-block;margin:0 14px 6px 0"><input type="checkbox" name="k_wohnungstyp" value="{{ code }}" {{ 'checked' if code in (k.get('wohnungstyp') or []) }}> {{ name }}</label>
+  {% endfor %}
+  <div class="marke">Nichts angekreuzt = alle Typen.</div></dd>
+<dt>Extra-Notizen</dt><dd><textarea name="k_extra" rows="3" placeholder="Alles, was der Agent und die Taskforce wissen müssen: Rollator, Nähe Kita, Kostenübernahme Jobcenter bis …, Bürgschaft, Schufa, …" style="width:100%;border:1px solid var(--rand-stark);border-radius:12px;padding:10px 14px;font:inherit;color:var(--text);background:var(--karte)">{{ k.get('extra') or '' }}</textarea></dd>

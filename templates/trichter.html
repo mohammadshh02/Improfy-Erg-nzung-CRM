@@ -1,0 +1,147 @@
+{% extends "basis.html" %}
+{% block titel %}Vertriebstrichter – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Vertriebstrichter</h1>
+<p class="unterzeile">Von der Anfrage bis zum Gutschein – die Strecke, die im CRM nicht
+  stattfindet. Jede Stufe enthält alle, die schon weiter sind; die Quote ist der Anteil, der
+  es von der vorigen Stufe bis hierher geschafft hat.</p>
+
+<div class="gitter g4">
+  <div class="karte"><h3>Anfragen</h3>
+    <div class="zahl">{{ z.leads }}</div>
+    <div class="marke">{{ 'aus Kommo' if z.leads else 'Kommo noch nicht verbunden' }}</div></div>
+  <div class="karte"><h3>Anträge raus</h3>
+    <div class="zahl">{{ z.raus }}</div>
+    <div class="marke">mit 👍 im Raum bestätigt</div></div>
+  <div class="karte"><h3>Hängen</h3>
+    <div class="zahl" {% if z.haengen %}style="color:var(--rot)"{% endif %}>{{ z.haengen }}</div>
+    <div class="marke">über 21 Tage ohne Ergebnis</div></div>
+  <div class="karte"><h3>In Maßnahme</h3>
+    <div class="zahl">{{ z.laufend }}</div>
+    <div class="marke">laufende Gutscheine</div></div>
+</div>
+
+<h2>Der Trichter</h2>
+<div class="karte">
+  {% set groesste = stufen|map(attribute='anzahl')|max %}
+  {% for s in stufen %}
+  <div style="display:flex;align-items:center;gap:14px;padding:8px 0;{{ 'opacity:.75' if s.ausstieg }}">
+    <div style="width:170px;font-weight:600;color:var({{ '--rot' if s.ausstieg else '--heading' }})">{{ s.stufe }}</div>
+    <div style="flex:1;min-width:120px;background:var(--surface-2);border-radius:var(--radius-pill);height:26px;position:relative;overflow:hidden">
+      <div style="height:100%;width:{{ (s.anzahl * 100 / groesste)|round(1) if groesste else 0 }}%;
+                  background:var({{ '--red-soft' if s.ausstieg else '--accent' }});
+                  border-radius:var(--radius-pill)"></div>
+    </div>
+    <div style="width:60px;text-align:right;font-weight:700">{{ s.anzahl }}</div>
+    <div style="width:70px;text-align:right" class="marke">{{ s.quote ~ ' %' if s.quote is not none else '' }}</div>
+    <div style="flex:2;min-width:180px" class="marke">{{ s.erklaerung }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if haengen %}
+<h2>Hängende Anträge <span class="marke" style="text-transform:none;letter-spacing:0">– seit über 21 Tagen kein Ergebnis, ältester zuerst</span></h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>offen seit</th><th>Kunde</th><th>Stufe</th><th>Jobcenter</th><th>Coach</th><th>Antrag</th></tr>
+  {% for a in haengen %}
+  <tr>
+    <td><span class="plakette {{ 'p-rot' if a.tage_offen >= 42 else 'p-gelb' }}">{{ a.tage_offen }} Tage</span></td>
+    <td><a href="{{ url_for('kunde_detail', kid=a.id) }}">{{ a.name }}</a>
+        {% if a.massnahme %}<div class="marke">{{ a.massnahme }}</div>{% endif %}</td>
+    <td class="marke">{{ a.stufe }}{% if a.chat_reaktion %}<div class="marke">{{ a.chat_reaktion }}</div>{% endif %}</td>
+    <td class="marke">{{ a.jobcenter or '—' }}</td>
+    <td class="marke">{{ a.coach or '—' }}</td>
+    <td class="marke">{{ a.antrag_datum|datum }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="marke" style="margin-top:8px">Ein Antrag, der acht Wochen liegt, ist selten noch in
+  Bearbeitung – meist fehlt eine Unterlage oder er ist untergegangen. Nachfassen lohnt.</p>
+{% endif %}
+
+<h2>Je Person</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Person</th><th class="zahl-sp">vorbereitet</th><th class="zahl-sp">raus (👍)</th>
+      <th class="zahl-sp">bewilligt</th><th class="zahl-sp">laufend</th><th class="zahl-sp">Quote</th></tr>
+  {% for p in leiter %}
+  <tr><td><strong>{{ p.wer }}</strong></td>
+      <td class="zahl-sp">{{ p.antraege }}</td><td class="zahl-sp">{{ p.raus }}</td>
+      <td class="zahl-sp">{{ p.bewilligt }}</td><td class="zahl-sp">{{ p.laufend }}</td>
+      <td class="zahl-sp">{% if p.quote is not none %}<span class="plakette {{ 'p-gruen' if p.quote >= 20 else ('p-gelb' if p.quote >= 10 else 'p-grau') }}">{{ p.quote }} %</span>{% else %}—{% endif %}</td></tr>
+  {% else %}<tr><td colspan="6" class="leer">Noch keine Anträge erfasst.</td></tr>{% endfor %}
+</table>
+</div>
+<p class="marke" style="margin-top:8px">Quote = bewilligt geteilt durch vorbereitete Anträge.
+  Sie sagt mehr über die Qualität der Anträge als über den Fleiß – wer viele stellt und wenige
+  durchbekommt, stellt sie an die falschen Ämter oder zu unvollständig.</p>
+
+<h2>Je Monat</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Monat</th><th class="zahl-sp">Anträge</th><th class="zahl-sp">bewilligt</th>
+      <th class="zahl-sp">daraus Kunden</th><th class="zahl-sp">Quote</th></tr>
+  {% for m in monate %}
+  <tr><td>{{ m.monat }}</td><td class="zahl-sp">{{ m.antraege }}</td>
+      <td class="zahl-sp">{{ m.bewilligt }}</td><td class="zahl-sp">{{ m.kunden }}</td>
+      <td class="zahl-sp">{{ m.quote ~ ' %' if m.quote is not none else '—' }}</td></tr>
+  {% else %}<tr><td colspan="5" class="leer">Keine Anträge im Zeitraum.</td></tr>{% endfor %}
+</table>
+</div>
+
+{% if laufzeit %}
+<h2>Wie lange die Ämter brauchen</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Jobcenter</th><th class="zahl-sp">Fälle</th><th class="zahl-sp">Schnitt</th>
+      <th class="zahl-sp">schnellster</th><th class="zahl-sp">langsamster</th></tr>
+  {% for d in laufzeit %}
+  <tr><td>{{ d.jobcenter }}</td><td class="zahl-sp">{{ d.faelle }}</td>
+      <td class="zahl-sp"><strong>{{ d.schnitt }} Tage</strong></td>
+      <td class="zahl-sp">{{ d.schnellste }}</td><td class="zahl-sp">{{ d.langsamste }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+<p class="marke" style="margin-top:8px">Tage vom Antragsdatum bis zum Beginn der Maßnahme.
+  Ein Amt, das sechs Wochen braucht, bindet Kapazität, die woanders fehlt – das ist bei der
+  Planung wichtiger als die reine Bewilligungsquote.</p>
+{% endif %}
+
+<h2>Woher die Anfragen kommen</h2>
+<div class="karte">
+  {% if quellen %}
+  <table>
+    <tr><th>Quelle</th><th class="zahl-sp">Anfragen</th><th class="zahl-sp">daraus Kunden</th></tr>
+    {% for q in quellen %}
+    <tr><td>{{ q.quelle }}</td><td class="zahl-sp">{{ q.anzahl }}</td>
+        <td class="zahl-sp">{{ q.gewandelt }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="warnung" style="margin:0"><strong>Kommo ist noch nicht verbunden.</strong>
+    Dort liegen die WhatsApp-Anfragen – beim letzten Blick rund 800, fast alle in den ersten
+    beiden Stufen. Der Anschluss ist gebaut und braucht nur den Zugang:
+    <code>KOMMO_TOKEN</code> in die <code>.env</code> (Kommo → Einstellungen →
+    Integration marketplace → Improfy-OS → Keys and scopes). Danach holt der Knopf unten die
+    Anfragen ab, je Standort getrennt.</div>
+  {% endif %}
+  <form method="post" action="{{ url_for('trichter_kommo') }}" style="margin:12px 0 0">
+    <button type="submit" class="btn btn-primary" {{ 'disabled' if not kommo_bereit }}>Anfragen aus Kommo holen</button>
+    <span class="marke" style="margin-left:8px">{{ 'liest nur, schreibt nichts nach Kommo zurück' if kommo_bereit else 'erst mit KOMMO_TOKEN möglich' }}</span>
+  </form>
+</div>
+
+{% if leadstufen %}
+<h2>Stufen in Kommo</h2>
+<div class="karte">
+  <table>
+    <tr><th>Stufe</th><th class="zahl-sp">Anfragen</th></tr>
+    {% for s in leadstufen %}
+    <tr><td>{{ s.stufe }}</td><td class="zahl-sp">{{ s.anzahl }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anmelden · Improfy-Ergänzung</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', filename='stil.css') }}?v=20260916">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-brand">
+      <img class="improfy-logo" src="{{ url_for('static', filename='improfy-logo.svg') }}" alt="Improfy">
+      <div class="brand-sub">OS · Standort Köln</div>
+    </div>
+    <div class="karte">
+      <form method="post">
+        {% if persoenlich %}
+        <div class="field">
+          <label for="anmeldename">Anmeldename</label>
+          <input type="text" id="anmeldename" name="anmeldename" autofocus autocomplete="username">
+        </div>
+        {% endif %}
+        <div class="field">
+          <label for="passwort">Passwort</label>
+          <input type="password" id="passwort" name="passwort" {{ '' if persoenlich else 'autofocus' }} autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:16px">Anmelden</button>
+      </form>
+      {% if fehler %}<p class="fehler">{{ fehler }}</p>{% endif %}
+    </div>
+  </div>
+</div>
+</body>
+</html>

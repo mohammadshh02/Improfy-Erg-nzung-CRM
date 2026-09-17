@@ -1,0 +1,93 @@
+{% extends "basis.html" %}
+{% block titel %}Taskforce · {{ kunde.name }} – Improfy-OS{% endblock %}
+{% block inhalt %}
+<p class="marke"><a href="{{ url_for('taskforce_seite') }}">← Taskforce</a> ·
+   <a href="{{ url_for('kunde_detail', kid=kunde.id) }}">Kundenakte</a></p>
+<h1>{{ kunde.name }}</h1>
+<p class="unterzeile">{{ kunde.sprache or '' }}{% if kunde.ort_jc %} · {{ kunde.ort_jc }}{% endif %}
+  {% if kunde.coach %} · Coach {{ kunde.coach }}{% endif %}</p>
+
+{% if fehler %}<div class="warnung"><h3>Das ging nicht</h3><p style="margin:0">{{ fehler }}</p></div>{% endif %}
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+
+{% include "_tf_kunde.html" %}
+
+<h2>Profile dieses Kunden</h2>
+<div class="gitter g2">
+  {% for p in profile %}
+  <div class="karte">
+    <h3>{{ 'Jobprofil' if p.art=='job' else 'Wohnprofil' }}{% if not p.aktiv %} · pausiert{% endif %}</h3>
+    <p style="margin:0 0 6px"><a href="{{ url_for('taskforce_profil', pid=p.id) }}"><strong>{{ p.titel }}</strong></a>
+      {% if p.neu %} <span class="plakette p-rot">{{ p.neu }} neu</span>{% endif %}
+      <span class="marke">· {{ p.gesamt }} Angebote gesamt</span></p>
+    <dl class="paare">
+      {% if p.art=='job' %}
+      <dt>Suchbegriffe</dt><dd>{{ p.suchbegriffe or '—' }}</dd>
+      <dt>Ort · Umkreis</dt><dd>{{ p.ort or '—' }} · {{ p.umkreis_km }} km</dd>
+      <dt>Arbeitszeit</dt><dd>{{ arbeitszeit[p.arbeitszeit or ''] }}{% if not p.zeitarbeit %} · ohne Zeitarbeit{% endif %}</dd>
+      {% else %}
+      <dt>Suchauftrag (IS24)</dt><dd>{{ p.suchauftrag or '—' }}</dd>
+      <dt>Ort · Umkreis</dt><dd>{{ p.ort or '—' }} · {{ p.umkreis_km }} km</dd>
+      <dt>Rahmen</dt><dd>{% if p.max_miete %}bis {{ p.max_miete }} € kalt{% endif %}{% if p.min_zimmer %} · ab {{ p.min_zimmer }} Zi.{% endif %}{% if p.min_flaeche %} · ab {{ p.min_flaeche }} m²{% endif %}</dd>
+      {% if p.kriterien_text %}<dt>Kriterien</dt><dd>{{ p.kriterien_text }}</dd>{% endif %}
+      {% endif %}
+      {% if p.notiz %}<dt>Notiz</dt><dd>{{ p.notiz }}</dd>{% endif %}
+      <dt>letzter Lauf</dt><dd>{{ p.letzter_lauf|zeit if p.letzter_lauf else 'noch nie' }}</dd>
+    </dl>
+    <p style="margin:12px 0 0">
+      <form method="post" action="{{ url_for('taskforce_profil_lauf', pid=p.id) }}" style="display:inline"><button>laufen lassen</button></form>
+      <a class="knopf leise" href="{{ url_for('taskforce_profil', pid=p.id) }}">Angebote &amp; bearbeiten</a>
+    </p>
+  </div>
+  {% endfor %}
+</div>
+
+<h2>Neues Profil anlegen</h2>
+<div class="gitter g2">
+  <div class="karte">
+    <h3>Jobprofil</h3>
+    <form method="post" action="{{ url_for('taskforce_profil_neu', kid=kunde.id) }}">
+      <input type="hidden" name="art" value="job">
+      <input type="hidden" name="formular" value="1">
+      <dl class="paare">
+        <dt>Titel</dt><dd><input type="text" name="titel" placeholder="z. B. Lager / Logistik" style="width:100%"></dd>
+        <dt>Suchbegriffe</dt><dd><input type="text" name="suchbegriffe" required placeholder="Lagerhelfer, Kommissionierer, Produktionshelfer" style="width:100%">
+          <div class="marke">Berufe oder Stichworte, durch Komma getrennt – jeder Begriff ist eine eigene Suche auf jeder Quelle.</div></dd>
+        <dt>Ort</dt><dd><input type="text" name="ort" value="{{ ort_vorschlag }}" style="width:100%"></dd>
+        <dt>Umkreis km</dt><dd><input type="text" name="umkreis_km" value="25" style="width:120px"></dd>
+        <dt>Zeitarbeit</dt><dd><label><input type="checkbox" name="zeitarbeit" value="1" checked> Zeitarbeitsfirmen zulassen</label></dd>
+        {% set k = {} %}
+        {% include "_tf_jobkriterien.html" %}
+        <dt>Quellen</dt><dd>{% for q in quellen if q.art=='job' %}<label style="display:inline-block;margin:0 12px 4px 0"><input type="checkbox" name="quellen" value="{{ q.schluessel }}" checked {{ 'disabled' if not q.bereit }}> {{ q.name }}</label>{% endfor %}</dd>
+        <dt>Notiz</dt><dd><input type="text" name="notiz" placeholder="Führerschein, Schicht möglich, Deutsch B1 …" style="width:100%">
+          <div class="marke">Geht mit ins Kurzprofil des Abgleichs – was hier steht, gilt als erfüllt.</div></dd>
+      </dl>
+      <p style="margin:12px 0 0"><button type="submit">Jobprofil anlegen und suchen</button></p>
+    </form>
+  </div>
+  <div class="karte">
+    <h3>Wohnprofil</h3>
+    <form method="post" action="{{ url_for('taskforce_profil_neu', kid=kunde.id) }}">
+      <input type="hidden" name="art" value="wohnung">
+      <input type="hidden" name="formular" value="1">
+      <dl class="paare">
+        <dt>Titel</dt><dd><input type="text" name="titel" placeholder="z. B. 2 Zimmer Köln" style="width:100%"></dd>
+        <dt>Suchauftrag (IS24)</dt><dd><input type="text" name="suchauftrag" required placeholder="TF-{{ kunde.name.split(' ')[-1] }}" style="width:100%">
+          <div class="marke">Genau so den Suchauftrag im ImmoScout24-Premium-Konto benennen. Nach dem Anlegen liefert das Profil
+            einen vorbefüllten IS24-Suchlink – dort „Suchauftrag speichern", fertig. Die E-Mail-Alarme liest der Agent.</div></dd>
+        <dt>Ort</dt><dd><input type="text" name="ort" value="{{ ort_vorschlag }}" style="width:100%"></dd>
+        <dt>Umkreis km</dt><dd><input type="text" name="umkreis_km" value="10" style="width:120px"></dd>
+        <dt>Miete</dt><dd style="display:flex;gap:14px;flex-wrap:wrap">
+          <label class="marke">max. Kaltmiete €<br><input type="text" name="max_miete" style="width:110px"></label>
+          <label class="marke">min. Zimmer<br><input type="text" name="min_zimmer" style="width:110px"></label>
+          <label class="marke">min. Fläche m²<br><input type="text" name="min_flaeche" style="width:110px"></label></dd>
+        {% set k = {} %}
+        {% include "_tf_kriterien.html" %}
+        <dt>Quellen</dt><dd>{% for q in quellen if q.art=='wohnung' %}<label style="display:inline-block;margin:0 12px 4px 0"><input type="checkbox" name="quellen" value="{{ q.schluessel }}" checked {{ 'disabled' if not q.bereit }}> {{ q.name }}</label>{% endfor %}</dd>
+        <dt>Notiz</dt><dd><input type="text" name="notiz" placeholder="Kostenübernahme liegt vor, 3 Personen, …" style="width:100%"></dd>
+      </dl>
+      <p style="margin:12px 0 0"><button type="submit">Wohnprofil anlegen und suchen</button></p>
+    </form>
+  </div>
+</div>
+{% endblock %}

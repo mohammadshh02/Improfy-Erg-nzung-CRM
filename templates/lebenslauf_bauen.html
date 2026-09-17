@@ -1,0 +1,285 @@
+{% extends "basis.html" %}
+{% block titel %}Lebenslauf bauen · {{ v.kunde_name }} – Improfy-OS{% endblock %}
+{% block inhalt %}
+<p class="marke"><a href="{{ url_for('lebenslauf_uebersicht') }}">← Lebensläufe</a> ·
+   <a href="{{ url_for('kunde_detail', kid=v.kunde_id) }}">{{ v.kunde_name }}</a></p>
+<h1>Lebenslauf bauen</h1>
+<p class="unterzeile">Füllt die Improfy-Excel-Vorlage. Was das OS über {{ v.kunde_name }} weiß, steht schon drin.
+  Fehlende Pflichtangaben markiert die Vorlage gelb, die Datei lässt sich trotzdem erzeugen.</p>
+
+{% if fehler %}<div class="warnung"><h3>Das ging nicht</h3><p style="margin:0">{{ fehler }}</p>
+  {% if hinweise %}<ul style="margin:6px 0 0 18px;padding:0">{% for h in hinweise %}<li>{{ h }}</li>{% endfor %}</ul>{% endif %}
+</div>{% endif %}
+
+<div class="hinweis">
+  <strong>Blattname: {{ v.blattname }}</strong>
+  {% if v.interne_id %} – die interne Kundennummer kommt aus dem Register, nicht aus der Tastatur.
+  {% else %} – <span style="color:var(--red)">für diesen Kunden ist keine ID-K-Nummer hinterlegt.</span>
+    Erst im Drive-Register nachtragen, sonst trägt der Lebenslauf keine Kennung.{% endif %}
+</div>
+
+{% if gelesen %}
+<div class="hinweis"><strong>Aus den Unterlagen übernommen:</strong>
+  <ul style="margin:6px 0 0 18px;padding:0">{% for g in gelesen %}<li>{{ g }}</li>{% endfor %}</ul>
+  <p class="marke" style="margin:6px 0 0">Bitte alles prüfen – was nicht sicher erkannt wurde, blieb leer.</p></div>
+{% endif %}
+{% if hinweise and not fehler %}
+<div class="warnung"><strong>Das konnte nicht gelesen werden</strong>
+  <ul style="margin:6px 0 0 18px;padding:0">{% for h in hinweise %}<li>{{ h }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+<h2>Alte Unterlagen ablegen</h2>
+<div class="karte" style="margin-bottom:14px">
+  <form method="post" action="{{ url_for('lebenslauf_lesen', kid=v.kunde_id) }}"
+        enctype="multipart/form-data">
+    <p class="marke" style="margin:0 0 10px">Alles ablegen, was von der Person schon da ist: der alte
+      Lebenslauf, eine frühere Improfy-Vorlage, ein Zeugnis. Das OS liest die Dateien aus und füllt das
+      Formular darunter. Nichts muss von Hand abgetippt werden.</p>
+
+    <label class="ablage" for="unterlagen">
+      <strong>Dateien hierher ziehen oder auswählen</strong>
+      <span class="marke">{{ lesbar.values()|unique|join(' · ') }} – auch mehrere auf einmal</span>
+      <input type="file" id="unterlagen" name="unterlagen" multiple
+             accept=".pdf,.docx,.odt,.rtf,.txt,.md,.csv,.xlsx,.xlsm">
+      <span class="marke gewaehlt" data-leer="Noch keine Datei gewählt">Noch keine Datei gewählt</span>
+    </label>
+
+    <details style="margin-top:12px">
+      <summary class="marke" style="cursor:pointer">Oder Text von Hand einfügen</summary>
+      <textarea name="rohtext" rows="8" placeholder="Lebenslauf öffnen, alles markieren, kopieren, hier einfügen …"
+        style="width:100%;margin-top:8px;border:1px solid var(--line-strong);border-radius:10px;padding:10px 12px;font:inherit">{{ rohtext or '' }}</textarea>
+    </details>
+
+    <p style="margin:12px 0 0"><button type="submit" class="btn btn-primary">Unterlagen auslesen und Formular füllen</button>
+      <span class="marke" style="margin-left:8px">füllt die Felder unten, speichert aber noch nichts</span></p>
+  </form>
+</div>
+
+<script>
+// Zeigt an, was gewählt wurde, und nimmt auch Dateien an, die man auf die Fläche zieht.
+(function () {
+  var feld = document.getElementById('unterlagen');
+  if (!feld) return;
+  var flaeche = feld.closest('.ablage'), anzeige = flaeche.querySelector('.gewaehlt');
+  function zeigen() {
+    var n = feld.files.length;
+    anzeige.textContent = n ? Array.from(feld.files).map(function (f) { return f.name; }).join(', ')
+                            : anzeige.dataset.leer;
+    flaeche.classList.toggle('hat-datei', n > 0);
+  }
+  feld.addEventListener('change', zeigen);
+  ['dragenter', 'dragover'].forEach(function (e) {
+    flaeche.addEventListener(e, function (ev) { ev.preventDefault(); flaeche.classList.add('darueber'); });
+  });
+  ['dragleave', 'drop'].forEach(function (e) {
+    flaeche.addEventListener(e, function (ev) { ev.preventDefault(); flaeche.classList.remove('darueber'); });
+  });
+  flaeche.addEventListener('drop', function (ev) { feld.files = ev.dataTransfer.files; zeigen(); });
+})();
+</script>
+
+{% if v.kurzprofil or v.cv_text %}
+<div class="karte" style="margin-bottom:14px">
+  <h3>Was die Taskforce schon weiß</h3>
+  {% if v.kurzprofil %}<p style="margin:0 0 6px"><strong>Kurzprofil:</strong> {{ v.kurzprofil }}</p>{% endif %}
+  {% if v.cv_text %}<details><summary class="marke" style="cursor:pointer">Lebenslauftext ({{ v.cv_text|length }} Zeichen) – zum Abschreiben aufklappen</summary>
+    <div class="marke" style="white-space:pre-wrap;max-height:260px;overflow:auto;margin-top:6px">{{ v.cv_text }}</div></details>{% endif %}
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data">
+<h2>Person</h2>
+<div class="karte">
+  <dl class="paare">
+    <dt>Vorname · Nachname</dt><dd style="display:flex;gap:10px">
+      <input type="text" name="vorname" value="{{ d.vorname }}" required style="flex:1">
+      <input type="text" name="nachname" value="{{ d.nachname }}" required style="flex:1"></dd>
+    <dt>Angestrebter Job</dt><dd><input type="text" name="angestrebter_job" value="{{ d.angestrebter_job }}"
+      placeholder="z. B. Lagerhelfer, Reinigungskraft, Pflegehelfer" required style="width:100%"></dd>
+    <dt>Geschlecht</dt><dd><select name="geschlecht">
+      <option value="">—</option>
+      <option value="m" {{ 'selected' if d.geschlecht=='m' }}>männlich</option>
+      <option value="w" {{ 'selected' if d.geschlecht=='w' }}>weiblich</option>
+      <option value="d" {{ 'selected' if d.geschlecht=='d' }}>divers</option></select>
+      <span class="marke">steuert „Teilnehmer" oder „Teilnehmerin" im Improfy-Block</span></dd>
+    <dt>Geburtsdatum</dt><dd><input type="text" name="geburtsdatum" value="{{ d.geburtsdatum }}" placeholder="TT.MM.JJJJ" style="width:160px">
+      {% if v.geburtsdatum_unsicher %}<span class="marke" style="color:var(--amber)">aus der Gutscheinliste übernommen – bitte prüfen</span>{% endif %}</dd>
+    <dt>Maßnahme</dt><dd><input type="text" name="massnahme_zeitraum" value="{{ d.massnahme_zeitraum }}"
+      placeholder="TT.MM.JJJJ - TT.MM.JJJJ" style="width:240px">
+      <span class="marke">steht als Zeitraum im Improfy-Block der Berufserfahrung</span></dd>
+    <dt>Mobil · E-Mail</dt><dd style="display:flex;gap:10px">
+      <input type="text" name="mobil" value="{{ d.mobil }}" style="flex:1">
+      <input type="text" name="email" value="{{ d.email }}" style="flex:1"></dd>
+    <dt>Adresse</dt><dd><input type="text" name="adresse" value="{{ d.adresse }}" placeholder="Straße Nr, PLZ Ort" style="width:100%"></dd>
+    <dt>Führerschein</dt><dd>
+      <label><input type="checkbox" name="fs_vorhanden" {{ 'checked' if d.fuehrerschein.vorhanden }}> vorhanden</label>
+      <input type="text" name="fs_klasse" value="{{ d.fuehrerschein.klasse }}" placeholder="Klasse" style="width:90px;margin-left:10px">
+      <label style="margin-left:10px"><input type="checkbox" name="fs_eu" {{ 'checked' if d.fuehrerschein.eu }}> EU/DE</label></dd>
+    <dt>Kunde von</dt><dd><input type="text" name="kunde_von" value="{{ d.kunde_von }}" style="width:240px">
+      <span class="marke">steht oben im Blatt</span></dd>
+  </dl>
+</div>
+
+<h2>Berufserfahrung</h2>
+<div class="karte" id="beruf">
+  {% for b in beruf %}
+  <div class="reihe" style="border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:12px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <input type="text" name="beruf_zeitraum" value="{{ b.zeitraum }}" placeholder="{{ '01.2020 - 12.2023' if loop.first else '' }}" style="width:170px">
+      <input type="text" name="beruf_firma" value="{{ b.firma }}" placeholder="{{ 'Firma + Ort' if loop.first else '' }}" style="flex:1;min-width:200px">
+      <input type="text" name="beruf_jobtitel" value="{{ b.jobtitel }}" placeholder="{{ 'Jobtitel' if loop.first else '' }}" style="flex:1;min-width:160px">
+    </div>
+    <textarea name="beruf_taet" rows="3" placeholder="{{ 'Tätigkeiten, eine je Zeile (2 bis 4)' if loop.first else '' }}" style="width:100%;margin-top:8px;border:1px solid var(--line-strong);border-radius:10px;padding:8px 10px;font:inherit">{{ b.taetigkeiten|join('\n') }}</textarea>
+  </div>
+  {% endfor %}
+</div>
+<p class="marke">Sieben Stationen haben Platz, neueste zuerst. Leere Blöcke werden übersprungen.</p>
+
+<h2>Bildung</h2>
+<div class="karte">
+  {% for b in bildung %}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+    <input type="text" name="bild_zeitraum" value="{{ b.zeitraum }}" placeholder="2015 - 2018" style="width:170px">
+    <input type="text" name="bild_abschluss" value="{{ b.abschluss }}" placeholder="Abschluss / Ausbildung" style="flex:1;min-width:200px">
+    <input type="text" name="bild_institution" value="{{ b.institution }}" placeholder="Schule / Uni + Ort" style="flex:1;min-width:200px">
+    <input type="text" name="bild_note" value="{{ b.note }}" placeholder="Note" style="width:90px">
+  </div>
+  {% endfor %}
+</div>
+
+<div class="gitter g2" style="margin-top:14px">
+  <div class="karte">
+    <h3>Sprachen</h3>
+    {% for s in sprachen %}
+    <div style="display:flex;gap:10px;margin-bottom:8px">
+      <input type="text" name="spr_sprache" value="{{ s.sprache }}" placeholder="DEUTSCH" style="flex:1">
+      <select name="spr_niveau" style="flex:1">
+        <option value="">—</option>
+        {% for n in niveaus %}<option {{ 'selected' if n == s.niveau }}>{{ n }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endfor %}
+    <div class="marke">Deutsch steht laut Vorlage immer zuerst.</div>
+  </div>
+  <div class="karte">
+    <h3>EDV-Kenntnisse</h3>
+    {% for e in edv %}
+    <div style="display:flex;gap:10px;margin-bottom:8px">
+      <input type="text" name="edv_programm" value="{{ e.programm }}" placeholder="z. B. MS Word" style="flex:1">
+      <select name="edv_sterne" style="width:110px">
+        {% for n in [1,2,3,4,5] %}<option value="{{ n }}" {{ 'selected' if n == e.sterne }}>{{ n }} Sterne</option>{% endfor %}
+      </select>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="gitter g2" style="margin-top:14px">
+  <div class="karte">
+    <h3>Soft Skills</h3>
+    {% for s in skills %}
+    <div style="display:flex;gap:10px;margin-bottom:8px">
+      <input type="text" name="ss_eigenschaft" value="{{ s.eigenschaft }}" placeholder="z. B. Zuverlässigkeit" style="flex:1">
+      <select name="ss_sterne" style="width:110px">
+        {% for n in [3,4,5] %}<option value="{{ n }}" {{ 'selected' if n == s.sterne }}>{{ n }} Sterne</option>{% endfor %}
+      </select>
+    </div>
+    {% endfor %}
+    <div class="marke">Nur ab drei Sternen aufführen.</div>
+  </div>
+  <div class="karte">
+    <h3>Zusatzqualifikationen</h3>
+    <textarea name="zusatzqual" rows="4" placeholder="Eine je Zeile, z. B. Sachkunde §34a, Staplerschein" style="width:100%;border:1px solid var(--line-strong);border-radius:10px;padding:8px 10px;font:inherit">{{ d.zusatzqualifikationen|join('\n') }}</textarea>
+    <h3 style="margin-top:14px">Hobbys</h3>
+    <input type="text" name="hobbys" value="{{ d.hobbys }}" placeholder="kommagetrennt" style="width:100%">
+  </div>
+</div>
+
+<h2>Über mich</h2>
+<div class="karte">
+  <textarea id="ueber_mich" name="ueber_mich" rows="8" placeholder="In Ich-Form, freundlich, vier bis sechs Absätze, mit Gruß und Namen am Ende." style="width:100%;border:1px solid var(--line-strong);border-radius:10px;padding:10px 12px;font:inherit">{{ d.ueber_mich }}</textarea>
+  {% if v.kurzprofil %}
+  <p style="margin:10px 0 0">
+    <button type="button" class="btn" id="kurzprofil-uebernehmen">Kurzprofil als Entwurf einsetzen</button>
+    <span class="marke" style="margin-left:8px">setzt den Text der Taskforce in Ich-Form ein – bitte
+      durchlesen und in ganze Sätze bringen, so steht er später im Lebenslauf</span>
+  </p>
+  <script>
+  (function () {
+    var knopf = document.getElementById('kurzprofil-uebernehmen');
+    var feld = document.getElementById('ueber_mich');
+    var entwurf = {{ ('Guten Tag,\n\nmein Name ist ' ~ (d.vorname or '') ~ ' ' ~ (d.nachname or '')
+                      ~ '. ' ~ v.kurzprofil)|tojson }};
+    knopf.addEventListener('click', function () {
+      if (feld.value.trim() && !confirm('Den vorhandenen Text ersetzen?')) return;
+      feld.value = entwurf;
+      feld.focus();
+    });
+  })();
+  </script>
+  {% endif %}
+</div>
+
+<h2>Design für das PDF</h2>
+<div class="karte">
+  {% if chrome %}
+  <div class="gitter g3">
+    {% for schluessel, name, beschreibung in designs %}
+    <label class="karte" style="padding:12px 14px;cursor:pointer;box-shadow:none;margin:0">
+      <input type="radio" name="design" value="{{ schluessel }}" {{ 'checked' if loop.first }}>
+      <strong style="margin-left:6px">{{ name }}</strong>
+      <div class="marke" style="margin-top:4px">{{ beschreibung }}</div>
+    </label>
+    {% endfor %}
+  </div>
+  <div class="filter" style="margin:14px 0 0">
+    <label class="marke">Bewerbungsfoto (optional)
+      <input type="file" name="foto" accept="image/*" style="margin-left:8px"></label>
+    <span class="marke">wird auf Druckgröße verkleinert, damit das PDF per Mail verschickbar bleibt</span>
+  </div>
+  {% else %}
+  <div class="warnung" style="margin:0"><strong>Kein Chrome gefunden.</strong> Für den PDF-Druck braucht
+    das OS einen installierten Chrome oder Edge. Die Excel-Vorlage funktioniert davon unabhängig.</div>
+  {% endif %}
+</div>
+
+<p style="margin:18px 0 0">
+  <button type="submit" class="btn btn-primary">Excel erzeugen und herunterladen</button>
+  {% if chrome %}<button type="submit" class="btn btn-primary"
+     formaction="{{ url_for('lebenslauf_pdf', kid=v.kunde_id) }}">PDF im gewählten Design</button>{% endif %}
+  <a class="btn btn-sm" href="{{ url_for('kunde_detail', kid=v.kunde_id) }}" style="margin-left:8px">zurück zur Akte</a>
+</p>
+</form>
+
+{% if galerie %}
+<h2>Weitere Vorlagen in der CV-App</h2>
+<div class="karte">
+  <p class="marke" style="margin:0 0 10px">Diese {{ galerie|length }} Vorlagen baut die eigenständige
+    CV-App mit KI nach. Dafür braucht sie einen Anthropic-Schlüssel; im OS laufen die
+    {{ designs|length }} festen Designs oben, die keinen Schlüssel brauchen. In der Chat-Gruppe
+    „CVs Köln" bestellt ihr diese Vorlagen nach Nummer beim Designer.</p>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    {% for v2 in galerie %}
+    <figure style="margin:0;width:104px">
+      <img src="{{ url_for('lebenslauf_galerie', bild=v2.thumb) }}" alt="{{ v2.label }}"
+           style="width:100%;border:1px solid var(--line);border-radius:8px">
+      <figcaption class="marke" style="text-align:center">{{ v2.label }}</figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if frueher %}
+<h2>Schon gebaut</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Datei</th><th>erstellt</th><th></th></tr>
+  {% for f in frueher %}
+  <tr><td>{{ f.name }}</td><td class="marke">{{ f.geaendert|zeit }}</td>
+      <td><a class="btn btn-sm" href="{{ url_for('lebenslauf_datei', dateiname=f.name) }}">herunterladen</a></td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endif %}
+{% endblock %}

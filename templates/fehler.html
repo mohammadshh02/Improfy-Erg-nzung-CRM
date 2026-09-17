@@ -1,0 +1,9 @@
+{% extends "basis.html" %}
+{% block titel %}{{ titel }} – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>{{ titel }}</h1>
+<div class="warnung" style="max-width:640px">
+  <p style="margin:0">{{ text }}</p>
+</div>
+<p style="margin:16px 0 0"><a class="btn" href="{{ url_for('uebersicht') }}">zur Übersicht</a></p>
+{% endblock %}

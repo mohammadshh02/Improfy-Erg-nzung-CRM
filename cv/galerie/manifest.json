@@ -1,0 +1,140 @@
+[
+ {
+  "id": "cv1",
+  "label": "Vorlage 1",
+  "ref": "cv1.png",
+  "thumb": "cv1_thumb.png"
+ },
+ {
+  "id": "cv2",
+  "label": "Vorlage 2",
+  "ref": "cv2.png",
+  "thumb": "cv2_thumb.png"
+ },
+ {
+  "id": "cv3",
+  "label": "Vorlage 3",
+  "ref": "cv3.png",
+  "thumb": "cv3_thumb.png"
+ },
+ {
+  "id": "cv3v2",
+  "label": "Vorlage 3",
+  "ref": "cv3v2.png",
+  "thumb": "cv3v2_thumb.png"
+ },
+ {
+  "id": "cv5",
+  "label": "Vorlage 5",
+  "ref": "cv5.png",
+  "thumb": "cv5_thumb.png"
+ },
+ {
+  "id": "cv6",
+  "label": "Vorlage 6",
+  "ref": "cv6.png",
+  "thumb": "cv6_thumb.png"
+ },
+ {
+  "id": "cv7",
+  "label": "Vorlage 7",
+  "ref": "cv7.png",
+  "thumb": "cv7_thumb.png"
+ },
+ {
+  "id": "cv8",
+  "label": "Vorlage 8",
+  "ref": "cv8.png",
+  "thumb": "cv8_thumb.png"
+ },
+ {
+  "id": "cv9",
+  "label": "Vorlage 9",
+  "ref": "cv9.png",
+  "thumb": "cv9_thumb.png"
+ },
+ {
+  "id": "cv10",
+  "label": "Vorlage 10",
+  "ref": "cv10.png",
+  "thumb": "cv10_thumb.png"
+ },
+ {
+  "id": "cv11",
+  "label": "Vorlage 11",
+  "ref": "cv11.png",
+  "thumb": "cv11_thumb.png"
+ },
+ {
+  "id": "cv12",
+  "label": "Vorlage 12",
+  "ref": "cv12.png",
+  "thumb": "cv12_thumb.png"
+ },
+ {
+  "id": "cv13",
+  "label": "Vorlage 13",
+  "ref": "cv13.png",
+  "thumb": "cv13_thumb.png"
+ },
+ {
+  "id": "cv14",
+  "label": "Vorlage 14",
+  "ref": "cv14.png",
+  "thumb": "cv14_thumb.png"
+ },
+ {
+  "id": "cv15",
+  "label": "Vorlage 15",
+  "ref": "cv15.png",
+  "thumb": "cv15_thumb.png"
+ },
+ {
+  "id": "cv16",
+  "label": "Vorlage 16",
+  "ref": "cv16.png",
+  "thumb": "cv16_thumb.png"
+ },
+ {
+  "id": "cv17",
+  "label": "Vorlage 17",
+  "ref": "cv17.png",
+  "thumb": "cv17_thumb.png"
+ },
+ {
+  "id": "cv18",
+  "label": "Vorlage 18",
+  "ref": "cv18.png",
+  "thumb": "cv18_thumb.png"
+ },
+ {
+  "id": "cv19",
+  "label": "Vorlage 19",
+  "ref": "cv19.png",
+  "thumb": "cv19_thumb.png"
+ },
+ {
+  "id": "cv21",
+  "label": "Vorlage 21",
+  "ref": "cv21.png",
+  "thumb": "cv21_thumb.png"
+ },
+ {
+  "id": "cv25",
+  "label": "Vorlage 25",
+  "ref": "cv25.png",
+  "thumb": "cv25_thumb.png"
+ },
+ {
+  "id": "cv18v2",
+  "label": "Vorlage 18",
+  "ref": "cv18v2.png",
+  "thumb": "cv18v2_thumb.png"
+ },
+ {
+  "id": "cv27_1",
+  "label": "Vorlage 27.1",
+  "ref": "cv27_1.png",
+  "thumb": "cv27_1_thumb.png"
+ }
+]

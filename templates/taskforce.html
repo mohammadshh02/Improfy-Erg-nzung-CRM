@@ -1,0 +1,295 @@
+{% extends "basis.html" %}
+{% block titel %}Taskforce – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Taskforce</h1>
+<p class="unterzeile">
+  Job- und Wohnungs-Agenten je Kunde. Neue Treffer erscheinen hier, bis jemand aus der
+  Taskforce sie auf <em>angeschrieben</em> oder <em>verworfen</em> setzt.
+</p>
+
+{% if lauf and lauf.laeuft %}
+<div class="hinweis" id="laufanzeige">
+  <strong>Die Agenten laufen gerade.</strong> Gestartet {{ lauf.seit|zeit }} – bis zu zwei Minuten,
+  je nachdem wie schnell die Portale antworten. Diese Seite lädt sich von selbst neu, sobald er
+  fertig ist; du kannst inzwischen weiterarbeiten.
+</div>
+<script>setTimeout(function () { location.reload(); }, 15000);</script>
+{% elif lauf and lauf.ergebnis %}
+<div class="hinweis"><strong>Lauf fertig:</strong> {{ lauf.ergebnis }}</div>
+{% elif lauf and lauf.fehler %}
+<div class="warnung"><strong>Der Lauf ist gescheitert:</strong> {{ lauf.fehler }}</div>
+{% endif %}
+
+{% if meldungen %}
+<div class="hinweis">
+  {% for m in meldungen %}{{ m }}{{ '<br>'|safe if not loop.last }}{% endfor %}
+</div>
+{% endif %}
+
+<div class="gitter g4">
+  <div class="karte"><h3>Neue Angebote</h3>
+    <div class="zahl" {% if neu %}style="color:var(--rot)"{% endif %}>{{ neu }}</div>
+    <div class="marke">warten auf die Taskforce</div></div>
+  <div class="karte"><h3>Aktive Profile</h3>
+    <div class="zahl">{{ profile|selectattr('aktiv')|list|length }}</div>
+    <div class="marke">{{ profile|selectattr('art','equalto','job')|list|length }} Job ·
+      {{ profile|selectattr('art','equalto','wohnung')|list|length }} Wohnung</div></div>
+  <div class="karte"><h3>Angeschrieben</h3>
+    <div class="zahl">{{ profile|sum(attribute='angeschrieben') }}</div>
+    <div class="marke">Arbeitgeber und Vermieter</div></div>
+  <div class="karte"><h3>Agenten</h3>
+    <form method="post" action="{{ url_for('taskforce_lauf') }}" style="margin:0">
+      <button type="submit" {{ 'disabled' if not profile or (lauf and lauf.laeuft) }}>{{ 'läuft gerade …' if (lauf and lauf.laeuft) else 'alle jetzt laufen lassen' }}</button>
+    </form>
+    <div class="marke" style="margin-top:8px">{{ quellen|selectattr('bereit')|list|length }} von {{ quellen|length }} Quellen aktiv ·
+      Chat-Alarm {% if alarm %}<span class="plakette p-gruen">an</span>{% else %}<span class="plakette p-grau">aus</span>{% endif %}</div></div>
+</div>
+
+{% if wiedervorlage %}
+<h2>Wiedervorlage · seit mehr als {{ wv_tage }} Tagen keine Antwort</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>offen seit</th><th>Kunde</th><th>Angebot</th><th>Anbieter · Ort</th><th>Bearbeiter</th><th></th></tr>
+  {% for a in wiedervorlage %}
+  <tr>
+    <td><span class="plakette {{ 'p-rot' if a.tage_offen >= 14 else 'p-gelb' }}">{{ a.tage_offen }} Tage</span>
+        <div class="marke">{{ a.status_am|zeit }}</div></td>
+    <td><a href="{{ url_for('taskforce_kunde', kid=a.kunde_id) }}">{{ a.kunde }}</a>
+        <div class="marke"><span class="plakette {{ 'p-teal' if a.art=='job' else 'p-gelb' }}">{{ 'Job' if a.art=='job' else 'Wohnung' }}</span> {{ a.profil_titel }}</div></td>
+    <td><a href="{{ a.url }}" target="_blank" rel="noopener"><strong>{{ a.titel }}</strong></a>
+        {% if a.notiz %}<div class="marke">{{ a.notiz[:80] }}</div>{% endif %}</td>
+    <td>{{ a.anbieter or '—' }}<div class="marke">{{ a.ort or '' }}</div></td>
+    <td class="marke">{{ a.bearbeiter or '—' }}</td>
+    <td style="white-space:nowrap">
+      <form method="post" action="{{ url_for('taskforce_nachgefasst', aid=a.id) }}" style="display:inline;margin:0">
+        <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+        <input type="hidden" name="bearbeiter" value="{{ a.bearbeiter or '' }}">
+        <button class="knopf" style="padding:6px 12px">nachgefasst</button>
+      </form>
+      <form method="post" action="{{ url_for('taskforce_status', aid=a.id) }}" style="display:inline;margin:0">
+        <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+        <button name="status" value="antwort" class="knopf leise" style="padding:6px 12px">Antwort</button>
+        <button name="status" value="verworfen" class="knopf leise" style="padding:6px 12px">weg</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="marke" style="margin-top:8px">Die meisten Zusagen kommen erst nach dem zweiten Kontakt.
+  „nachgefasst" setzt die Uhr zurück, der Status bleibt angeschrieben.</p>
+{% endif %}
+
+{% if ohne_cv %}
+<div class="warnung"><strong>Ohne Lebenslauf im OS:</strong>
+  {% for o in ohne_cv %}<a href="{{ url_for('taskforce_kunde', kid=o.kunde_id) }}">{{ o.kunde }}</a>{{ ', ' if not loop.last }}{% endfor %}
+  – Lebenslauf verknüpfen (Drive-Link oder aus der Chat-Gruppe „CVs Köln"), sonst kann niemand bewerben.</div>
+{% endif %}
+
+<h2>Quellen</h2>
+<div class="karte" style="padding:12px 20px">
+  {% for q in quellen %}
+  <span class="plakette {{ 'p-gruen' if q.bereit else 'p-grau' }}" style="margin:4px 6px 4px 0" title="{{ q.schluessel }}">{{ 'Job' if q.art=='job' else 'Wohnung' }} · {{ q.name }}{% if not q.bereit %} – nicht verbunden{% endif %}</span>
+  {% endfor %}
+  <div class="marke" style="margin-top:8px">Nicht verbundene Quellen brauchen Zugangsdaten in der <code>.env</code>:
+    ImmoScout24-Postfach (TF_IMAP_HOST/USER/PASSWORT), Adzuna (ADZUNA_APP_ID/KEY), Jooble (JOOBLE_KEY).
+    Indeed, StepStone, meinestadt, Kleinanzeigen und die Bundesagentur laufen ohne Zugangsdaten.</div>
+</div>
+
+<h2>KPIs je Mitarbeiter</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Mitarbeiter</th><th class="zahl-sp">angeschrieben heute</th><th class="zahl-sp">Woche</th><th class="zahl-sp">Monat</th><th class="zahl-sp">gesamt</th>
+      <th class="zahl-sp">Antworten</th><th class="zahl-sp">Erfolge</th><th class="zahl-sp">Antwortquote</th><th class="zahl-sp">Erfolgsquote</th><th class="zahl-sp">offen (ohne Antwort)</th><th class="zahl-sp">verworfen</th></tr>
+  {% for k in kpi %}
+  <tr><td><strong>{{ k.wer }}</strong></td>
+      <td class="zahl-sp"><strong>{{ k.angeschrieben_heute }}</strong></td><td class="zahl-sp">{{ k.angeschrieben_woche }}</td>
+      <td class="zahl-sp">{{ k.angeschrieben_monat }}</td><td class="zahl-sp">{{ k.angeschrieben_gesamt }}</td>
+      <td class="zahl-sp">{{ k.antwort_gesamt }}</td><td class="zahl-sp">{{ k.erfolg_gesamt }}</td>
+      <td class="zahl-sp">{{ k.antwortquote ~ ' %' if k.antwortquote is not none else '—' }}</td>
+      <td class="zahl-sp">{{ k.erfolgsquote ~ ' %' if k.erfolgsquote is not none else '—' }}</td>
+      <td class="zahl-sp">{{ k.offen }}</td><td class="zahl-sp">{{ k.verworfen_gesamt }}</td></tr>
+  {% else %}
+  <tr><td colspan="11" class="leer">Noch keine Aktivität. Sobald jemand ein Angebot auf „angeschrieben" setzt, zählt es hier – Name im Feld „wer" wählen.</td></tr>
+  {% endfor %}
+</table>
+</div>
+<p class="marke" style="margin-top:8px">
+  Fürs CRM: <a href="{{ url_for('taskforce_api') }}">JSON aller Angebote</a> ·
+  <a href="{{ url_for('taskforce_api') }}?status=angeschrieben">nur angeschriebene</a> ·
+  <a href="{{ url_for('taskforce_api_kpi') }}">KPIs als JSON</a> ·
+  <a href="{{ url_for('taskforce_export_csv') }}">CSV-Export</a>
+</p>
+
+<h2>Angebote <span class="marke" style="text-transform:none;letter-spacing:0">– alle Regler wirken zusammen, Dubletten aus anderen Quellen sind ausgeblendet</span></h2>
+<form class="reglerbank" method="get">
+  <div class="reglerreihe">
+    <label>Kunde
+      <select name="kunde" onchange="this.form.submit()"><option value="">alle Kunden</option>
+        {% for p in profile|unique(attribute='kunde_id') %}<option value="{{ p.kunde_id }}" {{ 'selected' if filter.kunde_id==p.kunde_id }}>{{ p.kunde }}</option>{% endfor %}</select></label>
+    <label>Coach
+      <select name="coach" onchange="this.form.submit()"><option value="">alle</option>
+        {% for c in coaches %}<option value="{{ c.id }}" {{ 'selected' if filter.coach_id==c.id }}>{{ c.name }}</option>{% endfor %}</select></label>
+    <label>Art
+      <select name="art" onchange="this.form.submit()"><option value="">Job + Wohnung</option>
+        <option value="job" {{ 'selected' if filter.art=='job' }}>nur Jobs</option>
+        <option value="wohnung" {{ 'selected' if filter.art=='wohnung' }}>nur Wohnungen</option></select></label>
+    <label>Status
+      <select name="status" onchange="this.form.submit()">
+        {% for s in status_liste %}<option value="{{ s }}" {{ 'selected' if filter.status==s }}>{{ s }}</option>{% endfor %}
+        <option value="" {{ 'selected' if not filter.status }}>alle</option></select></label>
+    <label>Quelle
+      <select name="quelle" onchange="this.form.submit()"><option value="">alle Quellen</option>
+        {% for q in quellen %}<option value="{{ q.schluessel }}" {{ 'selected' if filter.quelle==q.schluessel }}>{{ q.name }}</option>{% endfor %}</select></label>
+    <label style="flex:1;min-width:180px">Suche
+      <input type="text" name="q" value="{{ filter.suche or '' }}" placeholder="Titel, Firma, Ort"></label>
+  </div>
+
+  <div class="reglerreihe">
+    <label>Relevanz ab
+      <select name="score" onchange="this.form.submit()"><option value="">egal</option>
+        {% for v in [3, 5, 6, 8] %}<option value="{{ v }}" {{ 'selected' if filter.min_score==v }}>{{ v }} von 10</option>{% endfor %}</select></label>
+    <label>Abgleich ab
+      <select name="match" onchange="this.form.submit()"><option value="">egal</option>
+        {% for v in [34, 50, 67, 100] %}<option value="{{ v }}" {{ 'selected' if filter.min_match==v }}>{{ v }} %</option>{% endfor %}</select></label>
+    <label>Umkreis
+      <select name="km" onchange="this.form.submit()"><option value="">egal</option>
+        {% for v in [5, 10, 15, 25, 50] %}<option value="{{ v }}" {{ 'selected' if filter.max_km==v }}>bis {{ v }} km</option>{% endfor %}</select></label>
+    <label>gefunden
+      <select name="tage" onchange="this.form.submit()"><option value="">alle</option>
+        {% for v, t in [(1,'heute'), (3,'3 Tage'), (7,'7 Tage'), (14,'14 Tage'), (30,'30 Tage')] %}
+        <option value="{{ v }}" {{ 'selected' if filter.seit_tage==v }}>letzte {{ t }}</option>{% endfor %}</select></label>
+    <label>sortiert nach
+      <select name="sort" onchange="this.form.submit()">
+        <option value="" {{ 'selected' if not filter.sortierung }}>Relevanz</option>
+        <option value="abgleich" {{ 'selected' if filter.sortierung=='abgleich' }}>Abgleich</option>
+        <option value="neu" {{ 'selected' if filter.sortierung=='neu' }}>zuletzt gefunden</option>
+        <option value="naehe" {{ 'selected' if filter.sortierung=='naehe' }}>Nähe</option></select></label>
+  </div>
+
+  {% if filter.art != 'wohnung' %}
+  <div class="reglerreihe">
+    <span class="reglertitel">Stellen</span>
+    <label>Arbeitszeit
+      <select name="arbeitszeit" onchange="this.form.submit()"><option value="">egal</option>
+        {% for code, name in arbeitszeiten %}<option value="{{ code }}" {{ 'selected' if filter.arbeitszeit==code }}>{{ name }}</option>{% endfor %}</select></label>
+    <label>Gehalt ab
+      <select name="gehalt" onchange="this.form.submit()"><option value="">egal</option>
+        {% for v in [1800, 2200, 2600, 3000, 3500] %}<option value="{{ v }}" {{ 'selected' if filter.min_gehalt==v }}>{{ v }} €</option>{% endfor %}</select></label>
+    <label class="reglerhaken"><input type="checkbox" name="quereinstieg" value="1" onchange="this.form.submit()" {{ 'checked' if filter.quereinstieg }}> nur Quereinstieg</label>
+  </div>
+  {% endif %}
+
+  {% if filter.art != 'job' %}
+  <div class="reglerreihe">
+    <span class="reglertitel">Wohnungen</span>
+    <label>Miete bis
+      <select name="miete" onchange="this.form.submit()"><option value="">egal</option>
+        {% for v in [500, 700, 900, 1100, 1400] %}<option value="{{ v }}" {{ 'selected' if filter.max_miete==v }}>{{ v }} €</option>{% endfor %}</select></label>
+    <label>Zimmer ab
+      <select name="zimmer" onchange="this.form.submit()"><option value="">egal</option>
+        {% for v in [1, 2, 3, 4, 5] %}<option value="{{ v }}" {{ 'selected' if filter.min_zimmer==v }}>{{ v }}</option>{% endfor %}</select></label>
+    <label>Fläche ab
+      <select name="flaeche" onchange="this.form.submit()"><option value="">egal</option>
+        {% for v in [40, 55, 70, 85, 100] %}<option value="{{ v }}" {{ 'selected' if filter.min_flaeche==v }}>{{ v }} m²</option>{% endfor %}</select></label>
+  </div>
+  {% endif %}
+
+  <div class="reglerreihe reglerfuss">
+    <button type="submit" class="btn btn-primary">filtern</button>
+    <a class="btn" href="{{ url_for('taskforce_seite') }}">alle Filter zurücksetzen</a>
+    <span class="marke">{{ neue|length }} von {{ zaehler.get(filter.status or 'neu', 0) }}
+      {{ filter.status or 'neuen' }}{% if zaehler.get('doppelt') %} · {{ zaehler.doppelt }} Dubletten ausgeblendet{% endif %}
+      · Angebote ohne Angabe bleiben stehen, damit nichts still verschwindet</span>
+  </div>
+</form>
+{% if neue %}
+<form method="post" action="{{ url_for('taskforce_sammel_status') }}" id="sammel">
+<input type="hidden" name="zurueck" value="{{ request.full_path }}">
+<div class="tabellenkasten">
+<table>
+  <tr><th><input type="checkbox" onclick="document.querySelectorAll('#sammel input[name=ids]').forEach(c=>c.checked=this.checked)"></th>
+      <th>Rel.</th><th>Kunde</th><th>Angebot</th><th>Anbieter · Ort</th><th>gefunden</th><th>Abgleich</th></tr>
+  {% for a in neue %}
+  <tr>
+    <td><input type="checkbox" name="ids" value="{{ a.id }}"></td>
+    <td><span class="plakette {{ 'p-gruen' if (a.score or 0) >= 6 else ('p-gelb' if (a.score or 0) >= 3 else 'p-grau') }}" title="Relevanz 0–10">{{ (a.score or 0)|round(0)|int }}</span></td>
+    <td><a href="{{ url_for('taskforce_kunde', kid=a.kunde_id) }}">{{ a.kunde }}</a>
+        <div class="marke"><span class="plakette {{ 'p-teal' if a.art=='job' else 'p-gelb' }}">{{ 'Job' if a.art=='job' else 'Wohnung' }}</span> {{ a.profil_titel }}</div></td>
+    <td><a href="{{ a.url }}" target="_blank" rel="noopener"><strong>{{ a.titel }}</strong></a>
+        {% set z = a|zusatz %}
+        <div class="marke">{{ [z.arbeitszeit, z.vertrag, z.gehalt, z.preis, z.zimmer and z.zimmer ~ ' Zi.', z.flaeche, a.quelle]|select|join(' · ') }}</div>
+        {% if a.beschreibung %}<div class="marke" style="max-width:420px">{{ a.beschreibung[:160] }}…</div>{% endif %}</td>
+    <td>{{ a.anbieter or '—' }}<div class="marke">{{ a.ort or '' }}{% if a.entfernung_km is not none %} · {{ a.entfernung_km }} km{% endif %}</div></td>
+    <td class="marke">{{ a.gefunden_am|zeit }}{% if a.veroeffentlicht %}<br>online seit {{ a.veroeffentlicht|datum }}{% endif %}</td>
+    <td style="max-width:220px">{% set ab = a|abgleich %}
+      {% if a.abgleich and not ab.fehler %}
+        {% if a.match is not none %}<span class="plakette {{ 'p-gruen' if a.match >= 67 else ('p-gelb' if a.match >= 34 else 'p-rot') }}" title="Anforderungen erfüllt">{{ a.match|int }} %</span>{% endif %}
+        {% if ab.passt %}<div class="marke" style="color:var(--gruen)">✓ {{ ab.passt|join(', ') }}</div>{% endif %}
+        {% if ab.fehlt %}<div class="marke" style="color:var(--rot)">✗ {{ ab.fehlt|join(', ') }}</div>{% endif %}
+        {% if ab.plus %}<div class="marke">+ {{ ab.plus|join(', ') }}</div>{% endif %}
+      {% else %}<span class="marke">—</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<div class="karte" style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <strong>Ausgewählte:</strong>
+  <select name="bearbeiter" required><option value="">wer?</option>{% for l in leute %}<option>{{ l }}</option>{% endfor %}</select>
+  <button name="status" value="angeschrieben">angeschrieben</button>
+  <button name="status" value="gesehen" class="knopf leise">gesehen</button>
+  <button name="status" value="verworfen" class="knopf leise">verwerfen</button>
+  <span class="marke">Häkchen setzen, Namen wählen, Knopf drücken – gilt für alle markierten Zeilen.</span>
+</div>
+</form>
+{% else %}
+<p class="leer">Nichts gefunden{% if filter.values()|select|list|length > 1 %} – die Filter sind eng gesetzt, <a href="{{ url_for('taskforce_seite') }}">zurücksetzen</a>{% endif %}. {% if not profile %}Lege beim Kunden ein Profil an – über die Kundenakte oder die Liste unten.{% endif %}</p>
+{% endif %}
+
+<h2>Profile</h2>
+<form class="filter" method="get" action="{{ url_for('taskforce_kunde_wahl') }}">
+  <select name="kid" required>
+    <option value="">Kunde wählen, um ein Profil anzulegen …</option>
+    {% for ku in kunden %}<option value="{{ ku.id }}">{{ ku.name }}</option>{% endfor %}
+  </select>
+  <button type="submit">Profil anlegen</button>
+</form>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Kunde</th><th>Art</th><th>Profil</th><th>Suche</th><th class="zahl-sp">neu</th><th class="zahl-sp">gesamt</th><th>letzter Lauf</th><th></th></tr>
+  {% for p in profile %}
+  <tr{% if not p.aktiv %} style="color:var(--leise)"{% endif %}>
+    <td><a href="{{ url_for('taskforce_kunde', kid=p.kunde_id) }}">{{ p.kunde }}</a>
+        <div class="marke">{{ p.coach or '' }}</div></td>
+    <td><span class="plakette {{ 'p-teal' if p.art=='job' else 'p-gelb' }}">{{ 'Job' if p.art=='job' else 'Wohnung' }}</span></td>
+    <td><a href="{{ url_for('taskforce_profil', pid=p.id) }}"><strong>{{ p.titel }}</strong></a>{% if not p.aktiv %} <span class="marke">(pausiert)</span>{% endif %}</td>
+    <td class="marke">{% if p.art=='job' %}{{ p.suchbegriffe }} · {{ p.ort }} +{{ p.umkreis_km }} km
+        {% else %}Suchauftrag „{{ p.suchauftrag or '—' }}" · {{ p.ort or '' }}{% if p.max_miete %} · bis {{ p.max_miete }} €{% endif %}{% endif %}</td>
+    <td class="zahl-sp">{% if p.neu %}<span class="plakette p-rot">{{ p.neu }}</span>{% else %}0{% endif %}</td>
+    <td class="zahl-sp">{{ p.gesamt }}</td>
+    <td class="marke">{{ p.letzter_lauf|zeit if p.letzter_lauf else 'noch nie' }}</td>
+    <td><form method="post" action="{{ url_for('taskforce_profil_lauf', pid=p.id) }}" style="margin:0">
+        <button class="knopf leise" style="padding:6px 12px">laufen lassen</button></form></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="leer">Noch keine Profile.</td></tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Letzte Läufe</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Zeitpunkt</th><th>Kunde</th><th>Profil</th><th>Quelle</th><th class="zahl-sp">gefunden</th><th class="zahl-sp">neu</th><th>Meldung</th></tr>
+  {% for l in laeufe %}
+  <tr><td class="marke">{{ l.zeitpunkt|zeit }}</td><td>{{ l.kunde or '—' }}</td><td>{{ l.titel or '—' }}</td>
+      <td><span class="plakette p-grau">{{ l.quelle }}</span></td>
+      <td class="zahl-sp">{{ l.gefunden }}</td><td class="zahl-sp">{{ l.neu }}</td>
+      <td style="color:var(--{{ 'rot' if l.meldung else 'leise' }})">{{ l.meldung or 'ok' }}</td></tr>
+  {% else %}
+  <tr><td colspan="7" class="leer">Noch kein Lauf.</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

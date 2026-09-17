@@ -1,0 +1,56 @@
+{# Kunde auf Abruf – Stammdaten, Lebensläufe, Kurzprofil. Erwartet kunde (tf.kunden_info). #}
+<div class="gitter g2">
+  <div class="karte">
+    <h3>Kunde auf Abruf</h3>
+    <dl class="paare">
+      <dt>Status</dt><dd>{{ kunde.status_code or '?' }} – {{ kunde.status_text }}{% if kunde.massnahme %} · {{ kunde.massnahme }}{% endif %}</dd>
+      <dt>Sprache</dt><dd>{{ kunde.sprache or '—' }}</dd>
+      <dt>Telefon</dt><dd>{{ kunde.telefon or '—' }}</dd>
+      <dt>E-Mail</dt><dd>{{ kunde.email or '—' }}</dd>
+      <dt>Jobcenter / Ort</dt><dd>{{ kunde.jobcenter or kunde.ort_jc or '—' }}{% if kunde.stadt %} · {{ kunde.plz or '' }} {{ kunde.stadt }}{% endif %}</dd>
+      <dt>Kundennummer</dt><dd>{{ kunde.kundennummer or '—' }}</dd>
+      <dt>Coach</dt><dd>{{ kunde.coach or '—' }}</dd>
+      <dt>Gutschein</dt><dd>{{ kunde.gutschein_status or '—' }}{% if kunde.gutschein_nr %} · {{ kunde.gutschein_nr }}{% endif %}</dd>
+      {% if kunde.naechster_schritt %}<dt>Nächster Schritt</dt><dd>{{ kunde.naechster_schritt }}</dd>{% endif %}
+      {% if kunde.hinweis %}<dt>Hinweis</dt><dd>{{ kunde.hinweis }}</dd>{% endif %}
+      <dt>Akte</dt><dd><a href="{{ url_for('kunde_detail', kid=kunde.id) }}">Kundenakte</a>
+        {% if kunde.drive_id %} · <a href="https://drive.google.com/drive/u/1/folders/{{ kunde.drive_id }}" target="_blank" rel="noopener">Drive-Ordner</a>{% endif %}</dd>
+    </dl>
+  </div>
+  <div class="karte">
+    <h3>Lebenslauf</h3>
+    {% if kunde.lebenslaeufe %}
+    <table>
+      {% for l in kunde.lebenslaeufe %}
+      <tr><td><a href="{{ l.url }}" target="_blank" rel="noopener"><strong>{{ l.name }}</strong></a>
+              <div class="marke">{{ l.geaendert|datum if l.geaendert else '' }} · {{ {'ordner':'aus dem Kundenordner','register':'aus dem Kundenordner','name':'über den Namen zugeordnet','hand':'von Hand verknüpft'}.get(l.zugeordnet_ueber, '') }}</div></td>
+          <td style="text-align:right;white-space:nowrap">
+            <form method="post" action="{{ url_for('taskforce_lebenslauf_loesen', lid=l.id) }}" style="margin:0">
+              <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+              <button class="knopf leise" style="padding:4px 10px" onclick="return confirm('Zuordnung lösen? Die Datei bleibt in Drive.')">falsch zugeordnet</button></form></td></tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="warnung" style="margin:0 0 10px"><strong>Kein Lebenslauf im OS.</strong> Ohne Lebenslauf kann die Taskforce nicht bewerben –
+      Link aus Drive oder aus der Chat-Gruppe „CVs Köln" hier eintragen.</div>
+    {% endif %}
+    <p style="margin:8px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('lebenslauf_formular', kid=kunde.id) }}">Lebenslauf bauen (Excel-Vorlage)</a>
+      <span class="marke" style="margin-left:6px">füllt die Improfy-Vorlage mit den Daten aus dem OS</span></p>
+    <form method="post" action="{{ url_for('taskforce_lebenslauf_neu', kid=kunde.id) }}" class="filter" style="margin:8px 0 0">
+      <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+      <input type="text" name="url" required placeholder="https://drive.google.com/file/d/…" style="flex:1;min-width:240px">
+      <input type="text" name="name" placeholder="Bezeichnung" style="width:160px">
+      <button type="submit">Lebenslauf verknüpfen</button>
+    </form>
+    <details style="margin-top:14px" {{ 'open' if not kunde.profil.get('kurzprofil') }}>
+      <summary><strong>Kurzprofil für den Abgleich</strong> <span class="marke">– {{ 'hinterlegt' if kunde.profil.get('kurzprofil') or kunde.profil.get('cv_text') else 'fehlt noch' }}</span></summary>
+      <form method="post" action="{{ url_for('taskforce_kurzprofil', kid=kunde.id) }}" style="margin-top:8px">
+        <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+        <textarea name="kurzprofil" rows="3" placeholder="Stichworte: Führerschein B, Deutsch B1, Schicht möglich, 3 Jahre Lager, Staplerschein, …" style="width:100%;border:1px solid var(--rand-stark);border-radius:12px;padding:10px 14px;font:inherit;color:var(--text);background:var(--karte)">{{ kunde.profil.get('kurzprofil') or '' }}</textarea>
+        <textarea name="cv_text" rows="3" placeholder="Optional: Text des Lebenslaufs hier einfügen (aus dem PDF kopieren) – dann gleicht der Agent jede Stelle dagegen ab." style="width:100%;margin-top:8px;border:1px solid var(--rand-stark);border-radius:12px;padding:10px 14px;font:inherit;color:var(--text);background:var(--karte)">{{ kunde.profil.get('cv_text') or '' }}</textarea>
+        <p style="margin:8px 0 0"><button type="submit">Kurzprofil speichern</button>
+          <span class="marke">Der Agent liest daraus: Führerschein, Sprachniveau, Schicht, Stapler, Ausbildung, Erfahrung, 34a, PC …</span></p>
+      </form>
+    </details>
+  </div>
+</div>

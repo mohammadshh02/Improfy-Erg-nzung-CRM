@@ -1,0 +1,11 @@
+# Passwort und Tokens
+.env
+# Datenbank enthaelt personenbezogene Kundendaten
+*.db
+# Ein- und ausgehende Dateien bleiben lokal
+exporte/*
+!exporte/.gitkeep
+ausgabe/*
+!ausgabe/.gitkeep
+__pycache__/
+sicherungen/

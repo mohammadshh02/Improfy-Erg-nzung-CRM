@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<style>
+  @page { size:A4; margin: 15mm 16mm 15mm 16mm; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; color:#2c352f;
+    font-family:-apple-system,"Helvetica Neue","Segoe UI",Arial,sans-serif; font-size:12.5px; line-height:1.55; }
+  :root{ --dark:#0f5c3f; --lime:#5bbf3c; --gray:#8a938d; --ink:#26302a; --line:#e4eae5; }
+
+  .top{ display:flex; align-items:flex-start; gap:22px; border-bottom:3px solid var(--dark); padding-bottom:14px; }
+  .top .l{ flex:1; }
+  .top .name{ font-size:34px; font-weight:800; color:var(--ink); line-height:1.05; letter-spacing:.3px; }
+  .top .name b{ color:var(--dark); }
+  .top .role{ color:var(--dark); font-weight:700; font-size:14px; letter-spacing:2px; text-transform:uppercase; margin-top:5px; }
+  .top .logo{ height:26px; margin-top:4px; }
+  .top .photo, .top .ph{ width:118px; height:145px; flex:0 0 118px; object-fit:cover; display:block;
+    border-radius:8px; border:1px solid var(--line); }
+  .top .ph{ background:#eef1f4; }
+
+  .contact{ display:flex; flex-wrap:wrap; gap:5px 22px; margin:11px 0 2px; font-size:12px; color:#44504a; }
+  .contact .l{ color:var(--dark); font-weight:700; }
+
+  h2{ color:var(--dark); font-size:14px; font-weight:800; text-transform:uppercase; letter-spacing:1.4px;
+      margin:20px 0 9px; padding-bottom:5px; border-bottom:1px solid var(--line); }
+  h2::before{ content:""; display:inline-block; width:14px; height:3px; background:var(--lime);
+      vertical-align:middle; margin-right:8px; border-radius:2px; }
+  h3.sub{ color:var(--gray); font-size:12px; text-transform:uppercase; letter-spacing:1px; margin:12px 0 5px; font-weight:800; }
+
+  .um p{ margin:0 0 8px; } .um p:last-child{ margin:0; }
+  .block{ margin:0 0 12px; break-inside:avoid; }
+  .block .t{ font-weight:800; color:var(--ink); }
+  .block .t .zr{ color:var(--dark); }
+  .block ul{ margin:4px 0 0 17px; padding:0; }
+  .block li{ margin:2px 0; } .block li::marker{ color:var(--lime); }
+  .kv{ display:flex; gap:12px; margin:4px 0; break-inside:avoid; }
+  .kv .k{ font-weight:700; min-width:190px; color:var(--ink); }
+  .stars{ color:var(--lime); letter-spacing:1px; }
+  .foot{ margin-top:18px; padding-top:8px; border-top:1px solid var(--line); color:var(--gray); font-size:10.5px; text-align:center; }
+</style></head>
+<body>
+  <div class="top">
+    <div class="l">
+      <div class="name">{{ d.vorname }} <b>{{ d.nachname }}</b></div>
+      {% if d.angestrebter_job %}<div class="role">{{ d.angestrebter_job }}</div>{% endif %}
+      {% if logo %}<img class="logo" src="{{ logo }}">{% endif %}
+    </div>
+    {% if foto %}<img class="photo" src="{{ foto }}">{% else %}<div class="ph"></div>{% endif %}
+  </div>
+
+  <div class="contact">
+    {% if d.geburtsdatum %}<span><span class="l">Geboren</span> {{ d.geburtsdatum }}</span>{% endif %}
+    {% if d.adresse %}<span><span class="l">Adresse</span> {{ d.adresse }}</span>{% endif %}
+    {% if d.mobil %}<span><span class="l">Telefon</span> {{ d.mobil }}</span>{% endif %}
+    {% if d.email %}<span><span class="l">E-Mail</span> {{ d.email }}</span>{% endif %}
+  </div>
+
+  {% if d.ueber_mich %}
+  <h2>Über mich</h2>
+  <div class="um">{% for p in d.ueber_mich.split('\n\n') %}<p>{{ p.replace('\n',' ')|trim }}</p>{% endfor %}</div>
+  {% endif %}
+
+  {% if beruf %}
+  <h2>Berufserfahrung</h2>
+  {% for b in beruf %}
+  <div class="block">
+    <div class="t">{% if b.zeitraum %}<span class="zr">({{ b.zeitraum }})</span> {% endif %}{{ b.jobtitel }}{% if b.firma %} | {{ b.firma }}{% endif %}</div>
+    {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if d.edv_kenntnisse or d.soft_skills %}
+  <h2>Persönliche Qualifikation</h2>
+  {% if d.edv_kenntnisse %}<h3 class="sub">EDV-Kenntnisse</h3>
+  {% for k in d.edv_kenntnisse %}<div class="kv"><span class="k">{{ k.programm }}</span><span>{{ niveau(k.sterne) }}</span></div>{% endfor %}{% endif %}
+  {% if d.soft_skills %}<h3 class="sub">Stärken</h3>
+  {% for k in d.soft_skills %}<div class="kv"><span class="k">{{ k.eigenschaft }}</span><span class="stars">{{ '★' * k.sterne }}{{ '☆' * (5 - k.sterne) }}</span></div>{% endfor %}{% endif %}
+  {% endif %}
+
+  {% if d.bildung or d.zusatzqualifikationen %}
+  <h2>Schul- &amp; Ausbildung</h2>
+  {% for e in d.bildung %}<div class="block"><div class="t">{% if e.zeitraum %}<span class="zr">({{ e.zeitraum }})</span> {% endif %}{{ e.abschluss }}{% if e.institution %} | {{ e.institution }}{% endif %}</div></div>{% endfor %}
+  {% for z in d.zusatzqualifikationen %}<div class="block"><div class="t">{{ z }}</div></div>{% endfor %}
+  {% endif %}
+
+  {% if d.sprachen %}
+  <h2>Sprachkenntnisse</h2>
+  {% for s in d.sprachen %}<div class="kv"><span class="k">{{ s.sprache }}</span><span>{{ s.niveau }}</span></div>{% endfor %}
+  {% endif %}
+
+  <div class="foot">Improfy GmbH · www.improfy.de · In 4 Schritten zum beruflichen Neustart</div>
+</body></html>

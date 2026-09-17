@@ -1,0 +1,80 @@
+{% extends "basis.html" %}
+{% block titel %}Übersicht – Improfy-Ergänzung{% endblock %}
+{% block inhalt %}
+<h1>Ergänzung zum CRM</h1>
+<p class="unterzeile">Vier Abteilungen, die das CRM nicht hat: Taskforce, Lebenslauf,
+  Vertriebstrichter und Mitarbeiter-Spur. Alles andere – Kunden, Termine, Unterrichtseinheiten,
+  Dokumente, Abrechnung – bleibt im CRM.</p>
+
+{% if aufgaben.gesamt %}
+<div class="karte" style="margin-bottom:16px;border-left:4px solid var({{ '--rot' if aufgaben.rot else '--gelb' }})">
+  <h3 style="margin:0 0 4px">Heute zu tun: {{ aufgaben.gesamt }} Aufgaben</h3>
+  <p class="marke" style="margin:0 0 12px">{{ aufgaben.rot }} dringend (Geld oder Frist) ·
+    {{ aufgaben.gelb }} blockiert · {{ aufgaben.grau }} später.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% for e in aufgaben_coach[:6] %}
+    <a class="knopf leise" style="padding:6px 12px" href="{{ url_for('aufgaben_seite', coach=e.coach) }}">
+      {{ e.coach }} <strong>{{ e.gesamt }}</strong>{% if e.rot %} <span style="color:var(--rot)">· {{ e.rot }} dringend</span>{% endif %}</a>
+    {% endfor %}
+    <a class="btn btn-primary" href="{{ url_for('aufgaben_seite') }}">alle Aufgaben</a>
+  </div>
+</div>
+{% endif %}
+
+<div class="gitter g4">
+  <div class="karte"><h3>Taskforce</h3>
+    <div class="zahl" {% if tf_neu %}style="color:var(--rot)"{% endif %}>{{ tf_neu }}</div>
+    <div class="marke">neue Angebote · {{ tf_profile }} aktive Profile</div>
+    <p style="margin:10px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('taskforce_seite') }}">öffnen</a></p></div>
+  <div class="karte"><h3>Lebensläufe</h3>
+    <div class="zahl">{{ cv_kunden }}</div>
+    <div class="marke">Kunden · {{ cv_vorhanden }} mit Lebenslauf</div>
+    <p style="margin:10px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('lebenslauf_uebersicht') }}">öffnen</a></p></div>
+  <div class="karte"><h3>Vertriebstrichter</h3>
+    <div class="zahl" {% if vertrieb.haengen %}style="color:var(--gelb)"{% endif %}>{{ vertrieb.haengen }}</div>
+    <div class="marke">hängende Anträge · {{ vertrieb.raus }} raus</div>
+    <p style="margin:10px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('trichter_seite') }}">öffnen</a></p></div>
+  <div class="karte"><h3>Mitarbeiter-Spur</h3>
+    <div class="zahl">{{ spur.personen }}</div>
+    <div class="marke">aktiv in 30 Tagen · {{ spur.aktionen }} Änderungen</div>
+    <p style="margin:10px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('aktivitaet_seite') }}">öffnen</a></p></div>
+</div>
+
+<h2>Stand der Anbindung</h2>
+<div class="karte">
+  <table>
+    <tr><th>Was</th><th>Stand</th></tr>
+    <tr><td>Quellen der Taskforce</td>
+        <td>{{ quellen_bereit }} von {{ quellen_gesamt }} verbunden</td></tr>
+    <tr><td>Kommo (WhatsApp-Anfragen)</td>
+        <td>{% if kommo %}<span class="plakette p-gruen">verbunden</span>{% else %}<span class="plakette p-grau">KOMMO_TOKEN fehlt in der .env</span>{% endif %}</td></tr>
+    <tr><td>ImmoScout24-Postfach</td>
+        <td>{% if imap %}<span class="plakette p-gruen">verbunden</span>{% else %}<span class="plakette p-grau">TF_IMAP_* fehlt in der .env</span>{% endif %}</td></tr>
+    <tr><td>Nächtlicher Lauf und Sicherung</td>
+        <td>{% if betrieb_laeuft %}<span class="plakette p-gruen">läuft</span>{% else %}<span class="plakette p-grau">aus</span>{% endif %}
+            <span class="marke">Agenten {{ lauf_uhrzeit }} · Sicherung {{ sicherung_uhrzeit }}</span></td></tr>
+    <tr><td>Schnittstelle zum CRM</td>
+        <td><span class="plakette p-gelb">offen</span>
+            <span class="marke">braucht vom CRM: eine lesende Schnittstelle und einen Weg, fertige PDFs in die Ablage zu legen</span></td></tr>
+  </table>
+</div>
+
+<h2>Was dieses Paket dem CRM hinzufügt</h2>
+<div class="karte">
+  <table>
+    <tr><th>Abteilung</th><th>Warum sie hier ist</th></tr>
+    <tr><td><strong>Taskforce</strong></td>
+        <td class="marke">Modul 4 „Jobmatch" beschreibt Stellenrecherche und aktive Ansprache, das CRM
+          hat aber kein Werkzeug dafür. Das Pflichtdokument <em>Vermittlungsaktivitäten</em> entsteht
+          hier von selbst. Die Wohnungssuche gehört zu All Care § 16k.</td></tr>
+    <tr><td><strong>Lebenslauf</strong></td>
+        <td class="marke">Im CRM ist der Lebenslauf ein Pflichtdokument mit einem Hochladen-Knopf –
+          erstellt wird er dort nicht. Hier entsteht er aus den alten Unterlagen.</td></tr>
+    <tr><td><strong>Vertriebstrichter</strong></td>
+        <td class="marke">Das CRM beginnt bei „Kunde anlegen". Anfrage, Antrag und Bewilligung
+          liegen davor – die Strecke, die ein Standortleiter täglich steuert.</td></tr>
+    <tr><td><strong>Mitarbeiter-Spur</strong></td>
+        <td class="marke">Das CRM führt Nutzer und Kundenzahlen, aber nicht, was jemand getan hat.</td></tr>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,89 @@
+{% extends "basis.html" %}
+{% block titel %}Konten – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Konten</h1>
+<p class="unterzeile">Jede Person meldet sich mit eigenem Namen an. Damit trägt jede Änderung
+  im Protokoll die Person, die sie gemacht hat – und die Zahlen im Monatsblatt sind Nachweis
+  statt Selbstauskunft.</p>
+
+{% if fehler %}<div class="warnung"><p style="margin:0">{{ fehler }}</p></div>{% endif %}
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+
+{% if not benutzer %}
+<div class="hinweis">
+  <strong>Noch arbeitet das OS mit einem gemeinsamen Passwort.</strong>
+  Sobald hier das erste Konto steht, meldet sich jede Person persönlich an – das gemeinsame
+  Passwort gilt dann nicht mehr. Lege zuerst dein eigenes Konto als <em>Leitung</em> an,
+  sonst sperrst du dich aus.
+</div>
+{% endif %}
+
+<h2>Neues Konto</h2>
+<div class="karte">
+  <form method="post" action="{{ url_for('konten_anlegen') }}">
+    <dl class="paare">
+      <dt>Anmeldename</dt><dd><input type="text" name="anmeldename" required placeholder="vorname" style="width:220px">
+        <span class="marke">klein geschrieben, ohne Leerzeichen</span></dd>
+      <dt>Name</dt><dd><input type="text" name="name" required placeholder="Vorname Nachname" style="width:100%"></dd>
+      <dt>Passwort</dt><dd><input type="password" name="passwort" required minlength="8" autocomplete="new-password" style="width:220px">
+        <span class="marke">mindestens 8 Zeichen</span></dd>
+      <dt>Rolle</dt><dd><select name="rolle">
+        {% for schluessel, text in rollen %}<option value="{{ schluessel }}" {{ 'selected' if schluessel=='mitarbeiter' }}>{{ text }}</option>{% endfor %}
+      </select></dd>
+      <dt>Gehört zu</dt><dd><select name="mitarbeiter_id"><option value="">— kein Mitarbeitersatz —</option>
+        {% for l in leute %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select>
+        <span class="marke">verbindet das Konto mit dem Monatsblatt dieser Person</span></dd>
+    </dl>
+    <p style="margin:12px 0 0"><button type="submit" class="btn btn-primary">Konto anlegen</button></p>
+  </form>
+</div>
+
+<h2>Bestehende Konten</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Name</th><th>Anmeldename</th><th>Rolle</th><th>Mitarbeiter</th><th>zuletzt angemeldet</th><th>Status</th><th></th></tr>
+  {% for b in benutzer %}
+  <tr{% if not b.aktiv %} style="color:var(--leise)"{% endif %}>
+    <td><strong>{{ b.name }}</strong>{% if b.id == ich.id %} <span class="marke">(das bist du)</span>{% endif %}</td>
+    <td class="marke">{{ b.anmeldename }}</td>
+    <td>
+      <form method="post" action="{{ url_for('konten_aendern', bid=b.id) }}" style="margin:0">
+        <input type="hidden" name="was" value="rolle">
+        <select name="rolle" onchange="this.form.submit()">
+          {% for schluessel, text in rollen %}<option value="{{ schluessel }}" {{ 'selected' if b.rolle==schluessel }}>{{ schluessel }}</option>{% endfor %}
+        </select></form></td>
+    <td class="marke">{{ b.mitarbeiter or '—' }}</td>
+    <td class="marke">{{ b.letzte_anmeldung|zeit if b.letzte_anmeldung else 'noch nie' }}</td>
+    <td>{% if b.aktiv %}<span class="plakette p-gruen">aktiv</span>{% else %}<span class="plakette p-grau">gesperrt</span>{% endif %}</td>
+    <td style="white-space:nowrap">
+      <form method="post" action="{{ url_for('konten_aendern', bid=b.id) }}" style="display:inline;margin:0">
+        <input type="hidden" name="was" value="passwort">
+        <input type="password" name="passwort" placeholder="neues Passwort" minlength="8" style="width:150px;padding:6px 10px">
+        <button class="knopf leise" style="padding:6px 12px">setzen</button></form>
+      <form method="post" action="{{ url_for('konten_aendern', bid=b.id) }}" style="display:inline;margin:0">
+        <input type="hidden" name="was" value="{{ 'sperren' if b.aktiv else 'freigeben' }}">
+        <button class="knopf leise" style="padding:6px 12px">{{ 'sperren' if b.aktiv else 'freigeben' }}</button></form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="leer">Noch kein Konto angelegt.</td></tr>
+  {% endfor %}
+</table>
+</div>
+<p class="marke" style="margin-top:8px">Konten werden gesperrt, nicht gelöscht – sonst verlieren
+  alte Protokollzeilen ihren Bezug, und genau die braucht man bei einer Prüfung.</p>
+
+{% if aktive %}
+<h2>Wer arbeitet im OS <span class="marke" style="text-transform:none;letter-spacing:0">– gezählte Änderungen der letzten 30 Tage</span></h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Person</th><th class="zahl-sp">Änderungen</th><th>zuletzt</th></tr>
+  {% for a in aktive %}
+  <tr><td>{{ a.benutzer }}</td><td class="zahl-sp">{{ a.aenderungen }}</td>
+      <td class="marke">{{ a.zuletzt|zeit }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+<p class="marke" style="margin-top:8px"><a href="{{ url_for('protokoll_seite') }}">Vollständiges Änderungsprotokoll →</a></p>
+{% endif %}
+{% endblock %}

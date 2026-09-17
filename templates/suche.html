@@ -1,0 +1,35 @@
+{% extends "basis.html" %}
+{% block titel %}Suche: {{ q }} – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Suche</h1>
+<p class="unterzeile">{{ gesamt }} Treffer für „{{ q }}" – über Kunden, Mitarbeiter, Angebote,
+  Lebensläufe und Leads hinweg.</p>
+
+<form class="reglerbank" method="get" action="{{ url_for('suche_seite') }}">
+  <div class="reglerreihe reglerfuss">
+    <input type="text" name="q" value="{{ q }}" placeholder="Name, Telefon, Firma, Ort, Kundennummer"
+           style="flex:1;min-width:260px" autofocus>
+    <button type="submit" class="btn btn-primary">suchen</button>
+  </div>
+</form>
+
+{% if not gesamt %}
+<p class="leer">Nichts gefunden. Gesucht wird in Namen, Telefonnummern, E-Mail-Adressen,
+  Kundennummern, Jobcentern, Angebotstiteln und Firmen.</p>
+{% endif %}
+
+{% for gruppe in gruppen if gruppe.treffer %}
+<h2>{{ gruppe.titel }} <span class="marke" style="text-transform:none;letter-spacing:0">– {{ gruppe.treffer|length }}{% if gruppe.mehr %} von {{ gruppe.mehr }}{% endif %}</span></h2>
+<div class="tabellenkasten">
+<table>
+  {% for t in gruppe.treffer %}
+  <tr>
+    <td><a href="{{ t.link }}"><strong>{{ t.titel }}</strong></a>
+        {% if t.unter %}<div class="marke">{{ t.unter }}</div>{% endif %}</td>
+    <td class="marke" style="text-align:right;white-space:nowrap">{{ t.rechts or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endfor %}
+{% endblock %}

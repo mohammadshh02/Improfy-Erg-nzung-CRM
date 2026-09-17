@@ -1,0 +1,224 @@
+/* Improfy-OS – Gestaltung 1:1 nach dem Improfy-CRM (crm.improfy.de, Stand 16.09.2026).
+   Übernommen sind die Design-Tokens des CRM (Farben, Schriften General Sans + IBM Plex Mono, Radien,
+   Schatten), die Struktur Sidebar (Pine-Verlauf) + Topbar + Inhalt sowie Karten, Tabellen, Pillen,
+   Buttons und Formulare. Die alten OS-Klassennamen (karte, plakette, zahl, …) bleiben, damit die
+   Seiten unverändert funktionieren; sie sind hier auf die CRM-Optik abgebildet. */
+:root{
+  /* CRM-Tokens (identisch mit app.css des CRM) */
+  --bg:#eff7f1; --surface:#ffffff; --surface-2:#f5faf6;
+  --ink:#0f0e0f; --heading:#074032; --muted:#5c5f5d;
+  --line:#d6e0da; --line-strong:#b6c3ba;
+  --pine:#145243; --pine-2:#074032; --pine-text:#c2ddd0;
+  --accent:#43e06a; --accent-ink:#074032; --accent-soft:#ddf7e5; --pill-green:#84faa1;
+  --amber:#B45309; --amber-soft:#F6EBDC; --red:#B3372B; --red-soft:#F6E3E0;
+  --blue:#2C5D8F; --blue-soft:#E2EBF4;
+  --font-ui:"General Sans",system-ui,-apple-system,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --radius:18px; --radius-sm:10px; --radius-pill:999px;
+  --shadow:0 1px 2px rgba(7,64,50,.05),0 4px 16px rgba(7,64,50,.05);
+  --shadow-pop:0 4px 12px rgba(7,64,50,.12),0 16px 48px rgba(7,64,50,.18);
+  --sidebar-w:232px;
+
+  /* Alias-Namen der OS-Vorlagen (inline var(--…) in den Seiten) */
+  --primaer:var(--accent-ink); --primaer-dunkel:var(--pine); --mint:var(--accent-soft); --mint-rand:#c6ecd2;
+  --wash:var(--surface-2); --grund:var(--bg); --karte:var(--surface); --rand:var(--line); --rand-stark:var(--line-strong);
+  --text:var(--ink); --leise:var(--muted); --schatten:var(--shadow); --schatten-hoch:var(--shadow-pop);
+  --rot:var(--red); --rot-bg:var(--red-soft); --gelb:var(--amber); --gelb-bg:var(--amber-soft);
+  --gruen:#1e7e46; --gruen-bg:var(--accent-soft); --grau:#45505a; --grau-bg:#e4e7ea;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%}
+body{font-family:var(--font-ui);font-size:14.5px;line-height:1.5;letter-spacing:-.2px;color:var(--ink);background:var(--bg)}
+h1,h2,h3,h4{margin:0;font-weight:600;letter-spacing:-.01em;color:var(--heading)}
+a{color:var(--accent-ink);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ------------------------------------------------------------- Gerüst */
+.shell{display:grid;grid-template-columns:var(--sidebar-w) 1fr;min-height:100vh}
+.sidebar{background:linear-gradient(178deg,var(--pine) 0%,var(--pine-2) 100%);color:var(--pine-text);
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,.08)}
+.brand-link{display:block;color:#fff}
+.improfy-logo{display:block;height:34px;width:auto;color:#fff}
+.improfy-smile{display:none;height:12px;width:auto}
+.brand-sub{font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.18em;color:#7fa396;margin-top:2px}
+.sidebar-nav{padding:14px 10px;display:flex;flex-direction:column;gap:2px;flex:1;overflow:auto}
+.nav-item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:var(--radius-sm);color:var(--pine-text);
+  text-decoration:none;font-weight:480;border:none;background:transparent;cursor:pointer;text-align:left;width:100%;transition:background .12s ease}
+.nav-item svg{flex:0 0 auto;opacity:.75}
+.nav-item:hover{background:#ffffff12;color:#fff;text-decoration:none}
+.nav-item.active{background:#ffffff1f;color:#fff;font-weight:600}
+.nav-item.active svg{opacity:1}
+.sidebar-foot{padding:14px 16px 18px;border-top:1px solid rgba(255,255,255,.08);font-size:12.5px}
+.user-chip{display:flex;align-items:center;gap:10px;width:100%;background:transparent;border:none;cursor:pointer;padding:6px;
+  border-radius:var(--radius-sm);color:var(--pine-text);text-align:left;text-decoration:none}
+.user-chip:hover{background:#ffffff12;text-decoration:none}
+.avatar{width:32px;height:32px;border-radius:50%;background:#0d3f33;color:var(--pill-green);display:grid;place-items:center;
+  font-weight:600;font-size:12px;flex:0 0 auto}
+.user-chip .u-name{color:#fff;font-weight:560;line-height:1.25}
+.user-chip .u-role{color:#7fa396;font-size:11.5px}
+.main{min-width:0;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 28px;border-bottom:1px solid var(--line);
+  background:var(--bg);position:sticky;top:0;z-index:20}
+.page-title{font-size:19px;font-stretch:112%}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.content{padding:24px 28px 48px;max-width:1240px;width:100%}
+@media (max-width:900px){
+  :root{--sidebar-w:62px}
+  .brand{padding:18px 0;text-align:center}
+  .sidebar .improfy-logo,.sidebar .brand-sub,.nav-item span,.user-chip .u-txt{display:none}
+  .sidebar .improfy-smile{display:block;margin:0 auto}
+  .nav-item{justify-content:center;padding:11px 0}
+  .user-chip{justify-content:center}
+  .content,.topbar{padding-left:16px;padding-right:16px}
+}
+@media print{.sidebar,.topbar{display:none!important}.shell{display:block}.content{padding:0;max-width:none}body{background:#fff}}
+
+/* ----------------------------------------------------------- Überschriften */
+.content h1{font-size:24px;font-stretch:112%;margin:0 0 4px}
+.content h2{font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);
+  font-weight:500;margin:28px 0 12px}
+.unterzeile{color:var(--muted);font-size:13.5px;margin:0 0 20px}
+.marke{font-size:12px;color:var(--muted);margin-top:3px}
+.mono{font-family:var(--font-mono);font-size:.93em;letter-spacing:0}
+
+/* ---------------------------------------------------------------- Raster */
+.gitter{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(380px,1fr))}
+
+.karte,.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:15px 17px;box-shadow:var(--shadow)}
+.karte h3{margin:0;font-family:var(--font-mono);font-size:10.5px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.14em}
+.karte h3+*:not(.zahl){margin-top:8px}
+.zahl{font-family:var(--font-mono);font-size:27px;font-weight:600;line-height:1.15;letter-spacing:0;color:var(--heading);margin-top:7px}
+.zahl.klein{font-size:20px}
+
+/* -------------------------------------------------------------- Tabellen */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);
+   font-weight:500;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:transparent}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--surface-2)}
+td.zahl-sp,th.zahl-sp{text-align:right}
+.tabellenkasten{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:auto;box-shadow:var(--shadow)}
+.tabellenkasten table{min-width:100%}
+
+/* ---------------------------------------------------------------- Ampeln */
+.punkt{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+.rot{background:var(--red)} .gelb{background:var(--amber)} .gruen{background:var(--accent)} .grau{background:var(--line-strong)}
+
+.plakette,.pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:560;white-space:nowrap;letter-spacing:0;max-width:100%}
+.plakette:before,.pill:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 auto}
+td .plakette{white-space:normal;line-height:1.3}
+.p-rot{background:var(--red-soft);color:var(--red)}
+.p-gelb{background:var(--amber-soft);color:var(--amber)}
+.p-gruen{background:var(--accent-soft);color:var(--accent-ink)}
+.p-grau{background:#e4e7ea;color:#45505a}
+.p-teal{background:var(--pine);color:#fff}
+
+.warnung{background:var(--red-soft);border:1px solid #e9c9c4;border-radius:var(--radius);padding:14px 18px;margin-bottom:16px}
+.warnung h3{color:var(--red);margin:0 0 6px;font-size:14px;font-weight:620}
+.hinweis{background:var(--accent-soft);border:1px solid #c6ecd2;border-radius:var(--radius);padding:12px 18px;margin-bottom:16px;font-size:13.5px;color:var(--ink)}
+.hinweis a{font-weight:600}
+
+.balken{height:8px;background:#e4e7ea;border-radius:999px;overflow:hidden;min-width:70px}
+.balken i{display:block;height:100%;background:var(--accent);border-radius:999px}
+
+/* ---------------------------------------------------- Formulare, Buttons */
+form.filter{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+select,input,textarea{font-family:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1px solid var(--line-strong);
+  border-radius:var(--radius-sm);padding:8px 10px}
+select:focus,input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent)}
+input[type=checkbox]{accent-color:var(--accent-ink);width:15px;height:15px;vertical-align:-2px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-weight:560;font-size:13.5px}
+.field input{width:100%}
+button,.knopf,.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:var(--radius-pill);border:1px solid var(--pill-green);
+  background:var(--pill-green);color:var(--accent-ink);font-weight:600;font-size:14.5px;font-family:inherit;cursor:pointer;text-decoration:none;
+  transition:background .12s ease,border-color .12s ease;line-height:1.35}
+button:hover,.knopf:hover,.btn:hover{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);text-decoration:none}
+button:disabled{opacity:.45;cursor:not-allowed}
+.knopf.leise,.btn{background:var(--surface);border-color:var(--line-strong);color:var(--ink);font-weight:560}
+.knopf.leise:hover,.btn:hover{background:var(--surface-2);border-color:var(--accent);color:var(--ink)}
+.btn-primary,.btn.btn-primary{background:var(--pill-green);border-color:var(--pill-green);color:var(--accent-ink);font-weight:600}
+.btn-primary:hover{background:var(--accent);border-color:var(--accent)}
+.btn-sm{padding:5px 10px;font-size:13px}
+
+.paare,.kv{display:grid;grid-template-columns:160px 1fr;gap:7px 14px;font-size:13.5px}
+.paare dt,.kv dt{color:var(--muted)}
+.paare dd,.kv dd{margin:0;min-width:0}
+details summary{cursor:pointer}
+.leer{color:var(--muted);padding:24px 16px;text-align:center;font-size:13.5px}
+.fehler{color:var(--red);font-size:13px;margin:12px 0 0}
+.fuss{font-family:var(--font-mono);color:var(--muted);font-size:11px;letter-spacing:.04em;margin-top:40px;border-top:1px solid var(--line);padding-top:14px}
+
+/* ------------------------------------------------------------- Anmeldung */
+.login-wrap{min-height:100vh;display:grid;place-items:center;
+  background:radial-gradient(900px 500px at 85% -10%,rgba(67,224,106,.14),transparent 60%),var(--bg);padding:24px}
+.login-card{width:100%;max-width:430px}
+.login-brand{text-align:center;margin-bottom:26px}
+.login-brand .improfy-logo{height:54px;color:#5d5c5d;margin:0 auto}
+.login-brand .brand-sub{color:var(--muted)}
+.login-card .karte{padding:22px 20px}
+
+/* ------------------------------------------ weitere CRM-Bausteine (für neue Seiten) */
+.eyebrow{font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}
+.card-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:0 0 10px}
+.card-title{font-size:14px;font-weight:620;font-family:var(--font-ui);text-transform:none;letter-spacing:-.01em;color:var(--heading)}
+.num,td.zahl-sp{font-family:var(--font-mono);font-size:13px}
+td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+.dash-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;align-items:start}
+.dash-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.list-tools{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.list-tools .spacer{flex:1}
+@media (max-width:1060px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.dash-grid{grid-template-columns:1fr}}
+
+/* ------------------------------------------------- Ablagefläche für Unterlagen */
+.ablage{display:flex;flex-direction:column;gap:4px;align-items:center;text-align:center;
+  padding:26px 18px;border:2px dashed var(--line-strong);border-radius:var(--radius);
+  background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}
+.ablage:hover{border-color:var(--accent);background:var(--accent-soft)}
+.ablage.darueber{border-color:var(--accent);background:var(--accent-soft);border-style:solid}
+.ablage.hat-datei{border-style:solid;border-color:var(--accent);background:var(--accent-soft)}
+.ablage strong{color:var(--heading)}
+.ablage input[type=file]{display:none}
+.ablage .gewaehlt{margin-top:8px;font-family:var(--font-mono);font-size:12px;color:var(--heading);
+  max-width:100%;overflow-wrap:anywhere}
+
+/* ------------------------------------------------------- Reglerbank (Taskforce) */
+.reglerbank{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:6px 18px 14px;margin:0 0 16px}
+.reglerreihe{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-end;
+  padding:10px 0;border-bottom:1px solid var(--line)}
+.reglerreihe:last-child{border-bottom:none;padding-bottom:0}
+.reglerreihe > label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.reglerreihe > label select,.reglerreihe > label input[type=text]{min-width:130px}
+.reglerreihe > label.reglerhaken{flex-direction:row;align-items:center;gap:6px;text-transform:none;
+  letter-spacing:0;font-size:13px;font-weight:500;color:var(--ink);align-self:center}
+.reglertitel{align-self:center;font-size:11px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--heading);background:var(--accent-soft);
+  border-radius:var(--radius-pill);padding:4px 12px}
+.reglerfuss{gap:10px;align-items:center;padding-top:12px}
+@media (max-width:760px){.reglerreihe > label{flex:1;min-width:140px}}
+
+/* ------------------------------------------------------------- Kopfsuche */
+.kopfsuche{margin:0}
+.kopfsuche input[type=search]{width:240px;padding:7px 12px;border:1px solid var(--line);
+  border-radius:var(--radius-pill);background:var(--surface-2);font:inherit;font-size:13px;
+  color:var(--ink)}
+.kopfsuche input[type=search]:focus{outline:none;border-color:var(--accent);
+  background:var(--surface);box-shadow:0 0 0 3px var(--accent-soft)}
+@media (max-width:900px){.kopfsuche input[type=search]{width:150px}}
+@media (max-width:640px){.kopfsuche{display:none}}
+
+/* Tabellen auf dem Telefon: waagerecht schieben statt zerquetschen */
+@media (max-width:760px){
+  .tabellenkasten{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tabellenkasten table{min-width:640px}
+  .gitter.g4,.gitter.g3{grid-template-columns:repeat(2,1fr)}
+  .content{padding-left:14px;padding-right:14px}
+}

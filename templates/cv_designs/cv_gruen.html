@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<style>
+  @page { size:A4; margin: 14mm 15mm 15mm 15mm; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; color:#33413a;
+    font-family:-apple-system,"Helvetica Neue","Segoe UI",Arial,sans-serif; font-size:12.5px; line-height:1.55; }
+  /* Improfy-Markenfarben (aus Figma extrahiert) */
+  :root{ --dark:#0f5c3f; --dark2:#0c4a33; --lime:#7ed957; --lime-d:#5bbf3c;
+         --tint:#eef6ef; --gray:#9aa4a0; --ink:#2b3a33; }
+
+  /* Kopf: Tannengrün-Banner mit Logo + Name + Limetten-Swoosh */
+  .header{ position:relative; background:var(--dark); border-radius:16px 16px 46px 16px;
+           padding:26px 30px 30px; margin-bottom:22px; overflow:hidden; }
+  .header .logo{ position:absolute; top:20px; right:26px; height:30px; filter:brightness(0) invert(1); opacity:.96; }
+  .header .role{ color:var(--lime); font-weight:700; font-size:13px; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px; }
+  .header .name{ color:#fff; font-weight:800; font-size:40px; line-height:1.04; letter-spacing:.3px; }
+  .header .swoosh{ position:absolute; left:0; right:0; bottom:0; height:8px; background:var(--lime); }
+
+  /* Identität: Blob-Foto + Kontakt */
+  .ident{ display:flex; gap:26px; align-items:center; margin:4px 0 6px; break-inside:avoid; }
+  .ident .photo, .ident .ph{ width:156px; height:190px; flex:0 0 156px; object-fit:cover; display:block;
+    border:4px solid var(--lime);
+    border-radius:62% 38% 55% 45% / 55% 52% 48% 45%; }
+  .ident .ph{ background:var(--tint); border-color:var(--dark); }
+  .ident .contact{ font-size:12.5px; }
+  .ident .contact .r{ margin:7px 0; display:flex; }
+  .ident .contact .l{ color:var(--dark); font-weight:800; min-width:76px; letter-spacing:.3px; }
+
+  h2{ color:var(--dark); font-size:19px; font-weight:800; margin:22px 0 4px; letter-spacing:.6px; text-transform:uppercase; }
+  h2 + .swz{ height:5px; width:64px; background:var(--lime); border-radius:4px; margin-bottom:11px; }
+  h2.sub{ color:var(--gray); font-size:14px; text-transform:uppercase; border:none; margin:14px 0 6px; letter-spacing:1px; }
+
+  .um{ background:var(--tint); border-radius:12px; padding:14px 18px; }
+  .um p{ margin:0 0 9px; } .um p:last-child{ margin:0; }
+
+  .block{ margin:0 0 13px; break-inside:avoid; padding-left:16px; border-left:3px solid var(--lime); }
+  .block .t{ font-weight:800; color:var(--ink); }
+  .block .t .zr{ color:var(--dark); font-weight:800; }
+  .block ul{ margin:5px 0 0 16px; padding:0; }
+  .block li{ margin:3px 0; }
+  .block li::marker{ color:var(--lime-d); }
+
+  .kv{ display:flex; gap:12px; margin:5px 0; break-inside:avoid; }
+  .kv .k{ font-weight:700; min-width:190px; color:var(--ink); }
+  .stars{ color:var(--lime-d); letter-spacing:1px; }
+  .foot{ margin-top:20px; padding-top:8px; border-top:1px solid #e3ece5; color:var(--gray); font-size:10.5px; text-align:center; }
+</style></head>
+<body>
+  <div class="header">
+    {% if logo %}<img class="logo" src="{{ logo }}">{% endif %}
+    {% if d.angestrebter_job %}<div class="role">{{ d.angestrebter_job }}</div>{% endif %}
+    <div class="name">{{ d.vorname }}<br>{{ d.nachname }}</div>
+    <div class="swoosh"></div>
+  </div>
+
+  <div class="ident">
+    {% if foto %}<img class="photo" src="{{ foto }}">{% else %}<div class="ph"></div>{% endif %}
+    <div class="contact">
+      {% if d.geburtsdatum %}<div class="r"><span class="l">Geboren</span>{{ d.geburtsdatum }}</div>{% endif %}
+      {% if d.adresse %}<div class="r"><span class="l">Adresse</span>{{ d.adresse }}</div>{% endif %}
+      {% if d.mobil %}<div class="r"><span class="l">Telefon</span>{{ d.mobil }}</div>{% endif %}
+      {% if d.email %}<div class="r"><span class="l">E-Mail</span>{{ d.email }}</div>{% endif %}
+      {% if d.angestrebter_job %}<div class="r"><span class="l">Ziel</span>{{ d.angestrebter_job }}</div>{% endif %}
+    </div>
+  </div>
+
+  {% if d.ueber_mich %}
+  <h2>Über mich</h2><div class="swz"></div>
+  <div class="um">{% for p in d.ueber_mich.split('\n\n') %}<p>{{ p.replace('\n',' ')|trim }}</p>{% endfor %}</div>
+  {% endif %}
+
+  {% if beruf %}
+  <h2>Berufserfahrung</h2><div class="swz"></div>
+  {% for b in beruf %}
+  <div class="block">
+    <div class="t">{% if b.zeitraum %}<span class="zr">({{ b.zeitraum }})</span> {% endif %}{{ b.jobtitel }}{% if b.firma %} | {{ b.firma }}{% endif %}</div>
+    {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if d.edv_kenntnisse or d.soft_skills %}
+  <h2>Persönliche Qualifikation</h2><div class="swz"></div>
+  {% if d.edv_kenntnisse %}
+  <h2 class="sub">EDV-Kenntnisse</h2>
+  {% for k in d.edv_kenntnisse %}<div class="kv"><span class="k">{{ k.programm }}</span><span>{{ niveau(k.sterne) }}</span></div>{% endfor %}
+  {% endif %}
+  {% if d.soft_skills %}
+  <h2 class="sub">Stärken</h2>
+  {% for k in d.soft_skills %}<div class="kv"><span class="k">{{ k.eigenschaft }}</span><span class="stars">{{ '★' * k.sterne }}{{ '☆' * (5 - k.sterne) }}</span></div>{% endfor %}
+  {% endif %}
+  {% endif %}
+
+  {% if d.bildung or d.zusatzqualifikationen %}
+  <h2>Schul- &amp; Ausbildung</h2><div class="swz"></div>
+  {% for e in d.bildung %}
+  <div class="block"><div class="t">{% if e.zeitraum %}<span class="zr">({{ e.zeitraum }})</span> {% endif %}{{ e.abschluss }}{% if e.institution %} | {{ e.institution }}{% endif %}</div></div>
+  {% endfor %}
+  {% for z in d.zusatzqualifikationen %}<div class="block"><div class="t">{{ z }}</div></div>{% endfor %}
+  {% endif %}
+
+  {% if d.sprachen %}
+  <h2>Sprachkenntnisse</h2><div class="swz"></div>
+  {% for s in d.sprachen %}<div class="kv"><span class="k">{{ s.sprache }}</span><span>{{ s.niveau }}</span></div>{% endfor %}
+  {% endif %}
+
+  <div class="foot">Improfy GmbH · www.improfy.de · In 4 Schritten zum beruflichen Neustart</div>
+</body></html>

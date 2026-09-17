@@ -1,0 +1,51 @@
+{% extends "basis.html" %}
+{% block titel %}Änderungsprotokoll – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Änderungsprotokoll</h1>
+<p class="unterzeile">Jede Änderung im OS mit Zeitpunkt, Person und Inhalt. Wird nie bearbeitet
+  und nie gelöscht – das ist die Grundlage, um bei einer Prüfung oder einem Streit sagen zu
+  können, was tatsächlich passiert ist.</p>
+
+<form class="reglerbank" method="get">
+  <div class="reglerreihe">
+    <label>Person
+      <select name="benutzer" onchange="this.form.submit()"><option value="">alle</option>
+        {% for l in leute %}<option value="{{ l }}" {{ 'selected' if filter.benutzer==l }}>{{ l }}</option>{% endfor %}</select></label>
+    <label>Bereich
+      <select name="bereich" onchange="this.form.submit()"><option value="">alle</option>
+        {% for b in bereiche %}<option value="{{ b }}" {{ 'selected' if filter.bereich==b }}>{{ b }}</option>{% endfor %}</select></label>
+    <label>Zeitraum
+      <select name="tage" onchange="this.form.submit()"><option value="">alles</option>
+        {% for v, t in [(1,'heute'), (7,'7 Tage'), (30,'30 Tage'), (90,'90 Tage'), (365,'ein Jahr')] %}
+        <option value="{{ v }}" {{ 'selected' if filter.tage==v }}>letzte {{ t }}</option>{% endfor %}</select></label>
+    <label style="flex:1;min-width:180px">Suche
+      <input type="text" name="q" value="{{ filter.suche or '' }}" placeholder="Aktion, Beschreibung, Nummer"></label>
+  </div>
+  <div class="reglerreihe reglerfuss">
+    <button type="submit" class="btn btn-primary">filtern</button>
+    <a class="btn" href="{{ url_for('protokoll_seite') }}">zurücksetzen</a>
+    <span class="marke">{{ zeilen|length }} Einträge{% if zeilen|length >= 400 %} (neueste 400){% endif %}</span>
+  </div>
+</form>
+
+<div class="tabellenkasten">
+<table>
+  <tr><th>Zeitpunkt</th><th>Person</th><th>Aktion</th><th>Bereich</th><th>Datensatz</th><th>vorher → nachher</th></tr>
+  {% for z in zeilen %}
+  <tr>
+    <td class="marke" style="white-space:nowrap">{{ z.zeitpunkt|zeit }}</td>
+    <td>{{ z.benutzer or '—' }}{% if z.rolle %}<div class="marke">{{ z.rolle }}</div>{% endif %}</td>
+    <td><strong>{{ z.aktion }}</strong>{% if z.beschreibung %}<div class="marke">{{ z.beschreibung }}</div>{% endif %}</td>
+    <td>{% if z.bereich %}<span class="plakette p-grau">{{ z.bereich }}</span>{% endif %}</td>
+    <td class="marke">{{ z.objekt_id or '' }}</td>
+    <td class="marke" style="max-width:360px;overflow-wrap:anywhere">
+      {% if z.vorher %}<span style="color:var(--rot)">{{ z.vorher[:160] }}</span>{% endif %}
+      {% if z.vorher and z.nachher %} → {% endif %}
+      {% if z.nachher %}<span style="color:var(--gruen)">{{ z.nachher[:160] }}</span>{% endif %}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="leer">Noch nichts protokolliert{% if filter.benutzer or filter.bereich or filter.suche %} für diesen Filter{% endif %}.</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

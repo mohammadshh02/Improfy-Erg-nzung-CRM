@@ -1,0 +1,14 @@
+2b7de5b24760c07bd0ab1928666c8a28f3ddd981 2026-08-16 03:29:59 +0200
+Quelle: https://github.com/mohammadshh02/Improfy-CV  (cv_system/)
+Übernommen am 16.09.2026: fill_cv.py, schema.py, vorlagen/Muster-Vorlage.xlsx — unverändert.
+Nicht übernommen: server.py, extract_cv.py, Designgalerie, Figma, PDF-Export, Anmeldung, Nutzungsprotokoll.
+Grund: Das OS braucht nur das Befüllen der Excel-Vorlage. Alles andere bleibt in der eigenständigen
+CV-App, damit sie weiterhin für sich läuft und diese Dateien bei einer Neufassung einfach ersetzt
+werden können (kopieren, nicht abändern).
+
+Nachtrag 16.09.2026: zusätzlich übernommen
+  templates/cv_designs/*.html   die fünf festen Design-Vorlagen (referenz, pro, gruen, clean, blob)
+  static/improfy-logo-cv.png    Logo für den Briefkopf der Designs
+  cv/galerie/                   Vorschaubilder der Design-Galerie samt manifest.json
+Die KI-Designs (freier Stil, Nachbau einer Galerie-Vorlage) bleiben in der CV-App: sie brauchen
+einen Anthropic-Schlüssel. Die fünf festen Vorlagen brauchen nur Chrome und laufen hier mit.

@@ -1,0 +1,80 @@
+{% extends "basis.html" %}
+{% block titel %}Lebensläufe – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Lebensläufe</h1>
+<p class="unterzeile">Lebenslauf (englisch CV) je Kunde: die Improfy-Excel-Vorlage füllen, vorbelegt aus dem
+  Bestand. Die interne Kundennummer kommt aus dem Register, nicht aus der Tastatur.</p>
+
+<div class="kpi-grid">
+  <div class="karte"><h3>Kunden</h3><div class="zahl">{{ zeilen|length }}</div>
+    <div class="marke">am Standort Köln</div></div>
+  <div class="karte"><h3>Mit Lebenslauf</h3><div class="zahl">{{ zeilen|selectattr('hat_cv')|list|length }}</div>
+    <div class="marke">im OS hinterlegt oder verknüpft</div></div>
+  <div class="karte"><h3>Hier gebaut</h3><div class="zahl">{{ gebaut|length }}</div>
+    <div class="marke">aus der Excel-Vorlage erzeugt</div></div>
+  <div class="karte"><h3>Ohne Kundennummer</h3><div class="zahl" {% if ohne_id %}style="color:var(--red)"{% endif %}>{{ ohne_id }}</div>
+    <div class="marke">ID-K fehlt – erst im Register nachtragen</div></div>
+</div>
+
+<h2>Kunden</h2>
+<form class="filter" method="get">
+  <input type="text" name="q" value="{{ suche or '' }}" placeholder="Name suchen" style="min-width:220px">
+  <select name="stand" onchange="this.form.submit()">
+    <option value="">alle</option>
+    <option value="ohne" {{ 'selected' if stand=='ohne' }}>ohne Lebenslauf</option>
+    <option value="mit" {{ 'selected' if stand=='mit' }}>mit Lebenslauf</option>
+    <option value="gebaut" {{ 'selected' if stand=='gebaut' }}>hier gebaut</option>
+  </select>
+  <button type="submit">filtern</button>
+  {% if suche or stand %}<a class="btn btn-sm" href="{{ url_for('lebenslauf_uebersicht') }}">zurücksetzen</a>{% endif %}
+</form>
+
+<div class="tabellenkasten">
+<table>
+  <tr><th>Kunde</th><th>Status</th><th>Coach</th><th>Kundennummer</th><th>Lebenslauf</th><th></th></tr>
+  {% for z in zeilen %}
+  <tr>
+    <td><a href="{{ url_for('kunde_detail', kid=z.id) }}"><strong>{{ z.name }}</strong></a>
+        {% if z.sprache %}<div class="marke">{{ z.sprache }}</div>{% endif %}</td>
+    <td><span class="plakette p-{{ z.ampel }}">{{ z.status_code or '?' }}</span></td>
+    <td class="marke">{{ z.coach or '—' }}</td>
+    <td class="mono">{{ z.interne_id or '' }}
+        {% if not z.interne_id %}<span class="plakette p-gelb">fehlt</span>{% endif %}</td>
+    <td>{% if z.gebaut %}<span class="plakette p-gruen">hier gebaut</span>
+        {% elif z.hat_cv %}<span class="plakette p-teal">vorhanden</span>
+        {% else %}<span class="plakette p-grau">keiner</span>{% endif %}
+        {% if z.datei %}<div class="marke">{{ z.datei }}</div>{% endif %}</td>
+    <td style="white-space:nowrap">
+      <a class="btn btn-sm btn-primary" href="{{ url_for('lebenslauf_formular', kid=z.id) }}">
+        {{ 'neu bauen' if z.gebaut else 'bauen' }}</a>
+      {% if z.datei %}<a class="btn btn-sm" href="{{ url_for('lebenslauf_datei', dateiname=z.datei) }}">Excel</a>{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="leer">Kein Kunde passt zum Filter.</td></tr>
+  {% endfor %}
+</table>
+</div>
+
+{% if gebaut %}
+<h2>Zuletzt gebaut</h2>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Datei</th><th>Kunde</th><th>erstellt</th><th></th></tr>
+  {% for g in gebaut[:25] %}
+  <tr><td class="mono">{{ g.name }}</td>
+      <td><a href="{{ url_for('kunde_detail', kid=g.kunde_id) }}">{{ g.kunde }}</a></td>
+      <td class="marke">{{ g.geaendert|zeit }}</td>
+      <td><a class="btn btn-sm" href="{{ url_for('lebenslauf_datei', dateiname=g.name) }}">herunterladen</a></td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endif %}
+
+<div class="hinweis" style="margin-top:16px">
+  <strong>Woher die Vorlage kommt.</strong> Die Füll-Logik stammt aus der eigenständigen CV-App und liegt
+  unverändert in <code>cv/</code>. Designgalerie, PDF-Export und die KI-Auslese aus PDF oder Foto bleiben
+  dort; das OS füllt die Excel-Vorlage und hängt das Ergebnis an den Kunden, damit Taskforce und
+  Qualitätsmanagement es sofort sehen.
+</div>
+{% endblock %}

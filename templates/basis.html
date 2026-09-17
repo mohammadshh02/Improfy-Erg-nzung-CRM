@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titel %}Improfy-Ergänzung{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', filename='stil.css') }}?v=20260916">
+</head>
+<body>
+{% set s = request.endpoint or '' %}
+{% set nav_seiten = [
+  ('uebersicht', ('uebersicht',), 'Übersicht'),
+  ('aufgaben_seite', ('aufgaben_seite',), 'Aufgaben'),
+  ('taskforce_seite', ('taskforce',), 'Taskforce'),
+  ('lebenslauf_uebersicht', ('lebenslauf_uebersicht','lebenslauf_formular','lebenslauf_erzeugen','lebenslauf_lesen','lebenslauf_pdf'), 'Lebensläufe'),
+  ('trichter_seite', ('trichter_seite','trichter_kommo'), 'Trichter'),
+  ('kunden', ('kunden','kunde_detail'), 'Kunden'),
+  ('aussen_seite', ('aussen_seite','aussen_pruefen'), 'Außenanbindung'),
+  ('betrieb_seite', ('betrieb_seite','betrieb_sichern'), 'Betrieb'),
+  ('aktivitaet_seite', ('aktivitaet_seite',), 'Mitarbeiter-Spur'),
+  ('protokoll_seite', ('protokoll_seite',), 'Protokoll'),
+  ('konten_seite', ('konten_seite','konten_anlegen','konten_aendern'), 'Konten'),
+] %}
+{% set ns = namespace(titel='Improfy-Ergänzung') %}
+{% for ziel, aktive, name in nav_seiten %}
+  {% if s in aktive or (ziel == 'taskforce_seite' and s.startswith('taskforce')) %}{% set ns.titel = name %}{% endif %}
+{% endfor %}
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <a href="{{ url_for('uebersicht') }}" class="brand-link" title="Improfy-Ergänzung">
+        <img class="improfy-logo" src="{{ url_for('static', filename='improfy-logo.svg') }}" alt="Improfy">
+        <svg class="improfy-smile" width="26" height="12" viewBox="0 0 26 12" fill="none" stroke="#84faa1" stroke-width="3" stroke-linecap="round"><path d="M2 2c3 6 19 6 22 0"/></svg>
+      </a>
+      <div class="brand-sub">OS · Standort Köln</div>
+    </div>
+    <nav class="sidebar-nav">
+      {% for ziel, aktive, name in nav_seiten %}
+      <a href="{{ url_for(ziel) }}" class="nav-item {{ 'active' if name == ns.titel }}" title="{{ name }}">
+        <span>{{ name }}</span>
+      </a>
+      {% endfor %}
+    </nav>
+    <div class="sidebar-foot">
+      <a class="user-chip" href="{{ url_for('logout') }}" title="abmelden">
+        <span class="avatar">K</span>
+        <span class="u-txt"><span class="u-name">Standort Köln</span><br><span class="u-role">Improfy-Ergänzung · abmelden</span></span>
+      </a>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <h1 class="page-title">{{ ns.titel }}</h1>
+      <div class="topbar-right">
+        <form method="get" action="{{ url_for('suche_seite') }}" class="kopfsuche">
+          <input type="search" name="q" value="{{ request.args.get('q', '') if request.endpoint == 'suche_seite' }}"
+                 placeholder="Suchen … (Name, Telefon, Firma)" aria-label="Gesamtsuche">
+        </form>
+        <a class="btn btn-sm" href="{{ url_for('aufgaben_seite') }}">Aufgaben</a>
+        <a class="btn btn-sm" href="{{ url_for('logout') }}">abmelden</a>
+      </div>
+    </header>
+    <main class="content">
+{% block inhalt %}{% endblock %}
+      <p class="fuss">
+        Improfy-Ergänzung · Standort Köln · enthält personenbezogene Kundendaten –
+        nicht weitergeben, nicht öffentlich ablegen.
+      </p>
+    </main>
+  </div>
+</div>
+</body>
+</html>

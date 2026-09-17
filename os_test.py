@@ -1,0 +1,186 @@
+# -*- coding: utf-8 -*-
+"""Gesamttest der CRM-Ergänzung – jede Seite einmal aufrufen.
+
+    python -X utf8 os_test.py
+
+Die anderen Selbsttests prüfen je eine Abteilung gründlich (`taskforce_test.py`,
+`lebenslauf_test.py`, `api_test.py`). Dieser hier geht in die Breite: er holt sich alle
+Routen, die Flask kennt, ruft jede einmal auf und meldet jede, die nicht sauber
+antwortet. So fällt auf, wenn eine Änderung an einer Stelle eine ganz andere Seite
+zerschießt – der häufigste Weg, sich etwas kaputt zu machen.
+
+Läuft gegen eine Kopie der Datenbank, schreibt also nichts in den Echtbestand, und
+braucht kein Internet. Seiten, die von außen lesen (Taskforce-Lauf, Probe einer
+Schnittstelle), werden bewusst nicht ausgelöst.
+"""
+import os
+import re
+import shutil
+import sys
+import tempfile
+
+HIER = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HIER)
+kopie = os.path.join(tempfile.gettempdir(), "improfy_os_gesamt_test.db")
+shutil.copy(os.path.join(HIER, "improfy_os.db"), kopie)
+os.environ["IMPROFY_OS_DB"] = kopie
+
+import app as A                     # noqa: E402
+import datenbank as db              # noqa: E402
+
+ergebnis = []
+
+# Routen, die nach außen greifen oder etwas verändern – hier nicht aufrufen.
+AUSGELASSEN = {"static", "abmelden", "anmelden"}
+NACH_AUSSEN = re.compile(r"lauf|probe|pruef|import|export|abruf|holen|senden|mail", re.I)
+
+
+def pruefe(name, bedingung, detail=""):
+    ergebnis.append((name, bool(bedingung)))
+    print(f"  {'OK  ' if bedingung else 'FEHL'} {name}{(' – ' + str(detail)) if detail else ''}")
+
+
+def _beispiel(regel):
+    """Für jede Platzhalter-Art einen Wert aus dem Echtbestand einsetzen."""
+    werte = {}
+    for argument in regel.arguments:
+        if argument == "kid":
+            werte[argument] = db.wert("SELECT id FROM kunde ORDER BY id LIMIT 1")
+        elif argument in ("mid", "coach_id"):
+            werte[argument] = db.wert("SELECT id FROM mitarbeiter ORDER BY id LIMIT 1")
+        elif argument == "pid":
+            werte[argument] = db.wert("SELECT id FROM tf_profil ORDER BY id LIMIT 1")
+        elif argument == "aid":
+            werte[argument] = db.wert("SELECT id FROM tf_angebot ORDER BY id LIMIT 1")
+        elif argument == "lid":
+            werte[argument] = db.wert("SELECT id FROM lebenslauf ORDER BY id LIMIT 1")
+        elif argument in ("dateiname", "bild", "schluessel", "name"):
+            return None                      # brauchen eine echte Datei, eigene Prüfung
+        else:
+            werte[argument] = 1
+        if werte.get(argument) is None:
+            return None
+    return werte
+
+
+def main():
+    c = A.app.test_client()
+    print("Gesamttest Improfy-OS\n")
+
+    print("1. Jede Seite antwortet")
+    geprueft = uebersprungen = 0
+    for regel in sorted(A.app.url_map.iter_rules(), key=lambda r: str(r)):
+        if regel.endpoint in AUSGELASSEN or "GET" not in (regel.methods or set()):
+            continue
+        if NACH_AUSSEN.search(regel.endpoint):
+            uebersprungen += 1
+            continue
+        werte = _beispiel(regel)
+        if werte is None:
+            uebersprungen += 1
+            continue
+        pfad = regel.build(werte)[1] if werte else str(regel)
+        antwort = c.get(pfad)
+        geprueft += 1
+        # 302 ist in Ordnung: /login leitet auf die Startseite, /taskforce/kunde auf die Liste.
+        if antwort.status_code not in (200, 302):
+            pruefe(f"{pfad}", False, f"Status {antwort.status_code}")
+    pruefe(f"{geprueft} Seiten antworten sauber", True,
+           f"{uebersprungen} bewusst ausgelassen (Außenzugriff oder eigene Datei)")
+
+    print("\n2. Gestaltung liegt vollständig vor")
+    css = c.get("/static/stil.css")
+    text = css.get_data(as_text=True)
+    pruefe("Stilvorlage wird ausgeliefert", css.status_code == 200 and len(text) > 8000,
+           f"{len(text)} Zeichen")
+    for marke, was in (("--pine:#145243", "Pine-Grün des CRM"),
+                       ("--accent:#43e06a", "Akzentgrün des CRM"),
+                       ("General Sans", "Schrift General Sans"),
+                       ("IBM Plex Mono", "Schrift IBM Plex Mono"),
+                       (".ablage{", "Ablagefläche für Unterlagen")):
+        pruefe(f"CSS enthält {was}", marke in text)
+    start = c.get("/").get_data(as_text=True)
+    pruefe("Jede Seite lädt die Schriften des CRM",
+           "fontshare" in start and "fonts.googleapis" in start)
+
+    print("\n3. Navigation zeigt alle Abteilungen")
+    for seite in ("Kunden", "Taskforce", "Lebensläufe", "Trichter", "Aufgaben",
+                  "Mitarbeiter-Spur", "Außenanbindung", "Betrieb"):
+        pruefe(f"Navigation kennt {seite}", seite in start)
+
+    print("\n4. Kein Platzhalter blieb stehen")
+    proben = ["/", "/kunden", "/taskforce", "/lebenslauf", "/trichter", "/aufgaben",
+              "/aktivitaet", "/betrieb"]
+    for pfad in proben:
+        t = c.get(pfad).get_data(as_text=True)
+        pruefe(f"{pfad} ohne offene Jinja-Stelle",
+               "{{" not in t and "{%" not in t and "Undefined" not in t)
+
+    print("\n5. Unbekanntes wird sauber abgewiesen")
+    pruefe("Unbekannte Seite gibt 404", c.get("/gibtesnicht").status_code == 404)
+    pruefe("Unbekannter Kunde gibt 404", c.get("/kunde/999999").status_code == 404)
+    pruefe("Unbekannte Lebenslauf-Datei gibt 404",
+           c.get("/lebenslauf/datei/gibtesnicht.xlsx").status_code == 404)
+
+    print("\n6. Konten, Rollen und Protokoll")
+    import konten
+    konten.init()
+    pruefe("Ohne Konto laeuft der Uebergangsbetrieb weiter", not konten.persoenlicher_betrieb())
+    r = c.post("/konten/anlegen", data={"anmeldename": "chef", "name": "Chefin",
+                                        "passwort": "geheim12345", "rolle": "leitung"})
+    pruefe("Erstes Konto laesst sich anlegen", r.status_code == 302 and konten.anzahl() == 1)
+    pruefe("Ab dem ersten Konto zaehlt nur noch die persoenliche Anmeldung",
+           konten.persoenlicher_betrieb() and c.get("/kunden").status_code == 302)
+    pruefe("Falsches Passwort kommt nicht rein",
+           "stimmt nicht" in c.post("/login", data={"anmeldename": "chef",
+                                                    "passwort": "falsch"}).get_data(as_text=True))
+    r = c.post("/login", data={"anmeldename": "chef", "passwort": "geheim12345"})
+    pruefe("Richtige Anmeldung kommt rein",
+           r.status_code == 302 and c.get("/kunden").status_code == 200)
+    pruefe("Zu kurzes Passwort wird abgelehnt",
+           "fehler" in c.post("/konten/anlegen",
+                              data={"anmeldename": "x", "name": "X", "passwort": "kurz",
+                                    "rolle": "lesen"}).headers.get("Location", ""))
+    c.post("/konten/anlegen", data={"anmeldename": "pruefer", "name": "Pruefer",
+                                    "passwort": "geheim12345", "rolle": "lesen"})
+    c.get("/logout")
+    c.post("/login", data={"anmeldename": "pruefer", "passwort": "geheim12345"})
+    pruefe("Nur-Lesen darf lesen", c.get("/kunden").status_code == 200)
+    pruefe("Nur-Lesen darf nichts aendern",
+           c.post("/taskforce/angebot/1/status", data={"status": "gesehen"}).status_code == 403)
+    pruefe("Nur-Lesen darf keine Konten verwalten", c.get("/konten").status_code == 403)
+    c.get("/logout")
+    c.post("/login", data={"anmeldename": "chef", "passwort": "geheim12345"})
+    c.post("/taskforce/angebot/1/status", data={"status": "gesehen"})
+    zeilen = konten.protokoll(20)
+    pruefe("Jede Aenderung steht mit Person im Protokoll",
+           any(z["aktion"].startswith("Status") and z["benutzer"] == "Chefin" for z in zeilen),
+           [(z["benutzer"], z["aktion"]) for z in zeilen[:3]])
+    pruefe("Anmeldungen werden protokolliert",
+           any(z["aktion"] == "angemeldet" for z in zeilen))
+    pruefe("Protokollseite zeigt die Eintraege",
+           "Änderungsprotokoll" in c.get("/protokoll").get_data(as_text=True))
+
+    print("\n7. Betrieb: Sicherung und Zeitsteuerung")
+    import betrieb
+    betrieb.init()
+    pruefe("Sicherung von Hand legt einen Stand an",
+           c.post("/betrieb/sichern").status_code == 302 and len(betrieb.staende()) >= 1,
+           [s["name"] for s in betrieb.staende()][:2])
+    pruefe("Betriebsseite zeigt Uhrzeiten und Staende",
+           all(x in c.get("/betrieb").get_data(as_text=True)
+               for x in ("Sicherungsstände", "Letzte Sicherung", betrieb.UHRZEIT_LAUF)))
+    pruefe("Was heute lief, laeuft nicht zweimal",
+           betrieb.schon_gelaufen("sicherung") and not betrieb._faellig("00:00", "sicherung"))
+    pruefe("Abgeschaltete Zeitsteuerung loest nichts aus",
+           not betrieb._faellig("aus", "agenten") and not betrieb._faellig("", "agenten"))
+
+    fehl = [n for n, ok in ergebnis if not ok]
+    print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")
+    if fehl:
+        print("Fehlgeschlagen:", *fehl, sep="\n  - ")
+    return 0 if not fehl else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
