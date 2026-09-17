@@ -28,6 +28,12 @@
     <tr><td style="width:190px"><strong>WhatsApp-Link</strong> <span class="plakette p-gruen">läuft</span></td>
         <td class="marke">Ein Klick öffnet WhatsApp mit fertigem Text an genau diese Nummer –
           du drückst auf Senden. Ohne Einrichtung, ohne Vorlage, ohne Genehmigung.</td></tr>
+    <tr><td style="width:190px"><strong>Absender zentral</strong></td>
+        <td class="marke">{% if zentrale %}<code>{{ zentrale }}</code> – aus <code>WHATSAPP_ZENTRALE</code>
+          {% else %}Noch nicht festgelegt. Auf improfy.de/kontakt sind drei Nummern verlinkt:
+          {% for n in zentrale_vorschlaege %}<code>{{ n }}</code>{{ ' · ' if not loop.last }}{% endfor %}.
+          Die richtige als <code>WHATSAPP_ZENTRALE</code> in die <code>.env</code> eintragen.
+          Gilt nur für den Weg über Kommo – beim Link sendet der Coach aus seinem eigenen Konto.{% endif %}</td></tr>
     <tr><td><strong>Über die zentrale Nummer</strong>
             {% if kommo_bereit %}<span class="plakette p-gruen">läuft</span>
             {% else %}<span class="plakette p-grau">nicht eingerichtet</span>{% endif %}</td>

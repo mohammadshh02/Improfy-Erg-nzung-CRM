@@ -46,6 +46,20 @@ CREATE TABLE IF NOT EXISTS kundennachricht (
 );
 CREATE INDEX IF NOT EXISTS idx_kn_kunde ON kundennachricht(kunde_id, zeitpunkt DESC);
 """
+# Die zentrale Nummer, unter der Improfy schreibt. Steht auf improfy.de/kontakt –
+# dort sind drei WhatsApp-Nummern verlinkt, deshalb ist sie einstellbar statt geraten:
+#   +49 178 3079654    (zweimal verlinkt, vermutlich die Hauptnummer)
+#   +49 1521 5677975
+#   +49 163 6926669
+# Sie zählt nur für den Weg über Kommo. Beim WhatsApp-Link sendet der Coach aus seinem
+# eigenen Konto – dort ist der Absender das Gerät, an dem er sitzt.
+ZENTRALE_VORSCHLAEGE = ["+49 178 3079654", "+49 1521 5677975", "+49 163 6926669"]
+
+
+def zentrale():
+    return (os.environ.get("WHATSAPP_ZENTRALE") or "").strip()
+
+
 # Nur diese Stände lohnen eine Nachricht: beworben oder Rückmeldung da.
 GEMELDET = ("angeschrieben", "antwort", "erfolg")
 LAEUFT = ("H", "I")

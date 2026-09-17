@@ -295,6 +295,8 @@ def nachrichten_seite():
     return render_template(
         "nachrichten.html", liste=nachrichten.vorschlaege(), z=nachrichten.zaehler(),
         verlauf=nachrichten.verlauf(limit=30), kommo_bereit=nachrichten.kommo_bereit(),
+        zentrale=nachrichten.zentrale(),
+        zentrale_vorschlaege=nachrichten.ZENTRALE_VORSCHLAEGE,
         kommo_hinweis=nachrichten.kommo_hinweis(),
         meldung=request.args.get("meldung"), fehler=request.args.get("fehler"))
 
