@@ -27,6 +27,7 @@ import nachrichten
 import crm_karte
 import cv_pdf
 import cv_sammlung
+import coaches
 import lebenslauf_bauen as LB
 import aktivitaet
 import aufgaben
@@ -395,6 +396,27 @@ def aktivitaet_seite():
         logins=aktivitaet.anmeldungen(wer, tage) if wer else [],
         schritte=aktivitaet.verlauf(wer, tage) if wer else [],
         kunden=aktivitaet.kunden_beruehrt(wer, tage) if wer else [])
+
+
+@app.route("/coaches")
+def coaches_seite():
+    """Der Ueberblick ueber jeden Coach - Betreuung und Taetigkeit nebeneinander.
+
+    Loest die alte Seite "Mitarbeiter-Spur" ab. Die Spur allein war eine Zahlenreihe
+    ohne Bezug: 40 Aktionen sagen nichts, wenn man nicht weiss, wie viele Menschen
+    jemand betreut. Beides zusammen ist die Frage, die die Standortleitung stellt."""
+    coach = request.args.get("coach", type=int)
+    tage = request.args.get("tage", 30, type=int)
+    if tage not in (7, 14, 30, 90):
+        tage = 30
+    gewaehlt = coaches.einer(coach) if coach else None
+    name = gewaehlt["coach"] if gewaehlt else None
+    return render_template(
+        "coaches.html", z=coaches.zaehler(), zeilen=coaches.uebersicht(),
+        einer=gewaehlt, tage=tage,
+        kunden=coaches.kunden(coach) if gewaehlt else [],
+        spur=aktivitaet.tagesspur(name, tage) if name else [],
+        logins=aktivitaet.anmeldungen(name, tage) if name else [])
 
 
 @app.route("/protokoll")

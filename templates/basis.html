@@ -21,15 +21,17 @@
   ('aufgaben_seite', ('aufgaben_seite',), 'Aufgaben'),
   ('taskforce_seite', ('taskforce',), 'Taskforce'),
   ('lebenslauf_uebersicht', ('lebenslauf_uebersicht','lebenslauf_liste','lebenslauf_formular','lebenslauf_erzeugen','lebenslauf_lesen','lebenslauf_pdf','lebenslauf_fotos'), 'Lebenslauf'),
-  ('nachrichten_seite', ('nachrichten_seite','nachrichten_vermerken'), 'Kundennachrichten'),
   ('trichter_seite', ('trichter_seite','trichter_kommo'), 'Vertrieb'),
-  ('kunden', ('kunden','kunde_detail'), 'Kunden'),
+  ('kunden', ('kunden','kunde_detail','nachrichten_seite','nachrichten_vermerken'), 'Kunden'),
+  ('coaches_seite', ('coaches_seite','aktivitaet_seite'), 'Coaches'),
 ] %}
+{# Kundennachrichten ist keine eigene Abteilung, sondern etwas, das man an einem Kunden
+   tut – der Reiter liegt jetzt in „Kunden“. Die Mitarbeiter-Spur ist in „Coaches“
+   aufgegangen: Tätigkeitszahlen ohne die Betreuung daneben sagen nichts. #}
 {% set nav_verwaltung = [
   ('anbindung_seite', ('anbindung_seite',), 'CRM-Anbindung'),
   ('aussen_seite', ('aussen_seite','aussen_pruefen'), 'Außenanbindung'),
   ('betrieb_seite', ('betrieb_seite','betrieb_sichern'), 'Betrieb'),
-  ('aktivitaet_seite', ('aktivitaet_seite',), 'Mitarbeiter-Spur'),
   ('protokoll_seite', ('protokoll_seite',), 'Protokoll'),
   ('konten_seite', ('konten_seite','konten_anlegen','konten_aendern'), 'Konten'),
 ] %}

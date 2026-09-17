@@ -108,9 +108,19 @@ def main():
     # sich aendern ("Trichter" heisst jetzt "Vertrieb"); erreichbar sein muss er immer.
     for seite, pfad in (("Kunden", "/kunden"), ("Taskforce", "/taskforce"),
                         ("Lebenslauf", "/lebenslauf"), ("Vertrieb", "/trichter"),
-                        ("Aufgaben", "/aufgaben"), ("Mitarbeiter-Spur", "/aktivitaet"),
-                        ("Aussenanbindung", "/aussen"), ("Betrieb", "/betrieb")):
+                        ("Aufgaben", "/aufgaben"), ("Coaches", "/coaches")):
         pruefe(f"Navigation fuehrt zu {seite}", f'href="{pfad}"' in start, pfad)
+
+    # Die Leiste wurde von 14 auf 7 Reiter gekuerzt. Was aus ihr herausfliegt, muss
+    # von einer der Arbeitsseiten aus verlinkt bleiben - sonst ist es kein Aufraeumen,
+    # sondern Verstecken, und die Seite ist praktisch geloescht.
+    _wege = set()
+    for _p in ("/", "/kunden", "/coaches", "/lebenslauf", "/taskforce", "/trichter",
+               "/aufgaben"):
+        _wege |= set(re.findall('href="(/[^"?#]*)', c.get(_p).get_data(as_text=True)))
+    for _ziel in ("/nachrichten", "/aktivitaet", "/protokoll", "/konten", "/betrieb",
+                  "/anbindung", "/aussen", "/lebenslauf/liste"):
+        pruefe(f"{_ziel} ist ohne eigenen Reiter erreichbar", _ziel in _wege)
 
     print("\n4. Kein Platzhalter blieb stehen")
     proben = ["/", "/kunden", "/taskforce", "/lebenslauf", "/trichter", "/aufgaben",

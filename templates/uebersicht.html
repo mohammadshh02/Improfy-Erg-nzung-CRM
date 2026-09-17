@@ -34,10 +34,10 @@
     <div class="zahl" {% if vertrieb.haengen %}style="color:var(--gelb)"{% endif %}>{{ vertrieb.haengen }}</div>
     <div class="marke">hängende Anträge · {{ vertrieb.raus }} raus</div>
     <p style="margin:10px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('trichter_seite') }}">öffnen</a></p></div>
-  <div class="karte"><h3>Mitarbeiter-Spur</h3>
+  <div class="karte"><h3>Coaches</h3>
     <div class="zahl">{{ spur.personen }}</div>
     <div class="marke">aktiv in 30 Tagen · {{ spur.aktionen }} Änderungen</div>
-    <p style="margin:10px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('aktivitaet_seite') }}">öffnen</a></p></div>
+    <p style="margin:10px 0 0"><a class="btn btn-sm btn-primary" href="{{ url_for('coaches_seite') }}">öffnen</a></p></div>
 </div>
 
 <h2>Stand der Anbindung</h2>

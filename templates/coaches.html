@@ -1,0 +1,150 @@
+{% extends "basis.html" %}
+{% block titel %}Coaches{% if einer %} · {{ einer.coach }}{% endif %} – Improfy-OS{% endblock %}
+{% block inhalt %}
+<h1>Coaches</h1>
+<p class="unterzeile">Wen betreut wer, wo hakt es, und was ist im System passiert.
+  Die Zahlen zeigen Last und Lücken – kein Ranking und keine Bewertung:
+  {{ z.hoechste_last }} laufende Maßnahmen gegen {{ z.niedrigste_last }} sagt etwas über
+  die Verteilung, nicht über den Menschen.
+  · <a href="{{ url_for('aktivitaet_seite') }}">vollständige Mitarbeiter-Spur</a>
+  · <a href="{{ url_for('konten_seite') }}">Zugänge</a></p>
+
+<div class="kpi-grid">
+  <div class="karte"><h3>Coaches mit Kunden</h3><div class="zahl">{{ z.coaches }}</div>
+    <div class="marke">{{ z.kunden }} Kunden am Standort</div></div>
+  <div class="karte"><h3>Laufende Maßnahmen</h3><div class="zahl">{{ z.laufend }}</div>
+    <div class="marke">die, an denen gerade gearbeitet wird</div></div>
+  <div class="karte"><h3>Ohne Lebenslauf</h3>
+    <div class="zahl" {% if z.ohne_cv %}style="color:var(--red)"{% endif %}>{{ z.ohne_cv }}</div>
+    <div class="marke">laufend, aber kein Lebenslauf hinterlegt</div></div>
+  <div class="karte"><h3>Ohne Suchprofil</h3>
+    <div class="zahl" {% if z.ohne_profil %}style="color:var(--red)"{% endif %}>{{ z.ohne_profil }}</div>
+    <div class="marke">laufend, aber die Taskforce sucht nichts</div></div>
+</div>
+
+{% if not z.spur_hat_daten %}
+<div class="hinweis" style="margin-top:14px">
+  <strong>Die rechte Hälfte ist noch leer.</strong> Tätigkeit lässt sich erst zählen,
+  wenn die Coaches eigene Zugänge haben und hier arbeiten. Solange steht dort null –
+  das heißt nicht, dass jemand nichts tut, sondern dass dieses System es nicht sieht.
+  <a href="{{ url_for('konten_seite') }}">Zugänge anlegen</a>
+</div>
+{% endif %}
+
+<h2>Betreuung je Coach</h2>
+<div class="tabellenkasten">
+<table>
+  <tr>
+    <th>Coach</th><th class="r">Kunden</th><th class="r">laufend</th>
+    <th class="r">ohne&nbsp;CV</th><th class="r">ohne&nbsp;Profil</th>
+    <th class="r">beworben</th><th class="r">hängt</th>
+    <th class="r">Aufgaben</th><th>zuletzt im System</th><th></th>
+  </tr>
+  {% for r in zeilen %}
+  <tr {% if einer and einer.coach_id == r.coach_id %}style="background:var(--mint)"{% endif %}>
+    <td><strong>{{ r.coach }}</strong>
+        {% if r.rolle %}<div class="marke">{{ r.rolle }}</div>{% endif %}</td>
+    <td class="r mono">{{ r.kunden }}</td>
+    <td class="r mono"><strong>{{ r.laufend }}</strong></td>
+    <td class="r mono">{% if r.ohne_cv %}<span class="plakette p-rot">{{ r.ohne_cv }}</span>
+        {% else %}—{% endif %}</td>
+    <td class="r mono">{% if r.ohne_profil %}<span class="plakette p-rot">{{ r.ohne_profil }}</span>
+        {% else %}—{% endif %}</td>
+    <td class="r mono">{{ r.beworben or '—' }}</td>
+    <td class="r mono">{% if r.haengt %}<span class="plakette p-gelb">{{ r.haengt }}</span>
+        {% else %}—{% endif %}</td>
+    <td class="r mono">{% if r.aufgaben %}{{ r.aufgaben }}{% if r.rot %}
+        <span class="plakette p-rot">{{ r.rot }} dringend</span>{% endif %}
+        {% else %}—{% endif %}</td>
+    <td class="marke">{{ r.zuletzt[:16]|replace('T',' ') if r.zuletzt else 'nie angemeldet' }}</td>
+    <td style="white-space:nowrap">
+      {% if r.coach_id %}
+      <a class="btn btn-sm" href="{{ url_for('coaches_seite', coach=r.coach_id) }}">öffnen</a>
+      {% else %}
+      <a class="btn btn-sm" href="{{ url_for('kunden') }}">in der Kundenliste</a>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+{% if einer %}
+<h2 style="margin-top:24px">{{ einer.coach }}</h2>
+<p class="unterzeile">{{ einer.rolle or 'Coach' }} ·
+  {{ einer.kunden }} Kunden, davon {{ einer.laufend }} in laufender Maßnahme ·
+  <a href="{{ url_for('coaches_seite') }}">Auswahl aufheben</a></p>
+
+<div class="filter" style="margin:0 0 14px">
+  <form method="get" style="display:contents">
+    <input type="hidden" name="coach" value="{{ einer.coach_id }}">
+    <label class="marke">Zeitraum
+      <select name="tage" onchange="this.form.submit()">
+        {% for t in (7, 14, 30, 90) %}
+        <option value="{{ t }}" {{ 'selected' if tage == t }}>{{ t }} Tage</option>
+        {% endfor %}
+      </select></label>
+  </form>
+</div>
+
+<h3>Kunden</h3>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Kunde</th><th>Status</th><th>Ort</th><th>Lebenslauf</th><th>Suchprofil</th>
+      <th class="r">beworben</th><th>nächster Schritt</th><th></th></tr>
+  {% for k in kunden %}
+  <tr>
+    <td><a href="{{ url_for('kunde_detail', kid=k.id) }}"><strong>{{ k.name }}</strong></a></td>
+    <td><span class="plakette">{{ k.status_code or '?' }}</span></td>
+    <td class="marke">{{ k.stadt or '—' }}</td>
+    <td>{% if k.cvs or k.cv_text %}<span class="plakette p-gruen">da</span>
+        {% else %}<span class="plakette p-rot">fehlt</span>{% endif %}</td>
+    <td>{% if k.profile %}<span class="plakette p-gruen">{{ k.profile }}</span>
+        {% else %}<span class="plakette p-rot">keins</span>{% endif %}</td>
+    <td class="r mono">{{ k.beworben or '—' }}</td>
+    <td class="marke">{{ k.naechster_schritt or '—' }}</td>
+    <td style="white-space:nowrap">
+      <a class="btn btn-sm" href="{{ url_for('lebenslauf_uebersicht', kunde=k.id) }}">Lebenslauf</a>
+      <a class="btn btn-sm" href="{{ url_for('taskforce_kunde', kid=k.id) }}">Taskforce</a>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+<h3>Was im System passiert ist</h3>
+{% if spur %}
+<div class="tabellenkasten">
+<table>
+  <tr><th>Tag</th><th>von – bis</th><th class="r">Aktionen</th>
+      <th class="r">Anmeldungen</th><th>womit</th></tr>
+  {% for t in spur %}
+  <tr><td class="mono">{{ t.tag }}</td><td class="marke">{{ t.spanne }}</td>
+      <td class="r mono">{{ t.aktionen }}</td><td class="r mono">{{ t.anmeldungen }}</td>
+      <td class="marke">{{ t.womit }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% else %}
+<div class="karte">
+  <p style="margin:0">Für {{ einer.coach }} ist in den letzten {{ tage }} Tagen nichts
+    verzeichnet. Entweder besteht kein eigener Zugang zu diesem System, oder er wurde
+    nicht benutzt. Die Betreuungszahlen oben stimmen trotzdem – die kommen aus dem
+    Kundenbestand, nicht aus dem Protokoll.</p>
+</div>
+{% endif %}
+
+{% if logins %}
+<h3>Anmeldungen</h3>
+<div class="tabellenkasten">
+<table>
+  <tr><th>Zeitpunkt</th><th>Gerät</th></tr>
+  {% for l in logins %}
+  <tr><td class="mono">{{ l.zeitpunkt[:16]|replace('T',' ') }}</td>
+      <td class="marke">{{ l.geraet_kurz }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
