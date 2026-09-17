@@ -269,6 +269,48 @@ def main():
             if "break-inside: avoid" not in offen(f) and "_fein.html" not in offen(f)
             and "_rahmen.html" not in offen(f)])
 
+    print("\n10. Vorlagenwahl und Einstieg")
+    import re as _re
+    import cv_sammlung as _CS
+    _kid = LB.uebersicht()[0]["id"]
+    _seite = c.get("/lebenslauf?kunde=%d" % _kid).get_data(as_text=True)
+    _angeboten = set(_re.findall('name="design" value="([^"]+)"', _seite))
+    _alle = {k["kennung"] for k in _CS.alle()}
+    # Der Kern der Sache: was die Sammlung kennt, muss im Formular anklickbar sein.
+    # Eine Vorlage, die es gibt, die aber niemand auswaehlen kann, existiert nicht.
+    pruefe("Jede Vorlage der Sammlung laesst sich im Formular auswaehlen",
+           _alle <= _angeboten, sorted(_alle - _angeboten))
+    pruefe("Die Auswahl bietet nichts an, was es nicht gibt",
+           _angeboten <= _alle, sorted(_angeboten - _alle))
+    # Gewaehlt wird nach Bild. Fehlt eines, waehlt der Coach blind.
+    pruefe("Jede Vorlage hat ein eigenes Vorschaubild",
+           all(os.path.exists(os.path.join("static", k["eigen"])) for k in _CS.alle()),
+           [k["kennung"] for k in _CS.alle()
+            if not os.path.exists(os.path.join("static", k["eigen"]))])
+    # Das Bild muss aus der Vorlage selbst stammen, sonst waehlt der Coach etwas
+    # anderes, als hinterher gedruckt wird.
+    pruefe("Die Auswahl zeigt den eigenen Nachbau, nicht das Werbebild des Designers",
+           "/static/vorlagen/" in _seite and "vorlagen/nr25.png" in _seite)
+
+    _ohne = c.get("/lebenslauf")
+    pruefe("Lebenslauf oeffnet ohne Umweg ueber einen Kunden",
+           _ohne.status_code == 200 and "Fu\u0308r wen" in _ohne.get_data(as_text=True)
+           or "F\u00fcr wen" in _ohne.get_data(as_text=True),
+           _ohne.status_code)
+    for _mist in ("abc", "-1", "0", "99999999999999999999", "1%27"):
+        _r = c.get("/lebenslauf?kunde=" + _mist)
+        pruefe("Unsinnige Kundennummer (%s) fuehrt zur Auswahl, nicht zum Absturz" % _mist,
+               _r.status_code == 200, _r.status_code)
+
+    # Die Seitenleiste hatte 14 gleichwertige Reiter. Was taeglich gebraucht wird, muss
+    # obenauf liegen; waechst die Liste wieder, geht genau das verloren.
+    _basis = offen(os.path.join("templates", "basis.html"))
+    _a, _e = _basis.find("nav_arbeit = ["), _basis.find("] %}", _basis.find("nav_arbeit = ["))
+    _reiter = [z for z in _basis[_a:_e].splitlines() if z.strip().startswith("('")]
+    pruefe("Hoechstens sieben Reiter in der taeglichen Arbeit",
+           _a > 0 and len(_reiter) <= 7,
+           len(_reiter) if _a > 0 else "nav_arbeit nicht gefunden")
+
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")
     if fehl:

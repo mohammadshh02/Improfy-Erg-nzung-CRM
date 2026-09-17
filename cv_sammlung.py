@@ -76,8 +76,27 @@ SAMMLUNG = [
      "Ganz ohne Farbe – für Arbeitgeber, die nichts als Text sehen wollen"),
 ]
 
+# Das Vorschaubild des Designers zu jeder Nummer. Die Namen folgen einer Regel
+# (nr7 -> cv7_thumb.png); nr27 heißt in der Sammlung „27.1" und tanzt aus der Reihe.
+SONDERBILD = {"nr27": "cv27_1_thumb.png"}
+
+
+def _bild(kennung):
+    """Das Vorschaubild des Designers – das Original, zum Vergleich."""
+    return SONDERBILD.get(kennung, "cv" + kennung[2:] + "_thumb.png")
+
+
+def _eigen(kennung):
+    """Die eigene Vorschau: eine echt gebaute Seite. Was hier steht, kommt auch heraus.
+
+    Erzeugt von `vorschau_bauen.py`. Fehlt die Datei, zeigt die Auswahl ersatzweise das
+    Original des Designers – lieber ein ähnliches Bild als ein leeres Feld."""
+    return "vorlagen/%s.png" % kennung
+
+
 NACH_KENNUNG = {k: dict(zip(
-    ("kennung", "nummer", "name", "kopfform", "farbe", "farbe2", "bewertung", "text"), z))
+    ("kennung", "nummer", "name", "kopfform", "farbe", "farbe2", "bewertung", "text"), z),
+    bild=_bild(z[0]), eigen=_eigen(z[0]))
     for z in SAMMLUNG for k in (z[0],)}
 
 
@@ -85,6 +104,11 @@ def designs():
     """Die Liste in der Form, die `cv_pdf.DESIGNS` erwartet."""
     return [(k["kennung"], f"Nr. {k['nummer']} · {k['name']}", k["text"])
             for k in NACH_KENNUNG.values()]
+
+
+def alle():
+    """Alle Nummern mit allem, was die Auswahl im Formular braucht – samt Vorschaubild."""
+    return list(NACH_KENNUNG.values())
 
 
 def skin(kennung):

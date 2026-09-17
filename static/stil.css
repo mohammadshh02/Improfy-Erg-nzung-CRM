@@ -222,3 +222,51 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
   .gitter.g4,.gitter.g3{grid-template-columns:repeat(2,1fr)}
   .content{padding-left:14px;padding-right:14px}
 }
+
+/* ---------------------------------------------- Vorlagenwahl im Lebenslauf-Formular
+   Der Coach soll die Vorlage sehen, nicht ihren Namen lesen. 23 Namen in einer Liste
+   sagen niemandem etwas; 23 Bilder entscheiden sich in zwei Sekunden. */
+.vorlagenwahl { display: grid; gap: 12px;
+                grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); }
+.vorlagenwahl .vorlage { position: relative; display: block; cursor: pointer;
+                         border: 2px solid var(--rand); border-radius: 10px;
+                         overflow: hidden; background: #fff; transition: border-color .12s; }
+.vorlagenwahl .vorlage:hover { border-color: var(--pine); }
+.vorlagenwahl .vorlage input { position: absolute; opacity: 0; pointer-events: none; }
+.vorlagenwahl .vorlage img { display: block; width: 100%; aspect-ratio: 1 / 1.414;
+                             object-fit: cover; object-position: center top;
+                             background: #f3f4f5; }
+.vorlagenwahl .vorlage-fuss { display: flex; align-items: center; gap: 4px;
+                              padding: 7px 9px 3px; font-size: 12px; line-height: 1.3; }
+.vorlagenwahl .vorlage-fuss b { font-weight: 600; }
+.vorlagenwahl .vorlage-fuss i { width: 9px; height: 9px; border-radius: 50%; flex: none;
+                                box-shadow: inset 0 0 0 1px #0002; }
+.vorlagenwahl .vorlage-fuss i:first-of-type { margin-left: auto; }
+.vorlagenwahl .vorlage-text { display: block; padding: 0 9px 8px; font-size: 11px;
+                              line-height: 1.35; color: var(--grau); }
+/* Die gewählte Karte muss auf den ersten Blick zu erkennen sein – sonst druckt jemand
+   die falsche Vorlage, ohne es zu merken. */
+.vorlagenwahl .vorlage:has(input:checked) { border-color: var(--accent);
+                                            box-shadow: 0 0 0 3px #43e06a33; }
+.vorlagenwahl .vorlage:has(input:checked)::after {
+  content: "✓"; position: absolute; top: 7px; right: 7px; width: 22px; height: 22px;
+  display: grid; place-items: center; border-radius: 50%;
+  background: var(--accent); color: #0a2c22; font-size: 13px; font-weight: 700; }
+.vorlagenwahl .vorlage input:focus-visible ~ img { outline: 3px solid var(--pine);
+                                                   outline-offset: -3px; }
+
+/* ------------------------------------------------- Einrichtungsgruppe in der Leiste */
+.nav-gruppe { margin-top: 6px; }
+.nav-gruppe > summary { list-style: none; cursor: pointer; user-select: none;
+                        display: flex; align-items: center; justify-content: space-between; }
+.nav-gruppe > summary::-webkit-details-marker { display: none; }
+.nav-gruppe .nav-pfeil { transition: transform .15s; opacity: .55; font-size: 15px; }
+.nav-gruppe[open] .nav-pfeil { transform: rotate(90deg); }
+.nav-gruppe > summary.active-gruppe { color: #fff; }
+.nav-item.nav-unter { padding-left: 26px; font-size: 13px; opacity: .82; }
+.nav-item.nav-unter.active { opacity: 1; }
+.vorlagenwahl .vorlage-original { position: absolute; left: 7px; top: 7px; padding: 2px 7px;
+  border-radius: 999px; background: #0009; color: #fff; font-size: 10px; letter-spacing: .04em;
+  opacity: 0; transition: opacity .12s; }
+.vorlagenwahl .vorlage:hover .vorlage-original,
+.vorlagenwahl .vorlage-original:focus-visible { opacity: 1; }

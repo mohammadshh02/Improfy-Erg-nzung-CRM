@@ -1,16 +1,86 @@
 {% extends "basis.html" %}
-{% block titel %}Lebenslauf bauen · {{ v.kunde_name }} – Improfy-OS{% endblock %}
+{% block titel %}Lebenslauf bauen{% if v %} · {{ v.kunde_name }}{% endif %} – Improfy-OS{% endblock %}
 {% block inhalt %}
-<p class="marke"><a href="{{ url_for('lebenslauf_uebersicht') }}">← Lebensläufe</a> ·
-   <a href="{{ url_for('kunde_detail', kid=v.kunde_id) }}">{{ v.kunde_name }}</a></p>
 <h1>Lebenslauf bauen</h1>
-<p class="unterzeile">Füllt die Improfy-Excel-Vorlage. Was das OS über {{ v.kunde_name }} weiß, steht schon drin.
-  Fehlende Pflichtangaben markiert die Vorlage gelb, die Datei lässt sich trotzdem erzeugen.</p>
+<p class="unterzeile">{% if v %}Was das OS über {{ v.kunde_name }} weiß, steht schon drin.
+  Fehlende Pflichtangaben markiert die Vorlage gelb, die Datei lässt sich trotzdem erzeugen.
+  {% else %}Für wen soll der Lebenslauf sein? Person wählen – alles Weitere füllt sich
+  aus dem Bestand.{% endif %}
+  · <a href="{{ url_for('lebenslauf_liste') }}">Überblick: wer hat schon einen</a>
+  · <a href="{{ url_for('lebenslauf_fotos') }}">Bewerbungsfotos</a></p>
 
 {% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
 {% if fehler %}<div class="warnung"><h3>Das ging nicht</h3><p style="margin:0">{{ fehler }}</p>
   {% if hinweise %}<ul style="margin:6px 0 0 18px;padding:0">{% for h in hinweise %}<li>{{ h }}</li>{% endfor %}</ul>{% endif %}
 </div>{% endif %}
+
+<h2>{{ '1 · Für wen' if not v else 'Für wen' }}</h2>
+<div class="karte" style="margin-bottom:14px">
+  <form method="get" action="{{ url_for('lebenslauf_uebersicht') }}" class="filter" style="margin:0">
+    <input list="kundenliste" name="_name" id="kundenname" autocomplete="off"
+           placeholder="Name tippen … {{ kundenwahl|length }} Kunden"
+           value="{{ v.kunde_name if v else (gesucht or '') }}" style="min-width:300px"
+           aria-label="Kunde suchen">
+    <datalist id="kundenliste">
+      {% for z in kundenwahl %}<option value="{{ z.name }}" data-id="{{ z.id }}">
+        {{ z.coach or 'ohne Coach' }}{% if z.hat_cv %} · hat schon einen{% endif %}</option>{% endfor %}
+    </datalist>
+    <input type="hidden" name="kunde" id="kundenid" value="{{ v.kunde_id if v else '' }}">
+    <button type="submit" class="btn btn-primary">übernehmen</button>
+    {% if v %}<a class="btn btn-sm" href="{{ url_for('lebenslauf_uebersicht') }}">anderer Kunde</a>
+      <a class="btn btn-sm" href="{{ url_for('kunde_detail', kid=v.kunde_id) }}">Kundenakte</a>{% endif %}
+    <span class="marke" id="kundenhinweis"></span>
+  </form>
+  <script>
+  /* Das Namensfeld ist die Bequemlichkeit, die ID ist die Wahrheit: zwei Kunden können
+     gleich heißen, und ein Tippfehler darf nicht stillschweigend den Falschen laden.
+     Darum wird nur abgeschickt, was sich eindeutig einer ID zuordnen lässt. */
+  (function () {
+    var feld = document.getElementById('kundenname'),
+        id   = document.getElementById('kundenid'),
+        hin  = document.getElementById('kundenhinweis'),
+        liste = Array.prototype.slice.call(
+                  document.querySelectorAll('#kundenliste option'));
+    function zuordnen() {
+      var w = (feld.value || '').trim().toLowerCase();
+      var treffer = liste.filter(function (o) { return o.value.toLowerCase() === w; });
+      if (treffer.length === 1) { id.value = treffer[0].dataset.id; hin.textContent = ''; return; }
+      id.value = '';
+      hin.textContent = !w ? '' :
+        (treffer.length > 1 ? 'Mehrere Kunden heißen so – bitte über die Liste wählen.'
+                            : 'Noch kein Kunde ausgewählt.');
+    }
+    feld.addEventListener('input', zuordnen);
+    feld.addEventListener('change', zuordnen);
+    /* Enter muss abschicken. Steht die Vorschlagsliste offen, faengt der erste Druck
+       sie ab - das ist Browserverhalten; der zweite geht dann durch. Ohne ID wird
+       trotzdem abgeschickt: der Server loest den getippten Namen selbst auf und sagt,
+       wenn er nicht eindeutig ist. Stilles Nichtstun waere das Schlechteste. */
+    feld.form.addEventListener('submit', zuordnen);
+  })();
+  </script>
+</div>
+
+{% if not v %}
+<h2>2 · Vorlage</h2>
+<div class="karte">
+  <p class="unterzeile" style="margin:0 0 12px">Alle {{ vorlagen|length }} Vorlagen der Sammlung.
+    Auswählen lässt sich die Vorlage, sobald oben eine Person steht.</p>
+  <div class="vorlagenwahl">
+    {% for k in vorlagen %}
+    <span class="vorlage" style="cursor:default">
+      <img src="{{ url_for('static', filename=k.eigen) }}" alt="Vorlage {{ k.nummer }}"
+           loading="lazy">
+      <span class="vorlage-fuss"><b>Nr. {{ k.nummer }}</b> {{ k.name }}
+        <i style="background:{{ k.farbe }}"></i><i style="background:{{ k.farbe2 }}"></i></span>
+      <span class="vorlage-text">{{ k.text }}</span>
+    </span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if v %}
 
 <div class="hinweis">
   <strong>Blattname: {{ v.blattname }}</strong>
@@ -224,15 +294,79 @@
 <h2>Design für das PDF</h2>
 <div class="karte">
   {% if chrome %}
-  <div class="gitter g3">
-    {% for schluessel, name, beschreibung in designs %}
-    <label class="karte" style="padding:12px 14px;cursor:pointer;box-shadow:none;margin:0">
-      <input type="radio" name="design" value="{{ schluessel }}" {{ 'checked' if loop.first }}>
-      <strong style="margin-left:6px">{{ name }}</strong>
-      <div class="marke" style="margin-top:4px">{{ beschreibung }}</div>
+  <p class="unterzeile" style="margin:0 0 12px">Alle {{ vorlagen|length }} Vorlagen der Sammlung.
+    Anklicken wählt aus – die gewählte ist grün umrandet.
+    Gezeigt wird eine wirklich gebaute Seite, nicht ein Werbebild: was hier steht, kommt
+    auch heraus. <em>Original</em> öffnet daneben die Vorlage des Designers zum Vergleich.</p>
+
+  <div class="filter" style="margin:0 0 12px">
+    <input type="search" id="vorlagensuche" placeholder="Vorlage suchen … (Nummer, Name, Farbe)"
+           style="min-width:260px" aria-label="Vorlagen durchsuchen">
+    <select id="vorlagenform" aria-label="Nach Kopfform filtern">
+      <option value="">jede Kopfform</option>
+      <option value="band">Farbband oben</option>
+      <option value="links">Randspalte links</option>
+      <option value="ecke">Form in der Ecke</option>
+      <option value="flaeche">eingefärbte Seite</option>
+      <option value="rahmen">feiner Rahmen</option>
+      <option value="schlicht">weiß, ohne Fläche</option>
+    </select>
+    <span class="marke" id="vorlagenzahl"></span>
+  </div>
+
+  <div class="vorlagenwahl" id="vorlagenwahl">
+    {% for k in vorlagen %}
+    <label class="vorlage" data-form="{{ k.kopfform }}"
+           data-suche="{{ (k.nummer ~ ' ' ~ k.name ~ ' ' ~ k.text)|lower }}">
+      <input type="radio" name="design" value="{{ k.kennung }}" {{ 'checked' if loop.first }}>
+      <img src="{{ url_for('static', filename=k.eigen) }}" alt="Vorlage {{ k.nummer }}"
+           loading="lazy">
+      <span class="vorlage-fuss">
+        <b>Nr. {{ k.nummer }}</b> {{ k.name }}
+        <i style="background:{{ k.farbe }}"></i><i style="background:{{ k.farbe2 }}"></i>
+      </span>
+      <span class="vorlage-text">{{ k.text }}</span>
+      <a class="vorlage-original" target="_blank" rel="noopener"
+         href="{{ url_for('lebenslauf_galerie', bild=k.bild) }}"
+         title="Das Bild des Designers zum Vergleich öffnen">Original</a>
     </label>
     {% endfor %}
   </div>
+  <p class="marke" id="vorlagenleer" style="display:none;margin-top:10px">
+    Keine Vorlage passt zu dieser Suche.</p>
+
+  <script>
+  /* Suche und Kopfform-Filter blenden Karten aus. Wichtig: eine ausgeblendete Karte
+     darf nicht gewählt bleiben – sonst druckt das PDF eine Vorlage, die der Coach
+     gar nicht mehr sieht. Fällt die Wahl weg, rückt sie auf die erste sichtbare. */
+  (function () {
+    var kasten = document.getElementById('vorlagenwahl');
+    if (!kasten) return;
+    var suche = document.getElementById('vorlagensuche'),
+        form  = document.getElementById('vorlagenform'),
+        zahl  = document.getElementById('vorlagenzahl'),
+        leer  = document.getElementById('vorlagenleer'),
+        alle  = Array.prototype.slice.call(kasten.querySelectorAll('.vorlage'));
+
+    function filtern() {
+      var w = (suche.value || '').trim().toLowerCase(), f = form.value, sichtbar = [];
+      alle.forEach(function (k) {
+        var passt = (!w || k.dataset.suche.indexOf(w) >= 0) && (!f || k.dataset.form === f);
+        k.style.display = passt ? '' : 'none';
+        if (passt) sichtbar.push(k);
+      });
+      zahl.textContent = sichtbar.length + ' von ' + alle.length + ' Vorlagen';
+      leer.style.display = sichtbar.length ? 'none' : '';
+      var gewaehlt = kasten.querySelector('input[name=design]:checked');
+      if (sichtbar.length && (!gewaehlt || gewaehlt.closest('.vorlage').style.display === 'none')) {
+        sichtbar[0].querySelector('input').checked = true;
+      }
+    }
+    suche.addEventListener('input', filtern);
+    form.addEventListener('change', filtern);
+    filtern();
+  })();
+  </script>
   <div class="filter" style="margin:14px 0 0;align-items:center">
     {% if foto %}
     <img src="{{ url_for('lebenslauf_foto_zeigen', kid=v.kunde_id) }}?v={{ foto.geaendert }}"
@@ -294,5 +428,6 @@
   {% endfor %}
 </table>
 </div>
+{% endif %}
 {% endif %}
 {% endblock %}

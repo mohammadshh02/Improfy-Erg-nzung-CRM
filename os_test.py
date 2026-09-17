@@ -104,9 +104,13 @@ def main():
            "fontshare" in start and "fonts.googleapis" in start)
 
     print("\n3. Navigation zeigt alle Abteilungen")
-    for seite in ("Kunden", "Taskforce", "Lebensläufe", "Trichter", "Aufgaben",
-                  "Mitarbeiter-Spur", "Außenanbindung", "Betrieb"):
-        pruefe(f"Navigation kennt {seite}", seite in start)
+    # Geprueft wird das Ziel, nicht die Beschriftung: wie ein Reiter heisst, darf
+    # sich aendern ("Trichter" heisst jetzt "Vertrieb"); erreichbar sein muss er immer.
+    for seite, pfad in (("Kunden", "/kunden"), ("Taskforce", "/taskforce"),
+                        ("Lebenslauf", "/lebenslauf"), ("Vertrieb", "/trichter"),
+                        ("Aufgaben", "/aufgaben"), ("Mitarbeiter-Spur", "/aktivitaet"),
+                        ("Aussenanbindung", "/aussen"), ("Betrieb", "/betrieb")):
+        pruefe(f"Navigation fuehrt zu {seite}", f'href="{pfad}"' in start, pfad)
 
     print("\n4. Kein Platzhalter blieb stehen")
     proben = ["/", "/kunden", "/taskforce", "/lebenslauf", "/trichter", "/aufgaben",

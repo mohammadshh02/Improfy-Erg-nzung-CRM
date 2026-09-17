@@ -26,6 +26,7 @@ import fotos
 import nachrichten
 import crm_karte
 import cv_pdf
+import cv_sammlung
 import lebenslauf_bauen as LB
 import aktivitaet
 import aufgaben
@@ -546,30 +547,70 @@ LEER_BILDUNG = {"zeitraum": "", "abschluss": "", "institution": "", "note": ""}
 
 
 def _cv_seite(kid, daten=None, fehler=None, gelesen=None, rohtext="", hinweise=None,
-              meldung=None):
-    v = LB.vorbelegung(kid)
-    if not v:
+              meldung=None, gesucht=""):
+    # Ohne Kunden ist das kein Fehler, sondern der erste Zustand der Seite: das Formular
+    # steht da, die Vorlagen sind sichtbar, und oben wird gefragt, für wen es sein soll.
+    v = LB.vorbelegung(kid) if kid else None
+    if kid and not v:
         abort(404)
-    d = daten or v["daten"]
+    d = daten or (v["daten"] if v else {})
     def auffuellen(liste, leer, anzahl):
         liste = list(liste or [])
         return liste + [dict(leer) for _ in range(max(0, anzahl - len(liste)))]
     return render_template(
         "lebenslauf_bauen.html", v=v, d=d, fehler=fehler, gelesen=gelesen, rohtext=rohtext,
         hinweise=hinweise or [], lesbar=dokument_lesen.ENDUNGEN, meldung=meldung,
-        foto=fotos.foto(kid),
+        foto=fotos.foto(kid) if kid else None,
+        kundenwahl=LB.uebersicht(),
         designs=cv_pdf.DESIGNS, chrome=cv_pdf.bereit(), galerie=cv_pdf.galerie(),
+        vorlagen=cv_sammlung.alle(), gesucht=gesucht,
         beruf=auffuellen(d.get("berufserfahrung"), LEER_BERUF, 7),
         bildung=auffuellen(d.get("bildung"), LEER_BILDUNG, 4),
         sprachen=auffuellen(d.get("sprachen"), {"sprache": "", "niveau": ""}, 4),
         edv=auffuellen(d.get("edv_kenntnisse"), {"programm": "", "sterne": 4}, 4),
         skills=auffuellen(d.get("soft_skills"), {"eigenschaft": "", "sterne": 5}, 6),
-        niveaus=LB.NIVEAUS, frueher=LB.gebaute(kid))
+        niveaus=LB.NIVEAUS, frueher=LB.gebaute(kid) if kid else [])
 
 
 @app.route("/lebenslauf")
 def lebenslauf_uebersicht():
-    """Eigene Sparte: alle Kunden mit dem Stand ihres Lebenslaufs."""
+    """Der Lebenslauf fängt hier an – nicht beim Kunden.
+
+    Vorher musste man erst in die Kundenliste, dort die Person suchen, sie anklicken und
+    von ihrer Seite aus den Lebenslauf öffnen. Vier Schritte für die eine Sache, für die
+    man hergekommen ist. Jetzt öffnet dieser Reiter direkt das Bauformular; die Person
+    ist die erste Frage darin, nicht die Voraussetzung dafür."""
+    kid = (request.args.get("kunde") or "").strip()
+    if kid.isdigit() and 0 < int(kid) <= SQLITE_MAX:
+        if LB.vorbelegung(int(kid)):
+            return _cv_seite(int(kid))
+
+    # Wer den Namen tippt statt ihn aus der Liste zu klicken, bekommt keine ID mit.
+    # Dann loest der Server auf. Ohne das landet der Coach wortlos wieder auf der
+    # Auswahl und weiss nicht, warum.
+    name = (request.args.get("_name") or "").strip()
+    if name:
+        treffer = [z for z in LB.uebersicht()
+                   if (z["name"] or "").casefold() == name.casefold()]
+        if len(treffer) == 1:
+            return _cv_seite(treffer[0]["id"])
+        teil = [z for z in LB.uebersicht()
+                if name.casefold() in (z["name"] or "").casefold()]
+        if len(teil) == 1:
+            return _cv_seite(teil[0]["id"])
+        if not teil:
+            return _cv_seite(None, gesucht=name,
+                             fehler='Kein Kunde heisst "%s".' % name)
+        return _cv_seite(None, gesucht=name,
+                         fehler='Mehrere Kunden passen zu "%s": %s. Bitte den ganzen '
+                                'Namen aus der Liste waehlen.'
+                                % (name, ", ".join(z["name"] for z in teil[:6])))
+    return _cv_seite(None)
+
+
+@app.route("/lebenslauf/liste")
+def lebenslauf_liste():
+    """Der Überblick: wer hat einen Lebenslauf, wer nicht. Zum Nachhalten, nicht zum Bauen."""
     suche = (request.args.get("q") or "").strip() or None
     stand = request.args.get("stand") or None
     zeilen = LB.uebersicht(suche=suche, stand=stand)

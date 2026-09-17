@@ -12,14 +12,20 @@
 </head>
 <body>
 {% set s = request.endpoint or '' %}
-{% set nav_seiten = [
+{# Die Seitenleiste hatte 14 Reiter. Wer täglich damit arbeitet, braucht sieben davon;
+   die anderen sechs sind Einrichtung und Nachweis – einmal eingestellt, selten geöffnet.
+   14 gleichwertige Einträge machen die sieben wichtigen unauffindbar. Darum: oben die
+   Arbeit, unten hinter einem Eintrag die Verwaltung. #}
+{% set nav_arbeit = [
   ('uebersicht', ('uebersicht',), 'Übersicht'),
   ('aufgaben_seite', ('aufgaben_seite',), 'Aufgaben'),
   ('taskforce_seite', ('taskforce',), 'Taskforce'),
-  ('lebenslauf_uebersicht', ('lebenslauf_uebersicht','lebenslauf_formular','lebenslauf_erzeugen','lebenslauf_lesen','lebenslauf_pdf'), 'Lebensläufe'),
+  ('lebenslauf_uebersicht', ('lebenslauf_uebersicht','lebenslauf_liste','lebenslauf_formular','lebenslauf_erzeugen','lebenslauf_lesen','lebenslauf_pdf','lebenslauf_fotos'), 'Lebenslauf'),
   ('nachrichten_seite', ('nachrichten_seite','nachrichten_vermerken'), 'Kundennachrichten'),
-  ('trichter_seite', ('trichter_seite','trichter_kommo'), 'Trichter'),
+  ('trichter_seite', ('trichter_seite','trichter_kommo'), 'Vertrieb'),
   ('kunden', ('kunden','kunde_detail'), 'Kunden'),
+] %}
+{% set nav_verwaltung = [
   ('anbindung_seite', ('anbindung_seite',), 'CRM-Anbindung'),
   ('aussen_seite', ('aussen_seite','aussen_pruefen'), 'Außenanbindung'),
   ('betrieb_seite', ('betrieb_seite','betrieb_sichern'), 'Betrieb'),
@@ -27,6 +33,7 @@
   ('protokoll_seite', ('protokoll_seite',), 'Protokoll'),
   ('konten_seite', ('konten_seite','konten_anlegen','konten_aendern'), 'Konten'),
 ] %}
+{% set nav_seiten = nav_arbeit + nav_verwaltung %}
 {% set ns = namespace(titel='Improfy-Ergänzung') %}
 {% for ziel, aktive, name in nav_seiten %}
   {% if s in aktive or (ziel == 'taskforce_seite' and s.startswith('taskforce')) %}{% set ns.titel = name %}{% endif %}
@@ -40,12 +47,24 @@
       </a>
       <div class="brand-sub">OS · Standort Köln</div>
     </div>
+    {% set in_verwaltung = nav_verwaltung|selectattr('2', 'equalto', ns.titel)|list|length > 0 %}
     <nav class="sidebar-nav">
-      {% for ziel, aktive, name in nav_seiten %}
+      {% for ziel, aktive, name in nav_arbeit %}
       <a href="{{ url_for(ziel) }}" class="nav-item {{ 'active' if name == ns.titel }}" title="{{ name }}">
         <span>{{ name }}</span>
       </a>
       {% endfor %}
+      {# Aufgeklappt, sobald man drin steht – sonst wüsste man nicht, wo man ist. #}
+      <details class="nav-gruppe" {{ 'open' if in_verwaltung }}>
+        <summary class="nav-item {{ 'active-gruppe' if in_verwaltung }}">
+          <span>Einrichtung</span><span class="nav-pfeil">›</span>
+        </summary>
+        {% for ziel, aktive, name in nav_verwaltung %}
+        <a href="{{ url_for(ziel) }}" class="nav-item nav-unter {{ 'active' if name == ns.titel }}" title="{{ name }}">
+          <span>{{ name }}</span>
+        </a>
+        {% endfor %}
+      </details>
     </nav>
     <div class="sidebar-foot">
       <a class="user-chip" href="{{ url_for('logout') }}" title="abmelden">
