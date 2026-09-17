@@ -16,8 +16,13 @@
 .kopf { display: flex; align-items: flex-end; gap: 10mm; margin-bottom: 7mm; }
 .kopf .text { flex: 1; min-width: 0; }
 .kopf .rolle { margin-bottom: 2.5mm; }
-.kontakt { margin-top: 3.5mm; color: var(--grafit); font-size: 9.5pt; }
-.kontakt span + span::before { content: "·"; color: var(--linie); margin: 0 2.2mm; }
+/* Zwei Dinge, beide im gedruckten PDF nachgesehen, nicht am Bildschirm:
+   - `nowrap` je Angabe, sonst brach die Telefonnummer mitten durch („+49 177" / „2306596")
+   - keine Trennpunkte zwischen den Angaben: Beim Umbruch rutschte der Punkt an den
+     Anfang der neuen Zeile. Ein großzügiger Abstand trennt ohnehin ruhiger. */
+.kontakt { margin-top: 4mm; color: var(--grafit); font-size: 9.5pt;
+           display: flex; flex-wrap: wrap; gap: 1.5mm 9mm; }
+.kontakt span { white-space: nowrap; }
 </style></head>
 <body>
 
