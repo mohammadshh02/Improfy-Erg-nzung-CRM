@@ -27,6 +27,21 @@ import lebenslauf_bauen as LB       # noqa: E402
 ergebnis = []
 
 
+def vorlagen_dateien():
+    ordner = os.path.join(HIER, "templates", "cv_designs")
+    return [os.path.join(ordner, f) for f in os.listdir(ordner)
+            if f.startswith("cv_") and f.endswith(".html")]
+
+
+def offen(pfad):
+    with open(pfad, encoding="utf-8") as f:
+        return f.read()
+
+
+def ohne_kommentare(text):
+    return re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+
+
 def pruefe(name, bedingung, detail=""):
     ergebnis.append((name, bool(bedingung)))
     print(f"  {'OK  ' if bedingung else 'FEHL'} {name}{(' – ' + str(detail)) if detail else ''}")
@@ -169,9 +184,20 @@ def main():
     with A.app.test_request_context():
         html = cv_pdf.html_bauen(flask_render,
                                  dict(daten, massnahme_zeitraum="01.01.2026 - 01.03.2026"), "atanas")
-    pruefe("Improfy-Standard rendert Name, Zeitraum und drei Seiten",
+    # Seit dem Umbau auf den gemeinsamen Rahmen gibt es keine festen Seiten mehr –
+    # der Inhalt fließt über so viele, wie er braucht. Geprüft wird deshalb, dass die
+    # Bausteine da sind, nicht wie viele Seiten herauskommen.
+    pruefe("Improfy-Standard rendert Name, Zeitraum und die Kapitel",
            daten["nachname"] in html and "01.01.2026 - 01.03.2026" in html
-           and html.count('class="seite"') == 3, html.count('class="seite"'))
+           and html.count('class="kapitel"') >= 2 and "thead" in html,
+           f"{html.count('class=\"kapitel\"')} Kapitel")
+    # Der eigentliche Fehler war eine **feste Seitenhöhe**: Was darüber hinausging, war weg.
+    # `overflow: hidden` an Zierelementen (Bildkopf, Linie neben der Überschrift) ist in
+    # Ordnung – geprüft wird deshalb nur die feste Höhe, und Kommentare zählen nicht mit.
+    schlecht = [os.path.basename(f) for f in vorlagen_dateien()
+                if re.search(r"height:\s*29[0-9]mm", ohne_kommentare(offen(f)))]
+    pruefe("Keine Vorlage presst den Inhalt in eine feste Seitenhöhe",
+           not schlecht, schlecht)
 
     print("\n8. Unvollständige Eingabe bricht nicht ab")
     r = c.post(f"/kunde/{kid}/lebenslauf", data={"vorname": "Nur", "nachname": "Name"})

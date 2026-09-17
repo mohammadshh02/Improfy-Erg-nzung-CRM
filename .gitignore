@@ -9,3 +9,4 @@ ausgabe/*
 !ausgabe/.gitkeep
 __pycache__/
 sicherungen/
+ausgabe/vorlagenpruefung/
