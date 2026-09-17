@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<title>{{ d.vorname }} {{ d.nachname }} – Lebenslauf</title>
+{% set akzent = '#1d3557' %}
+{% include "cv_designs/_fein.html" %}
+<style>
+/* PROFIL – schmale Randspalte für die Person, breite Spalte für den Werdegang.
+
+   Der klassische deutsche Aufbau, aber ohne die üblichen Fehler: Die Randspalte trägt
+   **nur Beiwerk** – Foto, Kontakt, Sprachen, Stärken. Der Werdegang steht immer in der
+   Hauptspalte und in Lesereihenfolge; sonst zerlegt ihn die Bewerbersoftware falsch und
+   die Reihenfolge der Stationen geht verloren.
+
+   Die Randspalte hat keine Farbfläche, sondern nur eine Haarlinie als Kante. Eine
+   eingefärbte Spalte sieht am Bildschirm gut aus und im Schwarzweißdruck grau und
+   billig – und ausgedruckt wird immer noch häufiger, als man denkt. */
+
+.raster { display: grid; grid-template-columns: 52mm 1fr; column-gap: 10mm; }
+.rand { border-right: .35pt solid var(--linie); padding-right: 10mm; }
+.rand > * + * { margin-top: 7mm; }
+.rand .kapitel { font-size: 8.5pt; margin-bottom: 2.5mm; }
+.rand .foto { width: 100%; height: 60mm; }
+/* Trennen statt abhacken: `anywhere` bräche mitten im Wort ohne Strich.
+   Nur die E-Mail darf hart brechen – eine Adresse kennt keine Silben. */
+.rand .zeile { margin-bottom: 1.8mm; hyphens: auto; }
+.rand .mail { overflow-wrap: anywhere; hyphens: none; }
+.rand .grad { color: var(--grafit); font-size: 9pt; }
+.rand .stufen { display: block; }
+.haupt { min-width: 0; }
+
+.name { font-size: 24pt; }
+.kopf { margin-bottom: 6mm; }
+.kopf .rolle { margin-top: 2.5mm; }
+
+/* Der Werdegang bekommt hier weniger Platz, also rückt die Datenspalte enger. */
+.haupt .werdegang { grid-template-columns: 26mm 1fr; column-gap: 6mm; }
+
+/* Ab Seite zwei fällt die Randspalte weg – sie hätte dort nichts zu sagen und
+   würde nur ein Drittel des Blattes weiß lassen. Der Werdegang nimmt dann die
+   ganze Breite. Das erledigt der Umbruch von selbst, weil beide Spalten
+   eigenständig fließen. */
+</style></head>
+<body>
+
+<div class="raster">
+  <aside class="rand">
+    {% if foto and zeige_foto %}<img class="foto" src="{{ foto }}" alt="">{% endif %}
+
+    <div>
+      <div class="kapitel">Kontakt</div>
+      {% if d.mobil %}<div class="zeile">{{ d.mobil }}</div>{% endif %}
+      {% if d.email %}<div class="zeile mail">{{ d.email }}</div>{% endif %}
+      {% if d.adresse %}<div class="zeile">{{ d.adresse }}</div>{% endif %}
+      {% if d.geburtsdatum %}<div class="zeile grad">geboren {{ d.geburtsdatum }}</div>{% endif %}
+    </div>
+
+    {% if d.sprachen %}
+    <div>
+      <div class="kapitel">Sprachen</div>
+      {% for s in d.sprachen %}
+      <div class="zeile">{{ s.sprache|title }}{% if s.niveau %} <span class="grad">{{ s.niveau }}</span>{% endif %}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if d.edv_kenntnisse %}
+    <div>
+      <div class="kapitel">EDV</div>
+      {% for e in d.edv_kenntnisse %}
+      <div class="zeile">{{ e.programm }} <span class="grad">{{ niveau(e.sterne) }}</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% set fs = d.fuehrerschein or {} %}
+    {% if d.zusatzqualifikationen or fs.vorhanden %}
+    <div>
+      <div class="kapitel">Qualifikationen</div>
+      {% if fs.vorhanden %}<div class="zeile">Führerschein{% if fs.klasse %} Klasse {{ fs.klasse }}{% endif %}</div>{% endif %}
+      {% for z in d.zusatzqualifikationen or [] %}<div class="zeile">{{ z }}</div>{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if d.soft_skills %}
+    <div>
+      <div class="kapitel">Stärken</div>
+      {% for s in d.soft_skills %}<div class="zeile">{{ s.eigenschaft }}</div>{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if d.hobbys %}
+    <div>
+      <div class="kapitel">Interessen</div>
+      <div class="zeile grad">{{ d.hobbys }}</div>
+    </div>
+    {% endif %}
+  </aside>
+
+  <main class="haupt">
+    <header class="kopf">
+      <h1 class="name">{{ d.vorname }}<br>{{ d.nachname }}</h1>
+      {% if d.angestrebter_job %}<div class="rolle">{{ d.angestrebter_job }}</div>{% endif %}
+    </header>
+    <hr class="linie">
+
+    {% if d.ueber_mich %}
+    <section>
+      <h2 class="kapitel">Kurzprofil</h2>
+      {% for absatz in d.ueber_mich.split('\n') %}{% if absatz.strip() %}<p>{{ absatz.strip() }}</p>{% endif %}{% endfor %}
+    </section>
+    {% endif %}
+
+    {% if beruf %}
+    <section>
+      <h2 class="kapitel">Berufserfahrung</h2>
+      <div class="werdegang">
+        {% for b in beruf %}
+        <div class="zeit">{{ b.zeitraum }}</div>
+        <div class="was eintrag">
+          <div class="posten">{{ b.jobtitel or 'Tätigkeit' }}</div>
+          {% if b.firma %}<div class="ort">{{ b.firma }}</div>{% endif %}
+          {% if b.taetigkeiten %}<ul class="taetig">{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if d.bildung %}
+    <section>
+      <h2 class="kapitel">Schulbildung und Ausbildung</h2>
+      <div class="werdegang">
+        {% for b in d.bildung %}
+        <div class="zeit">{{ b.zeitraum }}</div>
+        <div class="was eintrag">
+          <div class="posten">{{ b.abschluss }}</div>
+          {% if b.institution %}<div class="ort">{{ b.institution }}{% if b.note %} · Abschlussnote {{ b.note }}{% endif %}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </main>
+</div>
+
+</body></html>

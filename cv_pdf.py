@@ -23,13 +23,15 @@ AUSGABE = os.path.join(HIER, "ausgabe", "lebenslaeufe")
 
 # Die festen Vorlagen. Reihenfolge ist die Reihenfolge in der Auswahl.
 DESIGNS = [
-    ("atanas", "Improfy Standard", "Das Design unseres Designers: grüner Kopf mit Sprechblase, "
-               "Foto links, drei Seiten – Über mich, Berufserfahrung, Qualifikation"),
-    ("gruen", "Improfy Grün", "Tannengrün mit Limetten-Akzent, Foto im Blob, Markenfarben aus Figma"),
-    ("pro", "Profi", "Ruhig und sachlich, zweispaltig, gut für Verwaltung und Büro"),
-    ("clean", "Klar", "Sehr aufgeräumt, viel Weißraum, gut für technische Berufe"),
-    ("blob", "Blob", "Moderne Form, farbiger Kopf, Foto freigestellt"),
-    ("referenz", "Referenz", "Nachbau der Improfy-Musterseite"),
+    ("klassik", "Klassik",
+     "Eine Spalte, kein Schmuck, nichts als Ordnung. Für Behörde, Konzern und "
+     "Bewerbersoftware – und die Vorlage, die am ruhigsten wirkt."),
+    ("kontur", "Kontur",
+     "Der Name als Auftritt über einer Haarlinie, darunter Ordnung. Warmer "
+     "Messingakzent, erwachsen und zurückhaltend."),
+    ("profil", "Profil",
+     "Schmale Randspalte für Person, Sprachen und Stärken, breite Spalte für den "
+     "Werdegang. Der klassische deutsche Aufbau, sauber gesetzt."),
 ]
 DESIGN_DATEI = {schluessel: f"cv_designs/cv_{schluessel}.html" for schluessel, _, _ in DESIGNS}
 
@@ -150,13 +152,17 @@ def improfy_block(daten):
                              "Aktive Kontaktaufnahme mit Unternehmen"]}
 
 
-def html_bauen(render, daten, design="gruen", foto=None):
+def html_bauen(render, daten, design="klassik", foto=None):
     """Design-Vorlage mit den Daten füllen. `render` ist Flasks render_template."""
     daten = _sprachen_lesbar(dict(daten))
     beruf = [improfy_block(daten)] + list(daten.get("berufserfahrung") or [])
-    return render(DESIGN_DATEI.get(design, DESIGN_DATEI["gruen"]),
+    # Bewusst **ohne** Logo des Trägers: Das Papier gehört dem Bewerber. Ein Logo oben
+    # rechts sagt dem Recruiter „Maßnahme" statt „Kandidat" – genau die Schublade, in
+    # die niemand will. `zeige_foto` sagt der Vorlage, ob überhaupt eines da ist; ein
+    # grauer Platzhalter sieht schlechter aus als gar kein Foto.
+    return render(DESIGN_DATEI.get(design, DESIGN_DATEI["klassik"]),
                   d=daten, beruf=beruf, foto=foto or PLATZHALTER_FOTO,
-                  niveau=_niveau_txt, logo=_logo_uri())
+                  zeige_foto=bool(foto), niveau=_niveau_txt, logo="")
 
 
 def pdf_aus_html(html, zeit=90):
@@ -183,7 +189,7 @@ def pdf_aus_html(html, zeit=90):
         shutil.rmtree(ordner, ignore_errors=True)
 
 
-def bauen(render, daten, design="gruen", foto=None, dateiname=None):
+def bauen(render, daten, design="klassik", foto=None, dateiname=None):
     """Designtes PDF erzeugen und in ausgabe/lebenslaeufe/ ablegen."""
     pdf = pdf_aus_html(html_bauen(render, daten, design, foto))
     os.makedirs(AUSGABE, exist_ok=True)

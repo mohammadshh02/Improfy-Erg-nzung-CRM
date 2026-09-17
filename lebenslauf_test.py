@@ -183,13 +183,14 @@ def main():
            [sch for sch, _, _ in cv_pdf.DESIGNS])
     with A.app.test_request_context():
         html = cv_pdf.html_bauen(flask_render,
-                                 dict(daten, massnahme_zeitraum="01.01.2026 - 01.03.2026"), "atanas")
+                                 dict(daten, massnahme_zeitraum="01.01.2026 - 01.03.2026"),
+                                 cv_pdf.DESIGNS[0][0])
     # Seit dem Umbau auf den gemeinsamen Rahmen gibt es keine festen Seiten mehr –
     # der Inhalt fließt über so viele, wie er braucht. Geprüft wird deshalb, dass die
     # Bausteine da sind, nicht wie viele Seiten herauskommen.
-    pruefe("Improfy-Standard rendert Name, Zeitraum und die Kapitel",
+    pruefe("Die erste Vorlage rendert Name, Zeitraum und die Kapitel",
            daten["nachname"] in html and "01.01.2026 - 01.03.2026" in html
-           and html.count('class="kapitel"') >= 2 and "thead" in html,
+           and html.count('class="kapitel"') >= 2,
            f"{html.count('class=\"kapitel\"')} Kapitel")
     # Der eigentliche Fehler war eine **feste Seitenhöhe**: Was darüber hinausging, war weg.
     # `overflow: hidden` an Zierelementen (Bildkopf, Linie neben der Überschrift) ist in
@@ -239,9 +240,13 @@ def main():
                                      data={"ordner": "Z:/gibtesnicht"}).get_data(as_text=True))
     c.post(f"/kunde/{kid}/foto", data={"was": "loeschen"})
     pruefe("Foto lässt sich entfernen", fotos.foto(kid) is None)
-    with open("templates/cv_designs/cv_atanas.html", encoding="utf-8") as fh:
-        vorlage = fh.read()
-    pruefe("Das Foto hat im Design Platz (58 mm breit)", "width: 58mm" in vorlage)
+    pruefe("Kein Trägerlogo auf dem Lebenslauf – das Papier gehört dem Bewerber",
+           not any("logo" in ohne_kommentare(offen(f)).lower() for f in vorlagen_dateien()),
+           [os.path.basename(f) for f in vorlagen_dateien()
+            if "logo" in ohne_kommentare(offen(f)).lower()])
+    pruefe("Jede Vorlage schützt Einträge vor dem Umbruch",
+           all("break-inside: avoid" in offen(f) or "_fein.html" in offen(f)
+               for f in vorlagen_dateien()))
 
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

@@ -636,7 +636,7 @@ def lebenslauf_pdf(kid):
     """Designter Lebenslauf als PDF – aus denselben Feldern wie die Excel."""
     from flask import render_template as _render
     daten = LB.aus_formular(request.form)
-    design = request.form.get("design") or "gruen"
+    design = request.form.get("design") or cv_pdf.DESIGNS[0][0]
     # Ein frisch hochgeladenes Foto gewinnt und wird gleich am Kunden gemerkt,
     # sonst nimmt das PDF das, was schon hinterlegt ist.
     hochgeladen = request.files.get("foto")
