@@ -57,6 +57,25 @@ FIRMENWORT = re.compile(r"\b(GmbH|AG|KG|UG|e\.?V\.?|GbR|mbH|Ltd|Inc|Universität
 NIVEAU = re.compile(r"\b(muttersprach\w*|fließend|flie[sß]end|verhandlungssicher|gute\s*kenntnisse|"
                     r"grundkenntnisse|sehr\s*gut|[ABC][12])\b", re.I)
 SPRACHWORT = re.compile(r"^[A-ZÄÖÜ][A-ZÄÖÜa-zäöüß]{2,}$")
+# Wörter, die direkt vor einem Niveau stehen können, ohne eine Sprache zu sein.
+# „Persisch und Türkisch jeweils fließend" machte sonst aus „jeweils" eine Sprache –
+# am 17.09.2026 an einem echten Kundentext aufgefallen.
+# Füllwörter: Das Niveau dahinter gilt für die Sprachen **davor**
+# („Persisch und Türkisch jeweils fließend").
+FUELLWORT = {"JEWEILS", "BEIDE", "ALLE", "DAVON"}
+# Überschriften und Floskeln, die nie eine Sprache sind.
+KEINE_SPRACHE = {
+    "SPRACHKENNTNISSE", "SPRACHEN", "SPRACHE", "NIVEAU", "NIVEAUS", "STUFE",
+    "SOWIE", "SOWOHL", "AUCH", "UND", "ODER", "KENNTNISSE", "GRUNDKENNTNISSE",
+    "MUTTERSPRACHE", "DEUTSCHKENNTNISSE", "ENGLISCHKENNTNISSE",
+} | FUELLWORT
+# Programme stehen im selben Satz wie ein Niveau („MS Office gute Kenntnisse") und
+# rutschten so in die Sprachen. Am 17.09.2026 an einem echten Kundentext aufgefallen:
+# dort standen PowerPoint und Outlook als Sprache im Lebenslauf.
+KEIN_SPRACHWORT = {
+    "MS", "OFFICE", "WORD", "EXCEL", "POWERPOINT", "OUTLOOK", "WINDOWS", "INTERNET",
+    "EDV", "SAP", "DATEV", "HANDSCANNER", "TEAMS", "ZOOM", "PC", "COMPUTER", "SOFTWARE",
+}
 # Bewertungen stehen im Design als Sternereihe in einer eigenen Zeile.
 STERN = re.compile(r"[★☆✩✭✮⭐]")
 NUR_STERNE = re.compile(r"^[\s★☆✩✭✮⭐*·•]+$")
@@ -220,6 +239,18 @@ def _stationen(text, art):
     return stationen[:7 if art != "bildung" else 4]
 
 
+def _niveau_wort(roh):
+    """Aus „B2", „fließend", „Muttersprache" die Schreibweise der Vorlage machen."""
+    roh = (roh or "").lower()
+    if "mutter" in roh:
+        return "Muttersprache"
+    if "flie" in roh or "verhandlungssicher" in roh or roh.startswith("c"):
+        return "fließend"
+    if "gute" in roh or "sehr gut" in roh or roh.startswith("b"):
+        return "gute Kenntnisse"
+    return "Grundkenntnisse"
+
+
 def _sprachen(text):
     """'DEUTSCH - B1  ARABISCH - Muttersprache' oder untereinander."""
     gefunden, gesehen = [], set()
@@ -228,19 +259,34 @@ def _sprachen(text):
                          r"(muttersprach\w*|fließend|flie[sß]end|verhandlungssicher|"
                          r"gute\s*kenntnisse|grundkenntnisse|sehr\s*gut|[ABC][12])", flach, re.I):
         sprache = m.group(1).upper()
-        if sprache in gesehen or sprache in ("SPRACHKENNTNISSE", "SPRACHEN", "NIVEAU"):
-            continue
-        gesehen.add(sprache)
         roh = m.group(2).lower()
-        if "mutter" in roh:
-            niveau = "Muttersprache"
-        elif "flie" in roh or "verhandlungssicher" in roh or roh.startswith("c"):
-            niveau = "fließend"
-        elif "gute" in roh or "sehr gut" in roh or roh.startswith("b"):
-            niveau = "gute Kenntnisse"
-        else:
-            niveau = "Grundkenntnisse"
-        gefunden.append({"sprache": sprache, "niveau": niveau, "roh": m.group(2).strip()})
+        # „Persisch und Türkisch jeweils fließend": Vor dem Niveau steht ein Füllwort,
+        # das Niveau gilt aber für die Sprachen davor. Dann rückwärts einsammeln.
+        if sprache in KEIN_SPRACHWORT:
+            continue                     # ein Programm, keine Sprache
+        vorlauf = []
+        if sprache in FUELLWORT:
+            davor = flach[:m.start(1)]
+            for wort in reversed(re.findall(r"[A-ZÄÖÜ][A-Za-zÄÖÜäöüß]{2,}|,|und", davor)[-5:]):
+                if wort in (",", "und"):
+                    continue
+                gross = wort.upper()
+                if gross in KEINE_SPRACHE or gross in KEIN_SPRACHWORT or gross in gesehen:
+                    break
+                vorlauf.insert(0, gross)
+                if len(vorlauf) >= 3:
+                    break
+            if not vorlauf:
+                continue
+        if sprache in KEINE_SPRACHE and not vorlauf:
+            continue
+        for name in (vorlauf or [sprache]):
+            if name in gesehen or name in KEIN_SPRACHWORT:
+                continue
+            gesehen.add(name)
+            gefunden.append({"sprache": name, "niveau": _niveau_wort(roh),
+                             "roh": m.group(2).strip()})
+        continue
     if not gefunden:
         # Die Vorlage setzt die Sprachen gern nebeneinander und die Niveaus in die Zeile
         # darunter: "DEUTSCH FARSI" / "- A2 - Muttersprache". Dann paarweise zuordnen.

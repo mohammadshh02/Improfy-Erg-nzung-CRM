@@ -232,8 +232,17 @@ def aus_formular(form):
         return [z.strip() for z in (text or "").splitlines() if z.strip()]
 
     def reihen(*schluessel):
+        """Parallele Formularfelder zu Zeilen zusammenlegen.
+
+        Mit `zip` gingen alle Zeilen verloren, sobald **eine** der Listen kürzer war:
+        Sprachen ohne Niveau verschwanden vollständig aus dem Lebenslauf, statt ohne
+        Niveau zu erscheinen. Deshalb wird auf die längste Liste aufgefüllt."""
         listen = [form.getlist(s) for s in schluessel]
-        return [dict(zip(schluessel, werte)) for werte in zip(*listen)] if listen and listen[0] else []
+        if not listen or not any(listen):
+            return []
+        laenge = max(len(x) for x in listen)
+        return [dict(zip(schluessel, [(x[i] if i < len(x) else "") for x in listen]))
+                for i in range(laenge)]
 
     def sterne(v, standard=4):
         try:
@@ -252,7 +261,10 @@ def aus_formular(form):
         "fuehrerschein": {"vorhanden": form.get("fs_vorhanden") == "on",
                           "klasse": w("fs_klasse"), "eu": form.get("fs_eu") == "on"},
         "ueber_mich": w("ueber_mich"), "hobbys": w("hobbys"),
-        "zusatzqualifikationen": zeilen(w("zusatzqual")),
+        # Satzzeichen am Rand abschneiden: Aus einem Fließtext gelesene Stichpunkte
+        # beginnen sonst mit „, Vertiefung der Deutschkenntnisse".
+        "zusatzqualifikationen": [z.strip(" ,;.·-–—") for z in zeilen(w("zusatzqual"))
+                                  if z.strip(" ,;.·-–—")],
         "berufserfahrung": [], "bildung": [], "sprachen": [],
         "edv_kenntnisse": [], "soft_skills": [],
     }
