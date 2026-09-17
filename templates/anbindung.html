@@ -1,0 +1,86 @@
+{% extends "basis.html" %}
+{% block titel %}Anbindung ans CRM – Improfy-Ergänzung{% endblock %}
+{% block inhalt %}
+<h1>Anbindung ans CRM</h1>
+<p class="unterzeile">Was das CRM führt, wie es heißt und wo unsere Dateien hingehören.
+  Am 17.09.2026 am laufenden System nachgesehen – nicht geraten.</p>
+
+<div class="hinweis">
+  <strong>Der wichtigste Fund:</strong> Das CRM ist eine Laravel-Anwendung mit Inertia.js.
+  <strong>Jede Seite liefert bereits JSON</strong>, wenn man sie mit den Kopfzeilen
+  <code>X-Inertia</code> und <code>X-Inertia-Version</code> abruft. Es muss also keine
+  Schnittstelle gebaut werden – sie ist schon da. Was fehlt, ist ein Token-Zugang, weil
+  diese Antworten bisher an der Sitzung hängen.
+</div>
+
+<h2>Was der CRM-Entwickler bereitstellen müsste</h2>
+<div class="karte">
+  <table>
+    {% for titel, text in bericht %}
+    <tr><td style="width:230px"><strong>{{ titel }}</strong></td><td class="marke">{{ text }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<h2>Wo unsere Dateien hingehören</h2>
+<div class="karte">
+  <table>
+    <tr><th>Was dieses Paket erzeugt</th><th>Fach im CRM</th><th>Stand</th></tr>
+    {% for was, fach in faecher.items() %}
+    <tr><td><strong>{{ was }}</strong></td><td><code>{{ fach }}</code></td>
+        <td><span class="plakette p-gelb">wartet auf den Upload-Weg</span></td></tr>
+    {% endfor %}
+  </table>
+  <p class="marke" style="margin:10px 0 0">Höchstens {{ (max_kb / 1024)|round|int }} MB je Datei –
+    das gibt das CRM vor. Unsere PDFs liegen bei 60 bis 90 kB, die Fotos bei 6 kB.</p>
+</div>
+
+<h2>Die Ablage des CRM · {{ pflicht_gesamt }} Pflichtpunkte</h2>
+<div class="gitter g3">
+  {% for gruppe, faecher_liste in ablage.items() %}
+  <div class="karte">
+    <h3>{{ gruppe }}</h3>
+    <ul style="margin:8px 0 0 18px;padding:0">
+      {% for f in faecher_liste %}
+      <li class="marke" style="{{ 'color:var(--heading);font-weight:600' if '*' in f }}">{{ f }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+</div>
+<p class="marke" style="margin-top:8px">Fett = Pflicht. Zwei Pflichtfächer füllt heute niemand
+  automatisch: {{ von_hand|join(', ') }}. Dort läge der nächste Nutzen.</p>
+
+<h2>Felder, die das CRM je Kunde führt</h2>
+<div class="gitter g2">
+  <div class="karte">
+    <h3>Stammdaten und Maßnahme</h3>
+    <p class="marke" style="margin:0;overflow-wrap:anywhere">{{ kunde_felder|join(' · ') }}</p>
+  </div>
+  <div class="karte">
+    <h3>Das UE-Konto je Kunde</h3>
+    <p class="marke" style="margin:0 0 8px;overflow-wrap:anywhere">{{ konto_felder|join(' · ') }}</p>
+    <div class="hinweis" style="margin:0"><strong>account.remaining ist der Auftragsbestand</strong> –
+      bewilligte, noch nicht geleistete Unterrichtseinheiten. Über alle Kunden summiert und
+      mit dem UE-Satz multipliziert ergibt das den vertraglich gesicherten Umsatz.</div>
+  </div>
+</div>
+
+<h2>Status: CRM ↔ dieses Paket</h2>
+<div class="karte">
+  <table>
+    <tr><th>CRM</th><th>Bedeutung</th><th>unser Buchstabe</th></tr>
+    {% for wert, buchstabe in status.items() %}
+    <tr><td><code>{{ wert }}</code></td><td class="marke">{{ status_text.get(wert, '') }}</td>
+        <td>{{ buchstabe }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="marke" style="margin:10px 0 0">Die Buchstaben stammen aus der alten Excel-Welt und
+    verschwinden mit ihr. Das CRM kennt den Weg genauer.</p>
+</div>
+
+<h2>Standorte</h2>
+<div class="karte">
+  <p class="marke" style="margin:0">{% for nr, stadt in standorte.items() %}{{ nr }} = {{ stadt }}{{ ' · ' if not loop.last }}{% endfor %}</p>
+</div>
+{% endblock %}

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Improfy-OS – Dashboard für den Standort Köln.
 
-Start:  PORT=8100 python3 app.py     →  http://localhost:8100
+Start:  python -X utf8 app.py     →  http://localhost:8101
 
 Anmeldung: ein Passwort aus IMPROFY_OS_PASSWORT (oder .env). Das OS zeigt
 personenbezogene Kundendaten – es läuft nie ohne Anmeldung.
@@ -24,6 +24,7 @@ import cv_lesen
 import dokument_lesen
 import fotos
 import nachrichten
+import crm_karte
 import cv_pdf
 import lebenslauf_bauen as LB
 import aktivitaet
@@ -496,6 +497,21 @@ def kunde_detail(kid):
         tf_profile=tf.profile_von(kid), lebenslaeufe=L.von_kunde(kid),
         profil=db.eine("SELECT kurzprofil, cv_text FROM kunde_profil WHERE kunde_id=?",
                        (kid,)) or {})
+
+
+@app.route("/anbindung")
+def anbindung_seite():
+    """Die Datenkarte des CRM – Grundlage für die Naht, am laufenden System nachgesehen."""
+    return render_template(
+        "anbindung.html", bericht=crm_karte.bericht(), faecher=crm_karte.UNSERE_FAECHER,
+        ablage={"Maßnahmenordner": crm_karte.ABLAGE["massnahme"],
+                "Dokumente": crm_karte.ABLAGE["dokumente"],
+                "Endergebnis": crm_karte.ABLAGE["endergebnis"]},
+        pflicht_gesamt=sum(1 for g in crm_karte.ABLAGE.values() for f in g if "*" in f),
+        von_hand=crm_karte.NOCH_VON_HAND, max_kb=crm_karte.MAX_KB,
+        kunde_felder=crm_karte.KUNDE_FELDER, konto_felder=crm_karte.KONTO_FELDER,
+        status=crm_karte.STATUS, status_text=crm_karte.STATUS_TEXT,
+        standorte=crm_karte.STANDORTE)
 
 
 @app.route("/aussen")
@@ -1126,7 +1142,7 @@ if __name__ == "__main__":
     db.init()
     konten.init()
     tf.init()
-    port = int(os.environ.get("PORT", "8100"))
+    port = int(os.environ.get("PORT", "8101"))   # 8100 gehoert dem alten OS
     print(f"\n  Improfy-OS läuft  →  http://localhost:{port}\n")
     # Mit Passwort im Netz erreichbar, ohne Passwort nur auf diesem Rechner.
     app.run(host="0.0.0.0" if PASSWORT else "127.0.0.1", port=port, debug=False)
