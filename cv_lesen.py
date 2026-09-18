@@ -373,7 +373,12 @@ def _stationen(text, art):
                         aktuell["taetigkeiten"].append(t)
     if aktuell:
         stationen.append(aktuell)
-    return stationen[:7 if art != "bildung" else 4]
+    # Die Improfy-Excel hat sieben Zeilen fuer Stationen - das PDF hat keine Grenze.
+    # Wer fuenfzehn Jahre in zwoelf Stellen gearbeitet hat, soll die auch zeigen duerfen;
+    # gedeckelt wird erst beim Schreiben der Excel, und dort begrenzt sich die Vorlage
+    # selbst. Ganz ohne Grenze geht es nicht: Ein falsch gelesener Fliesstext koennte
+    # sonst hundert "Stationen" erfinden.
+    return stationen[:16 if art != "bildung" else 8]
 
 
 def _niveau_wort(roh):

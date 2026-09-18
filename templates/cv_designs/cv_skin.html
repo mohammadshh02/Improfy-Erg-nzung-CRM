@@ -230,7 +230,12 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
    schob "ENGLISCH Grundkenntnisse" in den Seitenrand. (18.09.2026, gefunden von
    seitenpruefung.py.) */
 .quali-raster { display: grid; gap: 4mm 9mm;
-                grid-template-columns: repeat(auto-fit, minmax(58mm, 1fr)); }
+                grid-template-columns: repeat(auto-fit, minmax(58mm, 1fr));
+                /* Der Block bleibt zusammen. Sonst reisst das Raster zwischen zwei
+                   Zeilen auf und schiebt die letzte Spalte - oft nur die vier Sprachen -
+                   allein auf ein neues Blatt. Gemessen: 135 Zeichen Schlussseite
+                   aufgerissen, 343 zusammengehalten. (18.09.2026) */
+                break-inside: avoid; }
 .quali-raster > .spalte { min-width: 0; }
 .quali-raster .spalte > h3:first-child { margin-top: 0; }
 .spalte { break-inside: avoid; }

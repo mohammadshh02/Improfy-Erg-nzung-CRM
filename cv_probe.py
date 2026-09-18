@@ -166,9 +166,13 @@ def pruefe(schluessel, fall_name, daten, speichern=True):
     global FOTO
     if FOTO is None:
         FOTO = _musterfoto()
+    # Mit allen drei Fotos, nicht nur mit einem: Die Hoehe der Bilder entscheidet mit,
+    # wo der Umbruch faellt. Mit einem Foto war alles sauber, mit dreien rutschten die
+    # Sprachen allein auf ein drittes Blatt - gesehen erst beim Ansehen (18.09.2026).
+    weitere = {"bildung": FOTO, "quali": FOTO}
     with A.app.test_request_context():
         pdf = cv_pdf.pdf_aus_html(
-            cv_pdf.html_bauen(render_template, daten, schluessel, FOTO))
+            cv_pdf.html_bauen(render_template, daten, schluessel, FOTO, weitere))
     seiten, text = _pdf_text(pdf)
     # Zwei Dinge sind gewollt und dürfen nicht als Verlust gelten:
     #   Versalien – die Vorlagen setzen Überschriften groß (ZUVERLÄSSIGKEIT)
