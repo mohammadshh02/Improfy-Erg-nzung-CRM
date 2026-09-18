@@ -1056,6 +1056,51 @@ def sammelanlage_anlegen():
     return redirect(url_for("sammelanlage_seite", art=art, meldung=text))
 
 
+@app.route("/taskforce/kunde/<int:kid>/stand")
+def taskforce_stand(kid):
+    """Die Seite, die ein Coach fuer einen Menschen aufschlaegt.
+
+    Drei Fragen in dieser Reihenfolge: Wie steht es, was liegt jetzt an, was lief bisher.
+    Die Tafel zeigt alle Kunden nebeneinander – gut, um zu sehen, wo etwas liegt, aber zum
+    Arbeiten an einer Person taugt sie nicht: filtern, scrollen, Faden verlieren. Hier steht
+    alles zu einem Menschen beieinander, mit den Knoepfen daneben."""
+    kunde = tf.kunden_info(kid)
+    if not kunde:
+        abort(404)
+    offen = [a for a in tf.neue_angebote(limit=200, kunde_id=kid, status=None)
+             if a["status"] in ("neu", "gesehen")]
+    return render_template(
+        "taskforce_stand.html", kunde=kunde,
+        bilanz=tf.kunden_bilanz(kid), offen=offen,
+        verlauf=tf.kunden_nachweis(kid), status_text=tf.STATUS_TEXT,
+        leute=_tf_leute(), meldung=request.args.get("meldung"))
+
+
+@app.route("/taskforce/kunde/<int:kid>/stand.csv")
+def taskforce_stand_csv(kid):
+    """Derselbe Stand als CSV – fuer die Akte und fuer alle, die lieber rechnen."""
+    kunde = tf.kunden_info(kid)
+    if not kunde:
+        abort(404)
+    seit, bis = request.args.get("seit") or None, request.args.get("bis") or None
+    import csv
+    import io as _io
+    puffer = _io.StringIO()
+    schreiber = csv.writer(puffer, delimiter=";")
+    schreiber.writerow(["Datum", "Art", "Angebot", "Anbieter", "Ort", "Quelle", "Stand",
+                        "Bearbeiter", "Notiz", "Kontakt", "Link"])
+    for z in tf.kunden_nachweis(kid, seit=seit, bis=bis):
+        schreiber.writerow([
+            (z["status_am"] or z["gefunden_am"] or "")[:16].replace("T", " "),
+            "Stelle" if z["art"] == "job" else "Wohnung", z["titel"], z["anbieter"], z["ort"],
+            z["quelle"], tf.STATUS_TEXT.get(z["status"], z["status"]), z["bearbeiter"],
+            z["notiz"], z["kontakt_mail"] or z["kontakt_tel"] or "", z["url"]])
+    name = re.sub(r"[^A-Za-z0-9]+", "_", kunde["name"]).strip("_")
+    antwort = app.response_class(puffer.getvalue().encode("utf-8-sig"), mimetype="text/csv")
+    antwort.headers["Content-Disposition"] = f'attachment; filename="Taskforce_{name}.csv"'
+    return antwort
+
+
 @app.route("/taskforce/kunde")
 def taskforce_kunde_wahl():
     return redirect(url_for("taskforce_kunde", kid=int(request.args.get("kid") or 0)))
@@ -1230,7 +1275,8 @@ def taskforce_sammel_status():
     ids = request.form.getlist("ids")
     status = request.form.get("status")
     person = _bearbeiter(request.form.get("bearbeiter"))
-    n = tf.angebote_status(ids, status, person)
+    notiz = (request.form.get("notiz") or "").strip() or None
+    n = tf.angebote_status(ids, status, person, notiz)
     notieren(f"Status {status} (Sammelaktion)", "taskforce", ",".join(ids[:20]),
              f"{n} Angebote · Bearbeiter {person or '—'}", nachher={"status": status})
     return _mit_meldung(request.form.get("zurueck"),
@@ -1353,6 +1399,13 @@ aktivitaet.init()
 fotos.init()
 nachrichten.init()
 betrieb.init()
+# Die Schnittstellen fuer das CRM. Eigene Datei, eigener Praefix /api - damit sie
+# vollstaendig bereitstehen, bevor angedockt wird, und niemand am CRM etwas nachbauen muss.
+import api as api_modul  # noqa: E402
+
+app.register_blueprint(api_modul.api)
+
+
 # Der Faden für Sicherung und nächtlichen Lauf. Startet nur im echten Betrieb, nicht in
 # den Selbsttests – die sollen nichts im Hintergrund anstoßen.
 if os.environ.get("IMPROFY_OS_DB") is None:

@@ -114,7 +114,7 @@
   {% endif %}
   {% if ohne_cv %}
   <div class="warnung"><strong>Ohne Lebenslauf im OS:</strong>
-    {% for o in ohne_cv %}<a href="{{ url_for('taskforce_kunde', kid=o.kunde_id) }}">{{ o.kunde }}</a>{{ ', ' if not loop.last }}{% endfor %}
+    {% for o in ohne_cv %}<a href="{{ url_for('taskforce_stand', kid=o.kunde_id) }}">{{ o.kunde }}</a>{{ ', ' if not loop.last }}{% endfor %}
     – Lebenslauf verknüpfen (Drive-Link oder aus der Chat-Gruppe „CVs Köln"), sonst kann niemand bewerben.</div>
   {% endif %}
 </section>
@@ -133,7 +133,7 @@
     <tr>
       <td><span class="plakette {{ 'p-rot' if a.tage_offen >= 14 else 'p-gelb' }}">{{ a.tage_offen }} Tage</span>
           <div class="marke">{{ a.status_am|zeit }}</div></td>
-      <td><a href="{{ url_for('taskforce_kunde', kid=a.kunde_id) }}">{{ a.kunde }}</a>
+      <td><a href="{{ url_for('taskforce_stand', kid=a.kunde_id) }}">{{ a.kunde }}</a>
           <div class="marke">{% if not modus %}<span class="plakette {{ 'p-teal' if a.art=='job' else 'p-gelb' }}">{{ 'Job' if a.art=='job' else 'Wohnung' }}</span> {% endif %}{{ a.profil_titel }}</div></td>
       <td><a href="{{ a.url }}" target="_blank" rel="noopener"><strong>{{ a.titel }}</strong></a>
           {% if a.notiz %}<div class="marke">{{ a.notiz[:80] }}</div>{% endif %}</td>
@@ -260,7 +260,7 @@
   <tr>
     <td><input type="checkbox" name="ids" value="{{ a.id }}"></td>
     <td><span class="plakette {{ 'p-gruen' if (a.score or 0) >= 6 else ('p-gelb' if (a.score or 0) >= 3 else 'p-grau') }}" title="Relevanz 0–10">{{ (a.score or 0)|round(0)|int }}</span></td>
-    <td><a href="{{ url_for('taskforce_kunde', kid=a.kunde_id) }}">{{ a.kunde }}</a>
+    <td><a href="{{ url_for('taskforce_stand', kid=a.kunde_id) }}">{{ a.kunde }}</a>
         <div class="marke">{% if not modus %}<span class="plakette {{ 'p-teal' if a.art=='job' else 'p-gelb' }}">{{ 'Job' if a.art=='job' else 'Wohnung' }}</span> {% endif %}{{ a.profil_titel }}</div></td>
     <td><a href="{{ a.url }}" target="_blank" rel="noopener"><strong>{{ a.titel }}</strong></a>
         {% set z = a|zusatz %}
@@ -283,10 +283,14 @@
 <div class="karte" style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
   <strong>Ausgewählte:</strong>
   <select name="bearbeiter" required><option value="">wer?</option>{% for l in leute %}<option>{{ l }}</option>{% endfor %}</select>
+  <input type="text" name="notiz" placeholder="Notiz – wie angeschrieben, was vereinbart"
+         style="flex:1;min-width:220px">
   <button name="status" value="angeschrieben">angeschrieben</button>
+  <button name="status" value="antwort" class="knopf leise">Antwort da</button>
   <button name="status" value="gesehen" class="knopf leise">gesehen</button>
   <button name="status" value="verworfen" class="knopf leise">verwerfen</button>
-  <span class="marke">Häkchen setzen, Namen wählen, Knopf drücken – gilt für alle markierten Zeilen.</span>
+  <span class="marke">Häkchen setzen, Namen wählen, Knopf drücken – gilt für alle markierten Zeilen.
+    Die Notiz steht später im Stand des Kunden.</span>
 </div>
 </form>
 {% else %}
@@ -313,7 +317,7 @@
       <tr><th>Kunde</th>{% if not modus %}<th>Art</th>{% endif %}<th>Profil</th><th>Suche</th><th class="zahl-sp">neu</th><th class="zahl-sp">gesamt</th><th>letzter Lauf</th><th></th></tr>
       {% for p in profile %}
       <tr{% if not p.aktiv %} style="color:var(--leise)"{% endif %}>
-        <td><a href="{{ url_for('taskforce_kunde', kid=p.kunde_id) }}">{{ p.kunde }}</a>
+        <td><a href="{{ url_for('taskforce_stand', kid=p.kunde_id) }}">{{ p.kunde }}</a>
             <div class="marke">{{ p.coach or '' }}</div></td>
         {% if not modus %}<td><span class="plakette {{ 'p-teal' if p.art=='job' else 'p-gelb' }}">{{ 'Job' if p.art=='job' else 'Wohnung' }}</span></td>{% endif %}
         <td><a href="{{ url_for('taskforce_profil', pid=p.id) }}"><strong>{{ p.titel }}</strong></a>{% if not p.aktiv %} <span class="marke">(pausiert)</span>{% endif %}</td>

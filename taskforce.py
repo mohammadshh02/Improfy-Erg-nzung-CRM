@@ -121,12 +121,15 @@ NACHRUESTEN = [("tf_profil", "quellen", "TEXT"),          # kommagetrennt, leer 
                ("tf_angebot", "abgleich", "TEXT"),        # JSON: passt / fehlt / unklar / plus
                ("tf_angebot", "match", "REAL"),           # Anteil erfüllter Anforderungen in Prozent
                ("tf_angebot", "abgleich_am", "TEXT"),
-               # Der Empfaenger. Ohne ihn kann aus dem System heraus niemand schreiben.
+               # Der Empfänger, damit ihn niemand im Angebot suchen muss. Geschrieben wird
+               # von Hand, aus dem eigenen Postfach – das System nennt nur, an wen.
                ("tf_angebot", "kontakt_mail", "TEXT"),
                ("tf_angebot", "kontakt_tel", "TEXT"),
-               ("tf_angebot", "kontakt_name", "TEXT"),
-               ("tf_angebot", "bewerbung", "TEXT"),      # der Text, der rausging
-               ("tf_angebot", "bewerbung_am", "TEXT")]
+               ("tf_angebot", "kontakt_name", "TEXT")]
+# Hier standen am 18.09.2026 kurz `bewerbung` und `bewerbung_am` für ein Anschreiben aus
+# dem System. Wieder gestrichen: Die Bewerbungen schreibt und verschickt ein Mensch. In
+# Datenbanken, die schon liefen, bleiben die beiden Spalten leer stehen – SQLite entfernt
+# Spalten nur durch Umbau der Tabelle, und der wäre für zwei leere Felder das größere Risiko.
 
 STATUS = ("neu", "gesehen", "angeschrieben", "antwort", "erfolg", "verworfen", "doppelt")
 STATUS_TEXT = {"neu": "neu", "gesehen": "gesehen", "angeschrieben": "angeschrieben",
@@ -478,7 +481,15 @@ def profile_von(kunde_id):
 
 
 def profil_loeschen(pid):
+    """Profil samt Angeboten, Läufen und deren Verlauf entfernen.
+
+    Der Verlauf muss zuerst weg. Solange ein `tf_ereignis` auf ein Angebot zeigt, weist
+    SQLite das Löschen mit „FOREIGN KEY constraint failed" ab – und getroffen hat es genau
+    die Profile, an denen gearbeitet wurde: Ein Profil, dessen Angebote nie einen Status
+    bekamen, ließ sich löschen, eines mit Anschreiben nicht."""
     with db.offen() as con:
+        con.execute("DELETE FROM tf_ereignis WHERE angebot_id IN"
+                    " (SELECT id FROM tf_angebot WHERE profil_id=?)", (pid,))
         con.execute("DELETE FROM tf_angebot WHERE profil_id=?", (pid,))
         con.execute("DELETE FROM tf_lauf WHERE profil_id=?", (pid,))
         con.execute("DELETE FROM tf_profil WHERE id=?", (pid,))
@@ -641,12 +652,17 @@ def angebot_status(aid, status, bearbeiter=None, notiz=None):
                     " VALUES (?,?,?,?)", (aid, status, wer, jetzt()))
 
 
-def angebote_status(ids, status, bearbeiter=None):
-    """Sammelaktion der Tafel: viele Angebote auf einmal umstellen."""
+def angebote_status(ids, status, bearbeiter=None, notiz=None):
+    """Sammelaktion der Tafel: viele Angebote auf einmal umstellen.
+
+    Die Notiz gilt für alle markierten Zeilen. „Per Mail beworben, Unterlagen angehängt"
+    einmal zu tippen statt zwanzigmal ist der Unterschied dazwischen, ob sie geschrieben
+    wird oder nicht – und ohne sie sagt „angeschrieben" in drei Wochen niemandem mehr,
+    was eigentlich passiert ist."""
     n = 0
     for aid in ids:
         try:
-            angebot_status(int(aid), status, bearbeiter)
+            angebot_status(int(aid), status, bearbeiter, notiz)
             n += 1
         except (TypeError, ValueError):
             continue
@@ -754,6 +770,93 @@ def export_angebote(kunde_id=None, status=None, seit=None, standort=db.STANDORT_
     for z in zeilen:
         z["zusatz"] = zusatz(z)
         z["abgleich"] = abgleich_von(z)
+    return zeilen
+
+
+# ------------------------------------------------- Nachweis je Kunde
+
+# Die Reihenfolge ist der Weg, den ein Angebot nimmt. Sie steht hier einmal, damit
+# Tafel, Nachweis und Schnittstelle dieselbe Geschichte erzählen.
+WEG = [("gefunden", "gefunden"), ("angeschrieben", "angeschrieben"),
+       ("antwort", "Rückmeldung"), ("erfolg", "Gespräch, Besichtigung oder Zusage")]
+
+
+def kunden_bilanz(kunde_id, seit=None, bis=None, standort=db.STANDORT_STANDARD):
+    """Was für diesen Menschen getan wurde – in Zahlen, je Arbeitssuche und Wohnungssuche.
+
+    **Wofür das da ist.** Das Jobcenter fragt nicht „wie viele Stellen gibt es in Köln",
+    sondern „was haben Sie für Herrn X unternommen". Genau diese Frage konnte das System
+    bisher nicht beantworten: Es zählte je Mitarbeiter, nicht je Mensch. Wer den Nachweis
+    brauchte, hat ihn von Hand aus Notizen zusammengesucht.
+
+    Gezählt wird der Weg, den ein Angebot nimmt: gefunden → angeschrieben → Rückmeldung →
+    Ergebnis. Verworfene zählen getrennt; sie sind kein Misserfolg, sondern Auswahl."""
+    def zahl(sql, args=()):
+        return db.wert(sql, args) or 0
+
+    bedingung, werte = "", []
+    if seit:
+        bedingung += " AND COALESCE(a.status_am, a.gefunden_am) >= ?"
+        werte.append(seit)
+    if bis:
+        bedingung += " AND COALESCE(a.status_am, a.gefunden_am) <= ?"
+        werte.append(bis + "T23:59:59")
+
+    bilanz = {}
+    for art in ("job", "wohnung"):
+        grund = ("FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
+                 " WHERE p.kunde_id=? AND p.art=? AND p.standort=? AND a.status!='doppelt'")
+        args = [kunde_id, art, standort] + werte
+        gefunden = zahl("SELECT COUNT(*) " + grund + bedingung, args)
+        stufen = {s: zahl("SELECT COUNT(*) " + grund + " AND a.status=?" + bedingung,
+                          [kunde_id, art, standort, s] + werte)
+                  for s in ("neu", "gesehen", "angeschrieben", "antwort", "erfolg", "verworfen")}
+        # „Angeschrieben" heißt: mindestens angeschrieben. Wer geantwortet hat, wurde
+        # vorher angeschrieben – sonst sähe die Quote besser aus, je weniger zurückkam.
+        angeschrieben = stufen["angeschrieben"] + stufen["antwort"] + stufen["erfolg"]
+        antwort = stufen["antwort"] + stufen["erfolg"]
+        bilanz[art] = {
+            "profile": zahl("SELECT COUNT(*) FROM tf_profil WHERE kunde_id=? AND art=? AND aktiv=1",
+                            (kunde_id, art)),
+            "laeufe": zahl("SELECT COUNT(*) FROM tf_lauf l JOIN tf_profil p ON p.id=l.profil_id"
+                           " WHERE p.kunde_id=? AND p.art=?", (kunde_id, art)),
+            "letzter_lauf": db.wert("SELECT MAX(letzter_lauf) FROM tf_profil"
+                                    " WHERE kunde_id=? AND art=?", (kunde_id, art), None),
+            "gefunden": gefunden, "offen": stufen["neu"] + stufen["gesehen"],
+            "angeschrieben": angeschrieben, "antwort": antwort, "erfolg": stufen["erfolg"],
+            "verworfen": stufen["verworfen"],
+            "antwortquote": round(100 * antwort / angeschrieben) if angeschrieben else None,
+            "erfolgsquote": round(100 * stufen["erfolg"] / angeschrieben) if angeschrieben else None,
+        }
+    bilanz["gesamt"] = {f: (bilanz["job"][f] or 0) + (bilanz["wohnung"][f] or 0)
+                        for f in ("profile", "laeufe", "gefunden", "offen", "angeschrieben",
+                                  "antwort", "erfolg", "verworfen")}
+    return bilanz
+
+
+def kunden_nachweis(kunde_id, seit=None, bis=None, standort=db.STANDORT_STANDARD):
+    """Die Liste hinter den Zahlen: jedes Angebot, bei dem etwas passiert ist.
+
+    Bewusst nur, was angefasst wurde. Eine Liste aller 700 gefundenen Angebote weist nichts
+    nach – sie zeigt, dass eine Maschine lief. Nachgewiesen wird die Arbeit: angeschrieben,
+    nachgefasst, Rückmeldung, Ergebnis."""
+    sql = ("SELECT a.id, a.titel, a.anbieter, a.ort, a.url, a.quelle, a.status, a.bearbeiter,"
+           "  a.notiz, a.status_am, a.gefunden_am, a.kontakt_mail, a.kontakt_tel,"
+           "  p.art, p.titel AS profil"
+           "  FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
+           " WHERE p.kunde_id=? AND p.standort=?"
+           "   AND a.status IN ('angeschrieben','antwort','erfolg','verworfen')")
+    args = [kunde_id, standort]
+    if seit:
+        sql += " AND COALESCE(a.status_am, a.gefunden_am) >= ?"
+        args.append(seit)
+    if bis:
+        sql += " AND COALESCE(a.status_am, a.gefunden_am) <= ?"
+        args.append(bis + "T23:59:59")
+    zeilen = db.hole(sql + " ORDER BY a.status_am DESC, a.id DESC", args)
+    for z in zeilen:
+        z["verlauf"] = db.hole("SELECT status, bearbeiter, zeitpunkt FROM tf_ereignis"
+                               " WHERE angebot_id=? ORDER BY id", (z["id"],))
     return zeilen
 
 

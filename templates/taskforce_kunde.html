@@ -3,7 +3,10 @@
 {% block inhalt %}
 <p class="marke"><a href="{{ url_for('taskforce_seite') }}">← Taskforce</a> ·
    <a href="{{ url_for('kunde_detail', kid=kunde.id) }}">Kundenakte</a></p>
-<h1>{{ kunde.name }}</h1>
+<div class="tf-kopf">
+  <h1>{{ kunde.name }}</h1>
+  <a class="btn btn-primary" href="{{ url_for('taskforce_stand', kid=kunde.id) }}">Stand und Angebote →</a>
+</div>
 <p class="unterzeile">{{ kunde.sprache or '' }}{% if kunde.ort_jc %} · {{ kunde.ort_jc }}{% endif %}
   {% if kunde.coach %} · Coach {{ kunde.coach }}{% endif %}</p>
 

@@ -313,6 +313,93 @@ def main():
     pruefe("Steht nichts da, wird nichts erfunden",
            not any(tf.kontakt_aus_text("Eine Stelle ohne jede Kontaktangabe.").values()))
 
+    print("\n9d. Stand je Kunde: was wurde gesucht, angeschrieben, was kam zurück")
+    # Der ganze Weg an einem Menschen: ankreuzen, notieren, Stand setzen – und die Zahlen
+    # müssen mitgehen. Das ist der Kern, deshalb wird er als Kette geprüft, nicht in Teilen.
+    vorher = tf.kunden_bilanz(kid)
+    frisch = [str(r["id"]) for r in db.hole(
+        "SELECT a.id FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
+        " WHERE p.kunde_id=? AND a.status='neu' LIMIT 3", (kid,))]
+    c.post("/taskforce/angebote/status",
+           data={"ids": frisch, "status": "angeschrieben", "bearbeiter": "Test Kraft",
+                 "notiz": "Per Mail beworben", "zurueck": f"/taskforce/kunde/{kid}/stand"})
+    nachher = tf.kunden_bilanz(kid)
+    pruefe("Angeschriebene zählen beim Kunden, nicht nur beim Mitarbeiter",
+           nachher["gesamt"]["angeschrieben"] == vorher["gesamt"]["angeschrieben"] + len(frisch),
+           nachher["gesamt"]["angeschrieben"])
+    pruefe("Die Notiz der Sammelaktion steht am Angebot",
+           all(z["notiz"] for z in tf.kunden_nachweis(kid)[:len(frisch)]))
+    c.post(f"/taskforce/angebot/{frisch[0]}/status",
+           data={"status": "antwort", "bearbeiter": "Test Kraft", "zurueck": "/taskforce"})
+    mit_antwort = tf.kunden_bilanz(kid)
+    pruefe("Eine Rückmeldung bleibt angeschrieben und zählt zusätzlich als Antwort",
+           mit_antwort["gesamt"]["angeschrieben"] == nachher["gesamt"]["angeschrieben"]
+           and mit_antwort["gesamt"]["antwort"] == nachher["gesamt"]["antwort"] + 1,
+           mit_antwort["gesamt"])
+    pruefe("Die Quote rechnet gegen die Anschreiben, nicht gegen die Funde",
+           mit_antwort["job"]["antwortquote"] == round(100 * mit_antwort["job"]["antwort"]
+                                                       / mit_antwort["job"]["angeschrieben"]))
+    seite = c.get(f"/taskforce/kunde/{kid}/stand")
+    pruefe("Die Kundenseite zeigt Zahlen, Offenes und Verlauf",
+           seite.status_code == 200 and "Liegt offen" in seite.text
+           and "Per Mail beworben" in seite.text)
+    csv_ = c.get(f"/taskforce/kunde/{kid}/stand.csv")
+    pruefe("Der Stand lässt sich als CSV mitnehmen",
+           csv_.status_code == 200 and csv_.text.count("\n") > len(frisch))
+    pruefe("Ein Zeitraum grenzt den Stand ein",
+           tf.kunden_bilanz(kid, seit="2099-01-01")["gesamt"]["angeschrieben"] == 0)
+
+    print("\n9e. Schnittstellen für das CRM")
+    verzeichnis = c.get("/api").get_json()
+    pruefe("Das Verzeichnis nennt jede Schnittstelle",
+           len(verzeichnis["schnittstellen"]) >= 20, len(verzeichnis["schnittstellen"]))
+    for pfad in ("/api/gesundheit", "/api/quellen", "/api/karte", "/api/taskforce/profile",
+                 "/api/taskforce/angebote?limit=5", "/api/taskforce/kpi",
+                 "/api/taskforce/wiedervorlage", "/api/kunden/suche?q=ammar",
+                 f"/api/kunde/{kid}", f"/api/taskforce/kunde/{kid}/bilanz"):
+        pruefe(f"GET {pfad}", c.get(pfad).status_code == 200)
+    pruefe("Ohne Frage fragt die Suchschnittstelle kein Portal",
+           c.get("/api/taskforce/suche").get_json().get("anzahl") == 0)
+
+    # Schreibend: das CRM legt einen Kunden an, dann ein Profil, dann meldet es zurueck.
+    r = c.post("/api/kunde", json={"name": "Api Testperson", "customer_number": "API-1",
+                                   "phone": "0221 1", "status": "aktiv"})
+    api_kid = r.get_json().get("kunde")
+    pruefe("Das CRM kann einen Kunden anlegen – mit seinen eigenen Feldnamen",
+           r.status_code == 200 and api_kid
+           and db.wert("SELECT status_code FROM kunde WHERE id=?", (api_kid,), None) == "H")
+    r2 = c.post("/api/kunde", json={"customer_number": "API-1", "phone": "0221 2"})
+    pruefe("Derselbe Kunde ein zweites Mal wird aktualisiert, nicht verdoppelt",
+           r2.get_json().get("kunde") == api_kid and not r2.get_json().get("angelegt")
+           and db.wert("SELECT telefon FROM kunde WHERE id=?", (api_kid,), None) == "0221 2")
+    r3 = c.post("/api/taskforce/profil", json={"kunde": api_kid, "art": "job",
+                                               "titel": "Api Job", "suchbegriffe": "Lagerhelfer"})
+    api_pid = r3.get_json().get("profil")
+    pruefe("Das CRM kann ein Suchprofil anlegen", r3.status_code == 200 and api_pid)
+    r4 = c.post(f"/api/taskforce/profil/{api_pid}/uebernehmen", json={"treffer": [
+        {"quelle": "jobs.ba", "extern_id": "API-PROBE", "titel": "Lagerhelfer (m/w/d)",
+         "anbieter": "Muster GmbH", "url": "https://example.org/1"}]})
+    pruefe("Treffer lassen sich über die Schnittstelle übernehmen",
+           r4.get_json().get("neu") == 1)
+    api_aid = db.wert("SELECT id FROM tf_angebot WHERE extern_id='API-PROBE'", (), None)
+    r5 = c.post(f"/api/taskforce/angebot/{api_aid}/status",
+                json={"status": "angeschrieben", "bearbeiter": "Api Kraft", "notiz": "aus dem CRM"})
+    pruefe("Das CRM kann den Stand zurückmelden",
+           r5.status_code == 200
+           and db.wert("SELECT status FROM tf_angebot WHERE id=?", (api_aid,), None) == "angeschrieben")
+    pruefe("Ein unbekannter Status wird abgewiesen, nicht gespeichert",
+           c.post(f"/api/taskforce/angebot/{api_aid}/status",
+                  json={"status": "vielleicht"}).status_code == 400)
+    pruefe("Der Stand des Kunden kennt die Rückmeldung aus dem CRM",
+           c.get(f"/api/taskforce/kunde/{api_kid}/bilanz").get_json()
+             ["bilanz"]["gesamt"]["angeschrieben"] == 1)
+    # Loeschen ging frueher nicht, sobald an einem Angebot je ein Status gesetzt war:
+    # tf_ereignis zeigte darauf, SQLite wies ab. Getroffen hat es genau die Profile,
+    # an denen gearbeitet wurde.
+    pruefe("Ein bearbeitetes Profil lässt sich löschen",
+           c.delete(f"/api/taskforce/profil/{api_pid}").status_code == 200
+           and not tf.profil(api_pid))
+
     print("\n9c. Tafel: jeder Filter greift")
     pruefe("Relevanzschwelle blendet aus", zeilen("/taskforce?score=8") <= alle)
     pruefe("Abgleichschwelle blendet aus", zeilen("/taskforce?match=67") <= alle)
