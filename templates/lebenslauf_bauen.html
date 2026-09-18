@@ -431,25 +431,6 @@
 </form>
 {% endfor %}
 
-{% if galerie %}
-<h2>Weitere Vorlagen in der CV-App</h2>
-<div class="karte">
-  <p class="marke" style="margin:0 0 10px">Diese {{ galerie|length }} Vorlagen baut die eigenständige
-    CV-App mit KI nach. Dafür braucht sie einen Anthropic-Schlüssel; im OS laufen die
-    {{ designs|length }} festen Designs oben, die keinen Schlüssel brauchen. In der Chat-Gruppe
-    „CVs Köln" bestellt ihr diese Vorlagen nach Nummer beim Designer.</p>
-  <div style="display:flex;gap:10px;flex-wrap:wrap">
-    {% for v2 in galerie %}
-    <figure style="margin:0;width:104px">
-      <img src="{{ url_for('lebenslauf_galerie', bild=v2.thumb) }}" alt="{{ v2.label }}"
-           style="width:100%;border:1px solid var(--line);border-radius:8px">
-      <figcaption class="marke" style="text-align:center">{{ v2.label }}</figcaption>
-    </figure>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
-
 {% if frueher %}
 <h2>Schon gebaut</h2>
 <div class="tabellenkasten">
