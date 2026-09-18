@@ -60,7 +60,16 @@
 
 {# ---------------------------------------------------------- Was liegt jetzt an #}
 <section class="tf-abschnitt">
-  <h2>Liegt offen <span class="marke">– ankreuzen, Namen wählen, Stand setzen</span></h2>
+  <h2>Liegt offen
+    <span class="marke">– {% if zeige_alle or offen_gesamt <= offen|length %}{{ offen_gesamt }} Angebote ·
+      {% else %}die {{ offen|length }} bestbewerteten von {{ offen_gesamt }} ·
+      {% endif %}ankreuzen, Namen wählen, Stand setzen</span></h2>
+  {% if not zeige_alle and offen_gesamt > offen|length %}
+  {# Nach Relevanz sortiert, die besten oben. Wer 618 Stellen am Stück sieht, schreibt
+     keine an; wer 25 durchsieht, arbeitet sie ab. Der Rest ist einen Klick entfernt. #}
+  <p class="unterzeile" style="margin-top:0">Sortiert nach Relevanz – oben steht, was am besten passt.
+    <a href="{{ url_for('taskforce_stand', kid=kunde.id, alle=1) }}">alle {{ offen_gesamt }} anzeigen →</a></p>
+  {% endif %}
 
   {% if not offen %}
   <p class="leer">Nichts offen.

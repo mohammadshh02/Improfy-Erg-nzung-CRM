@@ -49,7 +49,11 @@ def _aufgabe(stufe, art, titel, kunde=None, coach=None, frist=None, link=None, w
 
 
 # --------------------------------------------------------------------- Regeln
-def _laufende():
+def laufende_massnahmen():
+    """Wer gerade in einer Maßnahme steht, mit allem, was an ihm hängt.
+
+    Öffentlich, weil der Einstieg dieselbe Liste braucht: eine zweite Abfrage dort würde
+    irgendwann anders zählen als die Regeln hier."""
     return db.hole(
         "SELECT k.id, k.name, k.status_code, k.massnahme, m.name AS coach,"
         "       (SELECT MAX(g.bis) FROM gutschein_zeile g WHERE g.kunde_id=k.id) AS endet,"
@@ -70,13 +74,13 @@ def massnahme_ohne_termine():
     return [_aufgabe("rot", "Nachweis", "Termine dokumentieren – der Gutschein läuft ohne Nachweis",
                      k, k["coach"], k["endet"], f"/kunde/{k['id']}",
                      "Ohne dokumentierte Termine lässt sich die Maßnahme nicht abrechnen.")
-            for k in _laufende() if not k["termine"]]
+            for k in laufende_massnahmen() if not k["termine"]]
 
 
 def frist_laeuft_ab():
     """Maßnahme endet in den nächsten zwei Wochen. Danach ist nichts mehr nachzuholen."""
     aufgaben = []
-    for k in _laufende():
+    for k in laufende_massnahmen():
         tage = _tage_bis(k["endet"])
         if tage is None or tage > FRIST_WARNUNG:
             continue
@@ -121,7 +125,7 @@ def ohne_lebenslauf():
     return [_aufgabe("gelb", "Unterlagen", "Lebenslauf fehlt – bewerben ist nicht möglich",
                      k, k["coach"], k["endet"], f"/kunde/{k['id']}/lebenslauf",
                      "Solange kein Lebenslauf da ist, kann niemand für diese Person bewerben.")
-            for k in _laufende() if not k["lebenslaeufe"]]
+            for k in laufende_massnahmen() if not k["lebenslaeufe"]]
 
 
 def ohne_taskforce():
@@ -129,7 +133,7 @@ def ohne_taskforce():
     return [_aufgabe("gelb", "Taskforce", "Kein Such-Profil – der Agent sucht für diese Person nichts",
                      k, k["coach"], k["endet"], f"/taskforce/kunde/{k['id']}",
                      "Vermittlung ist das Ziel der Maßnahme; ohne Profil passiert dabei nichts.")
-            for k in _laufende() if not k["profile"]]
+            for k in laufende_massnahmen() if not k["profile"]]
 
 
 def ohne_kurzprofil():
@@ -137,7 +141,7 @@ def ohne_kurzprofil():
     return [_aufgabe("grau", "Taskforce", "Kurzprofil fehlt – Angebote lassen sich nicht abgleichen",
                      k, k["coach"], k["endet"], f"/taskforce/kunde/{k['id']}",
                      "Der Abgleich passt/fehlt braucht Stichworte zur Person.")
-            for k in _laufende() if k["profile"] and not k["kurzprofil"]]
+            for k in laufende_massnahmen() if k["profile"] and not k["kurzprofil"]]
 
 
 def ohne_wohnort():
@@ -145,7 +149,7 @@ def ohne_wohnort():
     return [_aufgabe("grau", "Stammdaten", "Wohnort fehlt – gesucht wird ersatzweise in Köln",
                      k, k["coach"], None, f"/kunde/{k['id']}",
                      "Job- und Wohnungssuche brauchen den Ort der Person.")
-            for k in _laufende() if not k["stadt"]]
+            for k in laufende_massnahmen() if not k["stadt"]]
 
 
 def ohne_coach():
@@ -189,7 +193,9 @@ def gute_angebote_liegen():
     return [_aufgabe("gelb", "Taskforce",
                      f"{z['n']} gut passende Angebote warten (bestes {int(z['bester'] or 0)} von 10)",
                      {"id": z["kunde_id"], "name": z["kunde"]}, z["coach"], None,
-                     f"/taskforce?kunde={z['kunde_id']}&score=6",
+                     # Ausdrücklich die Tafel: /taskforce zeigt ohne Regler den Einstieg,
+                     # und „alle Filter zurücksetzen" führte von dort wieder dorthin.
+                     f"/taskforce/tafel?kunde={z['kunde_id']}&score=6",
                      "Gefundene Angebote nützen erst etwas, wenn jemand sie anschreibt.")
             for z in zeilen]
 

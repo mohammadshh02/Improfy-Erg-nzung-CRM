@@ -139,7 +139,12 @@ document.querySelectorAll('.ksuche').forEach(function (wurzel) {
   function waehlen(k) {
     if (!k) return;
     if (wurzel.dataset.ziel === 'seite') {
-      window.location.href = wurzel.dataset.url.replace(/0$/, k.id);
+      /* Steht ein Platzhalter {id} in der Adresse, wird er ersetzt – sonst gilt weiter
+         die alte Regel „letzte Null". Gebraucht wird das, seit ein Ziel nicht mehr auf
+         die Kundennummer endet: „/taskforce/kunde/0/stand" endet auf „stand". */
+      var ziel = wurzel.dataset.url;
+      window.location.href = ziel.indexOf('{id}') >= 0 ? ziel.replace('{id}', k.id)
+                                                       : ziel.replace(/0$/, k.id);
       return;
     }
     versteckt.value = k.id;

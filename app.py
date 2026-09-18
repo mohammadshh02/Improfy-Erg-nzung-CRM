@@ -34,6 +34,7 @@ import lebenslauf_bauen as LB
 import aktivitaet
 import aufgaben
 import betrieb
+import einstieg
 import konten
 import sammelanlage
 import taskforce as tf
@@ -838,8 +839,14 @@ def _tf_seite(meldungen=None, modus=None):
     # Die Zahlen an den beiden Knoepfen: man sieht die andere Haelfte, ohne hinzuwechseln.
     stand = {art: {"profile": len([p for p in tf.uebersicht(art=art) if p["aktiv"]]),
                    "neu": tf.anzahl_neu(art=art)} for art in ("job", "wohnung")}
+    # „Alle Filter zuruecksetzen" fuehrt auf die eigene Route, nicht auf request.path.
+    # Wer ueber /taskforce?kunde=..&score=6 hierherkommt – so verlinkt es die Aufgabenliste –,
+    # landete mit request.path auf /taskforce ohne Regler, und das ist seit dem Umbau der
+    # Einstieg. Ein Ruecksetzknopf, der die Tafel verlaesst, setzt nicht zurueck.
+    basis_url = url_for({"job": "taskforce_arbeit",
+                         "wohnung": "taskforce_wohnung"}.get(modus, "taskforce_tafel"))
     return render_template(
-        "taskforce.html", modus=modus, stand=stand, basis_url=request.path,
+        "taskforce.html", modus=modus, stand=stand, basis_url=basis_url,
         feine_regler=feine_regler, filter_kunde_name=kunde_name,
         profile=tf.uebersicht(art=modus), neu=tf.anzahl_neu(art=modus), filter=f,
         neue=tf.neue_angebote(limit=100, **f), zaehler=tf.angebote_zaehlen(art=modus),
@@ -886,14 +893,54 @@ def _bearbeiter(aus_formular=None):
     return (aus_formular or "").strip() or None
 
 
+def _tf_einstieg():
+    """Der Einstieg: was jetzt zu tun ist, für wen, und wo die Arbeit stehenbleibt.
+
+    Die Tafel zeigt, was die Agenten gefunden haben. Sie zeigt nicht, dass davon nichts
+    ankommt. Alles Gerechnete steht in `einstieg.py`, damit der Selbsttest es ohne
+    Seitenaufruf anfassen kann – hier steht nur die Seite."""
+    stand = {art: {"profile": len([p for p in tf.uebersicht(art=art) if p["aktiv"]]),
+                   "neu": tf.anzahl_neu(art=art)} for art in ("job", "wohnung")}
+    # Einmal holen, dann teilen: die Zahl unter der Liste muss genau die Menge zaehlen,
+    # aus der die Liste ihre Zeilen nimmt. Zwei getrennte Abfragen waren zwei Mengen –
+    # acht Zeilen mit „0 offene Handgriffe" darunter ist schlimmer als keine Zahl.
+    handgriffe = einstieg.alle_handgriffe()
+    ketten = einstieg.kette()
+    return render_template(
+        "taskforce_einstieg.html", stand=stand, neu=tf.anzahl_neu(),
+        kette=ketten, handgriffe=handgriffe[:einstieg.HANDGRIFFE],
+        offene_handgriffe=len(handgriffe), aussen=einstieg.aussenstehend(),
+        laufende=einstieg.laufende(), beste=einstieg.beste_treffer(),
+        profile=tf.uebersicht(), lauf=betrieb.lauf_zustand())
+
+
+# Die Regler der Tafel. Steht einer davon in der Adresse, ist die Tafel gemeint – ein
+# Lesezeichen, ein Link aus dem CRM, ein Sprung aus der Aufgabenliste. Geprüft wird, ob
+# der Schlüssel dasteht, nicht was er enthält: `?score=abc` kommt aus einem alten
+# Lesezeichen und meint die Tafel, auch wenn die Zahl Unsinn ist.
+TAFEL_REGLER = ("art", "kunde", "status", "q", "coach", "score", "match", "km", "tage",
+                "sort", "quelle", "arbeitszeit", "gehalt", "quereinstieg", "miete",
+                "zimmer", "flaeche", "meldung")
+
+
 @app.route("/taskforce")
 def taskforce_seite():
-    """Gesamtbild – beide Suchen nebeneinander.
+    """Der Einstieg – oder die Tafel, sobald ein Regler in der Adresse steht.
 
     `?art=job` und `?art=wohnung` gelten weiter: das CRM, Lesezeichen und geteilte Ansichten
-    verlinken so. Sie sind dasselbe wie /taskforce/arbeit bzw. /taskforce/wohnung."""
+    verlinken so. Sie sind dasselbe wie /taskforce/arbeit bzw. /taskforce/wohnung. Die volle
+    Tafel ohne Regler steht unter /taskforce/tafel. Entfernt ist nichts – wer hierher kommt,
+    sieht nur zuerst, was zu tun ist, statt zuerst, was gefunden wurde."""
+    if not any(name in request.args for name in TAFEL_REGLER):
+        return _tf_einstieg()
     art = request.args.get("art")
     return _tf_seite(modus=art if art in ("job", "wohnung") else None)
+
+
+@app.route("/taskforce/tafel")
+def taskforce_tafel():
+    """Die volle Tafel, Gesamtbild – ohne dass man erst einen Regler setzen muss."""
+    return _tf_seite(modus=None)
 
 
 @app.route("/taskforce/arbeit")
@@ -909,6 +956,10 @@ def taskforce_wohnung():
 
 
 TF_SEITE = {"job": "taskforce_arbeit", "wohnung": "taskforce_wohnung"}
+
+# Wie viele offene Angebote die Kundenseite auf einmal zeigt. Eine Bildschirmgrenze,
+# keine Bestandszahl - mehr steht hinter „alle anzeigen".
+STAND_OFFEN = 25
 
 
 def _suchform():
@@ -1108,13 +1159,23 @@ def taskforce_lauf():
     art = request.form.get("art") or None
     if art not in ("job", "wohnung"):
         art = None
-    ziel = TF_SEITE.get(art, "taskforce_seite")
+    # Ohne Rücksprungadresse zurück auf die Tafel, nicht auf den Einstieg: der Lauf bringt
+    # Treffer, und die stehen auf der Tafel. Die Meldung gehört dorthin, wo man gleich
+    # nachsieht, was er gebracht hat.
+    ziel = TF_SEITE.get(art, "taskforce_tafel")
     woran = {"job": "Arbeits-Agenten", "wohnung": "Wohnungs-Agenten"}.get(art, "Agentenlauf")
     if betrieb.lauf_starten(art):
         notieren(f"{woran} gestartet", "taskforce")
         meldung = f"{woran}: der Lauf ist gestartet und arbeitet im Hintergrund. Diese Seite zeigt oben, wann er fertig ist."
     else:
         meldung = "Es läuft bereits ein Durchgang – der zweite würde dieselben Portale doppelt fragen."
+    # Wer vom Einstieg aus startet, kommt auf den Einstieg zurück: dort steht das
+    # Leerlaufband, das der Lauf verändern soll, und dessen Laufanzeige lädt sich alle
+    # 15 Sekunden selbst nach. Ohne meldung= in der Adresse – der Anzeigebalken dort sagt
+    # dasselbe, und `meldung` ist ein Reglername der Tafel, führte also wieder zur Tafel.
+    zurueck = request.form.get("zurueck") or ""
+    if zurueck.startswith("/"):
+        return redirect(zurueck)
     return redirect(url_for(ziel, meldung=meldung))
 
 
@@ -1156,8 +1217,17 @@ def taskforce_stand(kid):
     kunde = tf.kunden_info(kid)
     if not kunde:
         abort(404)
-    offen = [a for a in tf.neue_angebote(limit=200, kunde_id=kid, status=None)
-             if a["status"] in ("neu", "gesehen")]
+    # Die besten zuerst, und nicht alle auf einmal.
+    #
+    # Ohne Grenze war diese Seite fuer den einen Menschen mit echten Daten 123.750 Zeichen
+    # lang - dieselbe Wand, die der Einstieg gerade von der Tafel genommen hat, nur eine
+    # Seite weiter. Und sie trifft ausgerechnet das Ziel, auf das der Einstieg am haeufigsten
+    # verweist. Wer 618 Stellen am Stueck sieht, schreibt keine an; wer 25 sortierte sieht,
+    # arbeitet sie durch. Der Rest ist einen Klick entfernt, nicht verschwunden.
+    alle_offen = [a for a in tf.neue_angebote(limit=400, kunde_id=kid, status=None)
+                  if a["status"] in ("neu", "gesehen")]
+    zeige_alle = bool(request.args.get("alle"))
+    offen = alle_offen if zeige_alle else alle_offen[:STAND_OFFEN]
     # Selbst suchen, ohne die Begriffe neu zu tippen: das Profil dieses Menschen fuellt
     # die Suchmaske vor. Wer am Telefon schnell nachsehen will, ist dann einen Klick weit weg.
     profile = tf.profile_von(kid)
@@ -1169,6 +1239,7 @@ def taskforce_stand(kid):
     return render_template(
         "taskforce_stand.html", kunde=kunde, suche=suche,
         bilanz=tf.kunden_bilanz(kid), offen=offen,
+        offen_gesamt=len(alle_offen), zeige_alle=zeige_alle,
         verlauf=tf.kunden_nachweis(kid), status_text=tf.STATUS_TEXT,
         leute=_tf_leute(), meldung=request.args.get("meldung"))
 
@@ -1224,7 +1295,7 @@ def _mit_meldung(zurueck, meldung):
 
     Vorher lud die Seite nach jedem Klick neu, und nichts sagte, ob etwas passiert ist.
     Die Meldung steht in der Adresse – so übersteht sie das Neuladen und lässt sich teilen."""
-    ziel = zurueck if (zurueck or "").startswith("/") else url_for("taskforce_seite")
+    ziel = zurueck if (zurueck or "").startswith("/") else url_for("taskforce_tafel")
     trenner = "&" if "?" in ziel else "?"
     return redirect(f"{ziel}{trenner}meldung={urllib.parse.quote(meldung)}")
 
@@ -1246,7 +1317,7 @@ def taskforce_lebenslauf_neu(kid):
 @app.route("/taskforce/lebenslauf/<int:lid>/loesen", methods=["POST"])
 def taskforce_lebenslauf_loesen(lid):
     L.loesen(lid)
-    return redirect(_zurueck(url_for("taskforce_seite")))
+    return redirect(_zurueck(url_for("taskforce_tafel")))
 
 
 @app.route("/taskforce/kunde/<int:kid>/kurzprofil", methods=["POST"])
@@ -1312,8 +1383,8 @@ def taskforce_angebot_abgleich(aid):
     try:
         tf.abgleich(aid)
     except Exception as e:
-        return redirect(_zurueck(url_for("taskforce_seite")) + ("&" if "?" in _zurueck("") else "?") + "fehler=" + str(e)[:80])
-    return redirect(_zurueck(url_for("taskforce_seite")))
+        return redirect(_zurueck(url_for("taskforce_tafel")) + ("&" if "?" in _zurueck("") else "?") + "fehler=" + str(e)[:80])
+    return redirect(_zurueck(url_for("taskforce_tafel")))
 
 
 @app.route("/taskforce/profil/<int:pid>/lauf", methods=["POST"])
@@ -1364,7 +1435,7 @@ def taskforce_nachgefasst(aid):
     person = _bearbeiter(request.form.get("bearbeiter"))
     tf.nachgefasst(aid, person)
     notieren("nachgefasst", "taskforce", aid, f"Bearbeiter {person or '—'}")
-    return redirect(_zurueck(url_for("taskforce_seite")))
+    return redirect(_zurueck(url_for("taskforce_tafel")))
 
 
 @app.route("/taskforce/angebote/status", methods=["POST"])

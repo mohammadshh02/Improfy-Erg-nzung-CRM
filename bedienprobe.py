@@ -65,9 +65,16 @@ NICHT_AUSLOESEN = re.compile(r"lauf|pruef|loesch|import|abmeld|sicher", re.I)
 DATEN_JE_ROUTE = {
     "taskforce_status": {"status": "gesehen", "bearbeiter": "Probe", "zurueck": "/taskforce"},
     "taskforce_nachgefasst": {"bearbeiter": "Probe", "zurueck": "/taskforce"},
+    # `aktiv` und `zeitarbeit` gehören mitgeschickt, auch wenn sie hier nichts prüfen sollen.
+    #
+    # Ohne `aktiv` las `profil_speichern` das fehlende Kästchen als „aus" und pausierte das
+    # Profil — mitten in dieser Probe. Danach fielen 665 Stellenangebote hinter `p.aktiv=1`
+    # aus jeder Abfrage, und **fünf der acht Reglerprüfungen liefen gegen null Zeilen**: sie
+    # konnten keinen kaputten Filter mehr bemerken, meldeten aber grün. Ein Test, der sich
+    # selbst die Daten wegnimmt, ist schlimmer als keiner — er beruhigt.
     "taskforce_profil_speichern": {"formular": "1", "titel": "Probe", "art": "job",
                                    "suchbegriffe": "Lagerhelfer", "ort": "Köln",
-                                   "umkreis_km": "25"},
+                                   "umkreis_km": "25", "aktiv": "1", "zeitarbeit": "1"},
     "taskforce_kunde_profil": {"art": "job", "titel": "Probe", "suchbegriffe": "Lagerhelfer",
                                "ort": "Köln", "umkreis_km": "25"},
     "taskforce_kurzprofil": {"kurzprofil": "Probe", "cv_text": ""},
@@ -110,7 +117,13 @@ def main():
            not falsch, "; ".join(falsch[:3]))
 
     print("\n3. Jede POST-Route antwortet, statt umzufallen")
-    kid = db.wert("SELECT id FROM kunde WHERE standort=? ORDER BY id LIMIT 1",
+    # Der Kunde fuer die Proben: einer, an dem wirklich Angebote haengen. Sonst laufen die
+    # Reglerprobe und die Seitenproben gegen einen Menschen ohne Daten und koennen nichts
+    # bemerken. Erst wenn es gar keinen gibt, wird der erstbeste genommen.
+    kid = db.wert("SELECT p.kunde_id FROM tf_profil p JOIN tf_angebot a ON a.profil_id=p.id"
+                  " WHERE p.standort=? GROUP BY p.kunde_id ORDER BY COUNT(*) DESC LIMIT 1",
+                  (db.STANDORT_STANDARD,), None) or db.wert(
+                  "SELECT id FROM kunde WHERE standort=? ORDER BY id LIMIT 1",
                   (db.STANDORT_STANDARD,))
     pid = db.wert("SELECT id FROM tf_profil ORDER BY id LIMIT 1")
     aid = db.wert("SELECT id FROM tf_angebot ORDER BY id LIMIT 1")
@@ -150,11 +163,21 @@ def main():
             str(a.get(f) or "") for f in ("titel", "anbieter", "ort", "beschreibung")).lower()),
         ("Kunde", {"kunde_id": kid}, lambda a: a["kunde_id"] == kid),
     ]
+    # Erst nachsehen, ob überhaupt etwas zu prüfen da ist. Eine Prüfung gegen null Zeilen
+    # kann nichts verletzen und meldet deshalb grün, ohne etwas geprüft zu haben – das ist
+    # kein Ergebnis, sondern eine Beruhigung. Hier ist das schon einmal passiert: ein POST
+    # weiter oben pausierte das Testprofil, und danach liefen fünf der acht Prüfungen leer.
+    grundmenge = tf.neue_angebote(limit=2000, status="neu")
+    pruefe("Die Reglerprobe hat überhaupt Daten", len(grundmenge) > 0,
+           f"{len(grundmenge)} neue Angebote")
     for name, argumente, bedingung in REGLER:
         zeilen = tf.neue_angebote(limit=2000, status="neu", **argumente)
         schlecht = [a for a in zeilen if not bedingung(a)]
+        # „0 Zeilen" wird genannt, nicht verschwiegen: es kann stimmen (kein Angebot dieser
+        # Quelle im Bestand) oder heißen, dass der Regler gar nicht zum Zug kam.
         pruefe(f"Regler {name}", not schlecht,
-               f"{len(zeilen)} Zeilen" + (f", {len(schlecht)} verletzen ihn" if schlecht else ""))
+               f"{len(zeilen)} Zeilen" + (" – nichts zu prüfen" if not zeilen else "")
+               + (f", {len(schlecht)} verletzen ihn" if schlecht else ""))
 
     grund = [a["id"] for a in tf.neue_angebote(limit=40, status="neu")]
     for sortierung in ("abgleich", "neu", "naehe"):
@@ -163,21 +186,24 @@ def main():
 
     print("\n5. Jede Seite der Tafel verträgt jeden Regler")
     fehler = []
-    for basis in ("/taskforce", "/taskforce/arbeit", "/taskforce/wohnung"):
+    # /taskforce ist der Einstieg, sobald kein Regler dasteht – mit Regler die Tafel.
+    # /taskforce/tafel ist die Tafel immer. Beide muessen jeden Regler vertragen.
+    for basis in ("/taskforce", "/taskforce/tafel", "/taskforce/arbeit", "/taskforce/wohnung"):
         for regler in ("kunde=%d" % kid, "coach=1", "status=gesehen", "quelle=jobs.ba",
                        "q=lager", "score=5", "match=34", "km=25", "tage=7", "sort=naehe",
                        "arbeitszeit=vz", "gehalt=2200", "quereinstieg=1", "miete=900",
                        "zimmer=2", "flaeche=55", "score=abc"):
             if c.get(f"{basis}?{regler}").status_code != 200:
                 fehler.append(f"{basis}?{regler}")
-    pruefe("51 Kombinationen aus Ansicht und Regler liefern eine gültige Seite",
+    pruefe("68 Kombinationen aus Ansicht und Regler liefern eine gültige Seite",
            not fehler, "; ".join(fehler[:3]))
 
     print("\n6. Jede Seite sagt, wo man ist")
     # Wer über die Personensuche oder aus dem CRM mitten hineinspringt, braucht den Weg
     # zurück. Eine Seite ohne Pfadleiste ist eine Sackgasse.
     ohne = []
-    for pfad_ in ("/taskforce", "/taskforce/arbeit", "/taskforce/wohnung", "/taskforce/suchen",
+    for pfad_ in ("/taskforce", "/taskforce/tafel", "/taskforce/arbeit", "/taskforce/wohnung",
+                  "/taskforce/suchen",
                   f"/taskforce/kunde/{kid}/stand", f"/taskforce/kunde/{kid}",
                   f"/taskforce/profil/{pid}"):
         if 'class="pfad"' not in c.get(pfad_).get_data(as_text=True):

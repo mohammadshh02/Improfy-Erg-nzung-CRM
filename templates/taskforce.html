@@ -38,7 +38,7 @@
   <a class="modus-knopf{{ ' an' if modus=='wohnung' }}" href="{{ url_for('taskforce_wohnung') }}">
     <strong>Wohnungssuche</strong>
     <span>{{ stand.wohnung.profile }} Profile{% if stand.wohnung.neu %} · <b>{{ stand.wohnung.neu }} neu</b>{% endif %}</span></a>
-  <a class="modus-knopf{{ ' an' if not modus }}" href="{{ url_for('taskforce_seite') }}">
+  <a class="modus-knopf{{ ' an' if not modus }}" href="{{ url_for('taskforce_tafel') }}">
     <strong>beides</strong>
     <span>Gesamtbild</span></a>
   {# Die Tafel zeigt, was die Agenten gebracht haben. Wer jetzt sofort etwas wissen will,

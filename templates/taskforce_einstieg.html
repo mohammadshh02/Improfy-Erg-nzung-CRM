@@ -1,0 +1,277 @@
+{% extends "basis.html" %}
+{% block titel %}Taskforce – Improfy-OS{% endblock %}
+{% block inhalt %}
+{% from "_pfad.html" import pfad %}
+
+{#  Der Einstieg der Taskforce, von oben nach unten:
+
+    Leerlaufband   Fünf Stufen vom Menschen bis zur Antwort – wo bleibt es stehen?
+    ①  Was ist jetzt zu tun – und für wen?   Ein Handgriff je Mensch, mit Knopf.
+    ②  Wie komme ich zu einem Menschen?      Name tippen, Stand öffnen.
+    ③  Wie lege ich eine Suche an?           Für alle auf einmal oder für einen.
+    ④  Wo suche ich selbst?                  Beruf, Ort, Umkreis – sofort.
+    Zum Schluss  Was die Agenten gefunden haben – die Tafel, als Ziel, nicht als Anfang.
+
+    **Warum diese Reihenfolge.** Die Tafel stand bisher hier und meldete 754 gefundene
+    Angebote. Was sie nicht meldete: dass keine der 19 laufenden Maßnahmen ein Suchprofil
+    hat und deshalb nichts davon bei einem Menschen ankommt. Fülle oben, Stillstand
+    unsichtbar. Die Tafel ist nicht weg – sie steht unter /taskforce/tafel und hinter
+    jedem Regler, der schon einmal in einem Lesezeichen gelandet ist. #}
+
+{{ pfad([("Taskforce", None)]) }}
+
+<h1>Taskforce</h1>
+<p class="unterzeile">Was heute an welchem Menschen hängt – und was die Agenten inzwischen
+  gefunden haben.</p>
+
+{% if lauf and lauf.laeuft %}
+<div class="hinweis" id="laufanzeige">
+  <strong>Die Agenten laufen gerade.</strong> Gestartet {{ lauf.seit|zeit }} – bis zu zwei Minuten,
+  je nachdem wie schnell die Portale antworten. Diese Seite lädt sich von selbst neu, sobald er
+  fertig ist; du kannst inzwischen weiterarbeiten.
+</div>
+<script>setTimeout(function () { location.reload(); }, 15000);</script>
+{% elif lauf and lauf.ergebnis %}
+<div class="hinweis"><strong>Lauf fertig:</strong> {{ lauf.ergebnis }}</div>
+{% elif lauf and lauf.fehler %}
+<div class="warnung"><strong>Der Lauf ist gescheitert:</strong> {{ lauf.fehler }}</div>
+{% endif %}
+
+{# ------------------------------------------------------------- Leerlaufband
+
+   Alle fünf Stufen zählen dieselbe Menge Menschen: die laufenden Maßnahmen. Steht das
+   nicht in der Überschrift, liest man das Band als Gesamtzahlen des Standorts – und
+   dann ergibt es keinen Trichter, sondern Widerspruch. Treffer von Menschen außerhalb
+   dieser Menge verschwinden nicht, sie stehen beschriftet darunter. #}
+{% set brueche = kette|selectattr('zustand', 'equalto', 'p-rot')|list %}
+{% set niemand = kette[0].zahl == 0 %}
+<section class="tf-abschnitt" style="margin-top:0">
+  <h2>Wo bleibt die Arbeit stehen?
+    <span class="marke">– gezählt werden durchgehend die {{ kette[0].zahl }} Menschen in einer
+      laufenden Maßnahme, auf jeder Stufe dieselben</span></h2>
+  <div class="kette">
+    {% for s in kette %}
+    <div class="kette-stufe{{ ' bruch' if s.zustand == 'p-rot' }}">
+      <div class="kette-zahl">{{ s.zahl }}</div>
+      <div class="kette-name">{{ s.name }}</div>
+      <div class="marke"><span class="plakette {{ s.zustand }}">{{ 'bricht hier ab' if s.zustand == 'p-rot'
+        else ('wartet' if s.zustand == 'p-gelb' else 'läuft') }}</span></div>
+      <div class="marke"><a href="{{ s.ziel }}">{{ s.knopf }} →</a></div>
+    </div>
+    {% if not loop.last %}<span class="kette-pfeil" aria-hidden="true">›</span>{% endif %}
+    {% endfor %}
+  </div>
+  {% if aussen.treffer %}
+  <p class="marke" style="margin:0 0 10px">
+    Nicht im Band: <strong>{{ aussen.treffer }} neue Treffer</strong> gehören
+    {# „gehören 1 Menschen" ist Dativ Singular und damit richtig – wie der Plural. #}
+    {{ aussen.leute }} Menschen ohne laufende Maßnahme – das Suchprofil läuft dort
+    weiter, die Maßnahme nicht mehr.
+    <a href="{{ url_for('taskforce_tafel') }}">auf der Tafel ansehen →</a></p>
+  {% endif %}
+  <p class="unterzeile">
+    {% if niemand %}
+      Gerade ist niemand in einer laufenden Maßnahme. Das Band steht deshalb auf null –
+      das ist kein Leerlauf, sondern kein Betrieb.
+      <a href="{{ url_for('kunden') }}">Kundenliste öffnen →</a>
+    {% elif brueche %}
+      {% for b in brueche %}
+        Die Kette bricht bei <strong>„{{ b.name }}“</strong> – {{ b.satz }}.
+        <a href="{{ b.ziel }}">{{ b.knopf }} →</a>{{ ' ' if not loop.last }}
+      {% endfor %}
+      Solange das so bleibt, ändert auch ein weiterer Agentenlauf nichts.
+    {% else %}
+      Die Kette hält von der laufenden Maßnahme bis zur Antwort – hier läuft nichts leer.
+    {% endif %}
+  </p>
+</section>
+
+{# ----------------------------------- ① Was ist jetzt zu tun – und für wen? #}
+<section class="tf-abschnitt">
+  <h2>① Was ist jetzt zu tun – und für wen?</h2>
+  <p class="unterzeile" style="margin-top:0">Ein Handgriff je Mensch, der dringendste zuerst.
+    Wer fünf Lücken hat, steht hier trotzdem einmal – sonst verdrängt ein Mensch vier andere.</p>
+  {% if handgriffe %}
+  <div class="karte" style="padding:0">
+    {% for h in handgriffe %}
+    <div class="handgriff">
+      <span class="plakette {{ 'p-rot' if h.stufe == 'rot' else ('p-gelb' if h.stufe == 'gelb' else 'p-grau') }}">{{ h.stufe }}</span>
+      <span class="handgriff-name">{{ h.kunde }}</span>
+      <span class="marke" style="min-width:120px">{{ h.coach }}</span>
+      <span class="handgriff-fehlt">{{ h.fehlt }}</span>
+      <a class="btn btn-sm btn-primary" href="{{ h.link }}">{{ h.knopf }} →</a>
+    </div>
+    {% endfor %}
+  </div>
+  {# Die Zahl zaehlt genau die Menge, aus der die Liste ihre Zeilen nimmt – Menschen,
+     nicht Regeltreffer, und einschliesslich der Nachfassen-Zeilen. #}
+  <p class="marke" style="margin-top:8px">
+    {{ handgriffe|length }} von {{ offene_handgriffe }} Menschen mit offenem Handgriff ·
+    <a href="{{ url_for('aufgaben_seite', art='Taskforce') }}">alle Taskforce-Aufgaben →</a></p>
+  {% elif niemand %}
+  <p class="leer">Gerade ist niemand in einer laufenden Maßnahme – darum steht hier nichts.
+    Das ist kein erledigter Stapel, sondern kein Betrieb.</p>
+  {% else %}
+  <p class="leer">Nichts offen: für jeden Menschen in einer laufenden Maßnahme ist gerade
+    alles getan, was die Taskforce tun kann. Der nächste Schritt kommt von den Agenten –
+    oder von einer Antwort.</p>
+  {% endif %}
+</section>
+
+{# ------------------------------- ② Wie komme ich zu einem Menschen? #}
+<section class="tf-abschnitt">
+  <h2>② Wie komme ich zu einem Menschen?</h2>
+  <div class="gitter" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
+    <div class="karte">
+      <h3>Namen tippen</h3>
+      {# Die Adresse endet nicht auf die Kundennummer, sondern auf „/stand". Darum der
+         Platzhalter {id} – die alte Regel „letzte Null ersetzen" griff hier nicht. #}
+      <div class="ksuche" data-ziel="seite" style="margin-top:8px"
+           data-url="{{ url_for('taskforce_stand', kid=0)|replace('/kunde/0/', '/kunde/{id}/') }}"
+           data-api="{{ url_for('api_kunden_suche') }}">
+        <input type="search" class="ksuche-feld" autocomplete="off"
+               placeholder="Name eintippen – führt zum Stand dieses Menschen">
+        <div class="ksuche-liste" hidden></div>
+      </div>
+      <div class="marke">Was für diesen Menschen gesucht, angeschrieben und beantwortet wurde,
+        steht auf einer Seite.</div>
+    </div>
+    <div class="karte">
+      {# Die echte Gesamtzahl steht in der Überschrift, nicht die abgeschnittene Länge:
+         sonst stehen zwei verschiedene Zahlen für dieselbe Menge auf einem Bildschirm
+         und ab der Grenze fehlt ein Mensch, ohne dass es jemand merkt. #}
+      <h3>Laufende Maßnahmen · {{ kette[0].zahl }}</h3>
+      <div style="margin-top:8px">
+        {% for l in laufende %}
+        <div class="handgriff" style="padding:6px 0;gap:8px">
+          <a class="handgriff-name" href="{{ l.ziel }}">{{ l.kunde }}</a>
+          <span class="marke" style="min-width:110px">{{ l.coach }}</span>
+          <span style="flex:1;min-width:150px">
+            {%- if not l.profile %}<span class="plakette p-rot">kein Profil</span>
+            {%- else %}<span class="plakette p-gruen">{{ l.profile }} Profile</span>{% endif %}
+            {% if not l.lebenslauf %}<span class="plakette p-gelb">kein Lebenslauf</span>{% endif %}
+            {%- if l.neu %} <span class="plakette p-teal">{{ l.neu }} neu</span>{% endif %}
+          </span>
+        </div>
+        {% else %}
+        <p class="leer">Zurzeit läuft keine Maßnahme.</p>
+        {% endfor %}
+      </div>
+      <div class="marke">
+        {%- if laufende|length < kette[0].zahl %}
+        hier stehen {{ laufende|length }} von {{ kette[0].zahl }} –
+        <a href="{{ url_for('kunden') }}">alle anzeigen →</a>
+        {%- else %}
+        <a href="{{ url_for('kunden') }}">alle Kunden →</a>
+        {%- endif %}
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ----------------------------------- ③ Wie lege ich eine Suche an? #}
+<section class="tf-abschnitt">
+  <h2>③ Wie lege ich eine Suche an?</h2>
+  <p class="unterzeile" style="margin-top:0">Zwei Wege, beide dauerhaft sichtbar – vorher
+    fand man sie nur, wenn oben zufällig ein Hinweis stand.</p>
+  <div class="karte">
+    <div class="gitter" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+      <div>
+        <h3>für alle laufenden auf einmal</h3>
+        <p class="marke">Eine Liste mit Berufsvorschlag und Ort je Mensch; anhaken, absenden,
+          fertig. Das ist der Schritt, der das Leerlaufband oben wieder schließt.</p>
+        <a class="btn btn-primary" href="{{ url_for('sammelanlage_seite', art='job') }}">Profile in einem Schritt anlegen →</a>
+      </div>
+      <div>
+        <h3>für einen bestimmten Menschen</h3>
+        <p class="marke">Wenn es um eine einzelne Person geht – mit eigenen Begriffen,
+          eigenem Ort, eigenen Reglern.</p>
+        <div class="ksuche ksuche-klein" data-ziel="seite"
+             data-url="{{ url_for('taskforce_kunde', kid=0)|replace('/kunde/0', '/kunde/{id}') }}"
+             data-api="{{ url_for('api_kunden_suche') }}">
+          <input type="search" class="ksuche-feld" autocomplete="off"
+                 placeholder="Für wen? Namen tippen …">
+          <div class="ksuche-liste" hidden></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# --------------------------------------------- ④ Wo suche ich selbst? #}
+<section class="tf-abschnitt">
+  <h2>④ Wo suche ich selbst?</h2>
+  <p class="unterzeile" style="margin-top:0">Am Telefon, ohne Kunde und ohne Profil: die
+    Portale direkt fragen. Gespeichert wird nichts – eine Suche ist eine Frage.</p>
+  <form class="karte reglerbank" method="get" action="{{ url_for('taskforce_suchen') }}">
+    <input type="hidden" name="art" value="job">
+    <div class="reglerreihe">
+      <label style="flex:2;min-width:240px">Beruf oder Stichworte
+        <input type="text" name="was" placeholder="Reinigungskraft, Lagerhelfer, Sicherheitsmitarbeiter"></label>
+      <label style="flex:1;min-width:150px">Ort
+        <input type="text" name="wo" placeholder="Köln"></label>
+      <label>Umkreis
+        <select name="km">
+          {% for v in [5, 10, 15, 25, 50, 100] %}<option value="{{ v }}" {{ 'selected' if v == 25 }}>{{ v }} km</option>{% endfor %}</select></label>
+      <button type="submit" class="btn btn-primary">jetzt suchen</button>
+      <a class="btn" href="{{ url_for('taskforce_suchen', art='wohnung') }}">stattdessen Wohnung suchen</a>
+    </div>
+  </form>
+</section>
+
+{# ------------------------------- Zum Schluss: was die Agenten gefunden haben #}
+<section class="tf-abschnitt">
+  <h2>Was die Agenten gefunden haben</h2>
+  <p class="unterzeile" style="margin-top:0">Die volle Tafel mit allen Reglern – sie ist das
+    Ziel der Arbeit, nicht ihr Anfang.</p>
+
+  <nav class="modus" aria-label="Was gesucht wird">
+    <a class="modus-knopf" href="{{ url_for('taskforce_arbeit') }}">
+      <strong>Arbeitssuche</strong>
+      <span>{{ stand.job.profile }} Profile{% if stand.job.neu %} · <b>{{ stand.job.neu }} neu</b>{% endif %}</span></a>
+    <a class="modus-knopf" href="{{ url_for('taskforce_wohnung') }}">
+      <strong>Wohnungssuche</strong>
+      <span>{{ stand.wohnung.profile }} Profile{% if stand.wohnung.neu %} · <b>{{ stand.wohnung.neu }} neu</b>{% endif %}</span></a>
+    <a class="modus-knopf" href="{{ url_for('taskforce_tafel') }}">
+      <strong>beides</strong>
+      <span>Gesamtbild{% if neu %} · <b>{{ neu }} neu</b>{% endif %}</span></a>
+  </nav>
+
+  {% if beste %}
+  <div class="tabellenkasten">
+  <table>
+    <tr><th>Rel.</th><th>Kunde</th><th>Angebot</th><th>Anbieter · Ort</th><th>gefunden</th></tr>
+    {% for a in beste %}
+    <tr>
+      <td><span class="plakette {{ 'p-gruen' if (a.score or 0) >= 6 else ('p-gelb' if (a.score or 0) >= 3 else 'p-grau') }}" title="Relevanz 0–10">{{ (a.score or 0)|round(0)|int }}</span></td>
+      <td><a href="{{ url_for('taskforce_stand', kid=a.kunde_id) }}">{{ a.kunde }}</a></td>
+      <td><a href="{{ a.url }}" target="_blank" rel="noopener"><strong>{{ a.titel }}</strong></a></td>
+      <td>{{ a.anbieter or '—' }}<div class="marke">{{ a.ort or '' }}</div></td>
+      <td class="marke">{{ a.gefunden_am|zeit }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <p class="marke" style="margin-top:8px"><a href="{{ url_for('taskforce_tafel') }}">alle {{ neu }} neuen Treffer auf der Tafel →</a></p>
+  {% else %}
+  <p class="leer">Noch kein Treffer liegt offen. Entweder ist alles abgearbeitet – oder es
+    sucht noch niemand: dann hilft ③ und nicht ein weiterer Lauf.</p>
+  {% endif %}
+
+  <div class="karte" style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    {# Zurück auf den Einstieg: hier steht das Leerlaufband, das der Lauf verändern soll,
+       und die Laufanzeige oben lädt sich alle 15 Sekunden selbst nach. Ginge der Sprung
+       auf die Tafel, wäre diese Anzeige auf der Seite, von der aus man startet, nie zu
+       sehen. #}
+    <form method="post" action="{{ url_for('taskforce_lauf') }}" style="margin:0">
+      <input type="hidden" name="art" value="">
+      <input type="hidden" name="zurueck" value="{{ url_for('taskforce_seite') }}">
+      <button type="submit" {{ 'disabled' if not profile or (lauf and lauf.laeuft) }}>
+        {%- if lauf and lauf.laeuft %}läuft gerade …{% else %}alle Agenten jetzt laufen lassen{% endif %}</button>
+    </form>
+    <span class="marke">Fragt alle verbundenen Portale für alle aktiven Suchprofile.
+      Ohne Suchprofil fragt er nichts – dann zuerst ③.</span>
+  </div>
+</section>
+
+{% endblock %}

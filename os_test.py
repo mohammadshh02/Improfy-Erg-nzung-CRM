@@ -132,13 +132,15 @@ def main():
     for _p in ("/", "/kunden", "/coaches", "/lebenslauf", "/taskforce", "/trichter",
                "/aufgaben"):
         _wege |= set(re.findall('href="(/[^"?#]*)', c.get(_p).get_data(as_text=True)))
+    # /taskforce/tafel hat keinen Reiter: /taskforce zeigt jetzt den Einstieg. Die volle
+    # Tafel muss von dort aus verlinkt bleiben, sonst ist sie praktisch geloescht.
     for _ziel in ("/nachrichten", "/aktivitaet", "/protokoll", "/konten", "/betrieb",
-                  "/anbindung", "/aussen", "/lebenslauf/liste"):
+                  "/anbindung", "/aussen", "/lebenslauf/liste", "/taskforce/tafel"):
         pruefe(f"{_ziel} ist ohne eigenen Reiter erreichbar", _ziel in _wege)
 
     print("\n4. Kein Platzhalter blieb stehen")
-    proben = ["/", "/kunden", "/taskforce", "/lebenslauf", "/trichter", "/aufgaben",
-              "/aktivitaet", "/betrieb"]
+    proben = ["/", "/kunden", "/taskforce", "/taskforce/tafel", "/lebenslauf", "/trichter",
+              "/aufgaben", "/aktivitaet", "/betrieb"]
     for pfad in proben:
         t = c.get(pfad).get_data(as_text=True)
         pruefe(f"{pfad} ohne offene Jinja-Stelle",

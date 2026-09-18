@@ -15,9 +15,12 @@ Was geprüft wird:
     Wohnkriterien (WBS, Balkon, Etage …) samt IS24-Suchlink
  8. Jobregler: Art, Befristung, Arbeitszeit, Entfernung, Gehalt, Wörter, Arbeitgeber
  9. Tafel: jeder Filter greift und liefert eine gültige Seite
+10. Einstieg: /taskforce zeigt Leerlauf und Handgriffe, /taskforce/tafel die volle Tafel
 """
 import atexit
+import datetime
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -268,7 +271,10 @@ def main():
     print("\n9. Tafel: jeder Filter greift")
     def zeilen(url):
         return c.get(url).text.count('name="ids" value=')
-    alle = zeilen("/taskforce")
+    # Die volle Tafel steht unter /taskforce/tafel; /taskforce ohne Regler zeigt den
+    # Einstieg. Mit Regler ist /taskforce weiterhin die Tafel – darum steht unten alles
+    # Weitere unveraendert auf /taskforce?…
+    alle = zeilen("/taskforce/tafel")
     pruefe("Tafel zeigt Angebote", alle > 0, alle)
     pruefe("Nur Jobs / nur Wohnungen trennt sauber",
            zeilen("/taskforce?art=job") + zeilen("/taskforce?art=wohnung") >= alle
@@ -444,8 +450,180 @@ def main():
            c.get("/taskforce?art=job&score=3&match=34&km=25&tage=30&arbeitszeit=vz"
                  "&quereinstieg=1&gehalt=1800&sort=abgleich").status_code == 200)
     pruefe("Reglerbank steht auf der Seite",
-           all(x in c.get("/taskforce").text for x in ("reglerbank", "alle Filter zurücksetzen",
-                                                       "Relevanz ab", "Abgleich ab")))
+           all(x in c.get("/taskforce/tafel").text for x in ("reglerbank", "alle Filter zurücksetzen",
+                                                             "Relevanz ab", "Abgleich ab")))
+
+    print("\n10. Einstieg: der Leerlauf, nicht die Zahlen")
+    # Die Tafel meldete 754 gefundene Angebote und verschwieg, dass keine der 19 laufenden
+    # Massnahmen ein Suchprofil hat. Der Einstieg dreht das um: erst der Bruch, dann die
+    # Funde. Geprueft wird beides – dass er da ist und dass die Tafel nicht verschwunden ist.
+    import aufgaben
+    import einstieg
+
+    def ist_tafel(t):
+        return "alle Filter zurücksetzen" in t          # nur taskforce.html hat diesen Knopf
+
+    def ist_einstieg(t):
+        return "Wo bleibt die Arbeit stehen?" in t      # nur taskforce_einstieg.html
+
+    ein = c.get("/taskforce").text
+    pruefe("/taskforce ohne Regler zeigt den Einstieg, nicht die Tafel",
+           ist_einstieg(ein) and not ist_tafel(ein))
+    for adresse in (f"/taskforce?kunde={kid}", "/taskforce?art=job", "/taskforce?status=neu",
+                    "/taskforce?score=abc"):
+        t = c.get(adresse).text
+        pruefe(f"{adresse} zeigt weiterhin die Tafel", ist_tafel(t) and not ist_einstieg(t))
+    pruefe("/taskforce/tafel ist die volle Tafel ohne Regler",
+           ist_tafel(c.get("/taskforce/tafel").text))
+    pruefe("Der Einstieg verlinkt alle fünf Ziele",
+           all(z in ein for z in ("/taskforce/tafel", "/taskforce/arbeit", "/taskforce/wohnung",
+                                  "/taskforce/suchen", "/taskforce/profile-anlegen")),
+           [z for z in ("/taskforce/tafel", "/taskforce/arbeit", "/taskforce/wohnung",
+                        "/taskforce/suchen", "/taskforce/profile-anlegen") if z not in ein])
+
+    k = einstieg.kette()
+    lauf = aufgaben.laufende_massnahmen()
+    pruefe("Das Leerlaufband rechnet nicht selbst, sondern nimmt dieselben Zahlen",
+           len(k) == 5 and k[0]["zahl"] == len(lauf)
+           and k[1]["zahl"] == len(lauf) - len(aufgaben.ohne_taskforce()),
+           [s["zahl"] for s in k])
+    pruefe("Jede Stufe trägt Zustand und ein Ziel, an dem man den Bruch behebt",
+           all(s["zustand"] in ("p-gruen", "p-gelb", "p-rot") and s["ziel"] and s["knopf"]
+               for s in k))
+
+    # Alle fuenf Stufen ueber dieselbe Menge Menschen. Geprueft an der Menge selbst, nicht
+    # an den Zahlen: jede Stufe darf nur Angebote von Kunden mit Status H/I zaehlen, und
+    # ein Trichter darf nie breiter werden, als seine Quelle Menschen hat.
+    laufende_ids = {x["id"] for x in lauf}
+    angebote_drinnen = db.hole(
+        "SELECT a.status, k.id AS kunde_id FROM tf_angebot a"
+        "  JOIN tf_profil p ON p.id=a.profil_id JOIN kunde k ON k.id=p.kunde_id"
+        " WHERE p.standort=? AND p.aktiv=1 AND k.status_code IN ('H','I')",
+        (db.STANDORT_STANDARD,))
+    pruefe("Stufe 3 zählt nur Treffer von Menschen aus Stufe 1 – eine Grundgesamtheit",
+           k[2]["zahl"] == len([z for z in angebote_drinnen if z["status"] == "neu"])
+           and all(z["kunde_id"] in laufende_ids for z in angebote_drinnen),
+           f"{k[2]['zahl']} von {len(angebote_drinnen)} Angeboten der laufenden Maßnahmen")
+    pruefe("Stufe 4 und 5 zählen dieselbe Menge und werden nie breiter als Stufe 3",
+           k[4]["zahl"] <= k[3]["zahl"]
+           and k[3]["zahl"] == len([z for z in angebote_drinnen
+                                    if z["status"] in ("angeschrieben", "antwort", "erfolg")]),
+           [s["zahl"] for s in k])
+    aussen = einstieg.aussenstehend()
+    pruefe("Treffer außerhalb der Maßnahmen verschwinden nicht, sondern stehen beschriftet daneben",
+           k[2]["zahl"] + aussen["treffer"] == tf.anzahl_neu()
+           and (not aussen["treffer"] or "ohne laufende" in ein),
+           f"{k[2]['zahl']} drinnen + {aussen['treffer']} außen = {tf.anzahl_neu()} auf der Tafel")
+
+    hg = einstieg.jetzt_dran()
+    alle_hg = einstieg.alle_handgriffe()
+    schluessel = [h["kunde_id"] or h["kunde"] for h in alle_hg]
+    pruefe("Jetzt dran nennt jeden Menschen höchstens einmal und immer mit Link",
+           len(schluessel) == len(set(schluessel)) and all(h["link"] for h in alle_hg)
+           and len(hg) <= einstieg.HANDGRIFFE, f"{len(hg)} von {len(alle_hg)} Zeilen")
+    pruefe("Die Zahl unter der Liste zählt dieselbe Menge wie die Liste",
+           f"{len(hg)} von {len(alle_hg)} Menschen mit offenem Handgriff" in ein
+           or not alle_hg,
+           f"{len(hg)} von {len(alle_hg)}")
+    pruefe("Der Einstieg nennt mindestens einen Menschen beim Namen",
+           not hg or any(h["kunde"] in ein for h in hg),
+           hg[0]["kunde"] if hg else "keine offenen Handgriffe")
+    pruefe("Die laufenden Maßnahmen stehen mit Stand da",
+           len(einstieg.laufende()) == min(len(lauf), einstieg.LISTE)
+           and all(z["ziel"].endswith("/stand") for z in einstieg.laufende()))
+    pruefe("Die Kostprobe bleibt bei fünf Treffern", len(einstieg.beste_treffer()) <= 5)
+
+    # Abgeschnittene Liste: die Ueberschrift muss die echte Gesamtzahl nennen und den Weg
+    # zum Rest zeigen. Eine Grenze, die nie greift, prueft nichts – darum hier erzwungen.
+    _liste = einstieg.LISTE
+    einstieg.LISTE = 2
+    try:
+        kurz = c.get("/taskforce").text
+    finally:
+        einstieg.LISTE = _liste
+    pruefe("Abgeschnittene Liste nennt die echte Gesamtzahl und den Weg zum Rest",
+           (f"Laufende Maßnahmen · {len(lauf)}" in kurz
+            and f"hier stehen 2 von {len(lauf)}" in kurz and "alle anzeigen" in kurz)
+           if len(lauf) > 2 else True,
+           f"{len(lauf)} laufende")
+
+    # Kein Handgriff offen: dann muss ein Satz dastehen, keine leere Liste.
+    _echt = einstieg.alle_handgriffe
+    einstieg.alle_handgriffe = lambda: []
+    try:
+        leer = c.get("/taskforce").text
+    finally:
+        einstieg.alle_handgriffe = _echt
+    # „alle Taskforce-Aufgaben →" steht nur unter einer gefuellten Liste; die Zeilenklasse
+    # selbst taugt nicht als Merkmal, die laufenden Massnahmen daneben benutzen sie auch.
+    pruefe("Ohne offenen Handgriff steht ein Satz im Klartext statt einer leeren Liste",
+           "Nichts offen" in leer and "alle Taskforce-Aufgaben" not in leer)
+
+    # Niemand in Massnahme: fuenf Nullen. Die Seite darf daraus keinen Betrieb melden –
+    # „hier laeuft nichts leer" waere dann die Unwahrheit, die das Band abschaffen soll.
+    _kette = einstieg.kette
+    einstieg.kette = lambda: [dict(s, zahl=0, zustand="p-gelb") for s in _kette()]
+    try:
+        null = c.get("/taskforce").text
+    finally:
+        einstieg.kette = _kette
+    pruefe("Der Nullzustand meldet keinen Betrieb, sondern sagt, dass niemand da ist",
+           "niemand in einer laufenden Maßnahme" in null
+           and "hier läuft nichts leer" not in null)
+
+    # Die wichtigste Zeile des Umbaus: wer auf der Tafel etwas anfasst, landet wieder auf
+    # der Tafel – nicht auf dem Einstieg und nicht im Nirgendwo.
+    ort = c.post(f"/taskforce/angebot/{ids[1]}/nachgefasst",
+                 data={"bearbeiter": "Test Kraft"}).headers.get("Location", "")
+    pruefe("Ein Klick ohne Rücksprungadresse landet auf der Tafel",
+           ort.endswith("/taskforce/tafel"), ort)
+
+    # Nachfassen ist ein Handgriff wie jeder andere: dieselbe Regel, dieselbe
+    # Zustaendigkeit (Bearbeiter vor Coach vor Leitung), dasselbe Ziel wie unter
+    # /aufgaben – nur eine eigene Aufschrift, weil die Adresse dieselbe ist wie beim
+    # fehlenden Suchprofil. Der Bestand hat gerade keinen ueberfaelligen Fall, also
+    # wird einer datiert.
+    with db.offen() as con:
+        con.execute("UPDATE tf_angebot SET status='angeschrieben', status_am=? WHERE id=?",
+                    ((datetime.datetime.now() - datetime.timedelta(days=30)).isoformat(),
+                     ids[2]))
+    wv = aufgaben.wiedervorlage()
+    pruefe("Nachfassen gilt als Handgriff, mit der Zuständigkeit und dem Ziel der Aufgabenliste",
+           bool(wv) and "Nachfassen" in einstieg.HANDGRIFF_ARTEN
+           and all(einstieg._knopf(a) == "nachfassen" for a in wv)
+           and all(a["link"].startswith("/taskforce/kunde/") for a in wv),
+           [(a["kunde"], a["coach"], einstieg._knopf(a)) for a in wv][:2])
+    # Am Bestand allein laesst sich das nicht pruefen: wer nachzufassen hat, hat hier
+    # immer auch eine Taskforce-Aufgabe, und die Faltung je Mensch behaelt zu Recht nur
+    # eine Zeile. Darum die Regel selbst, mit genau einer Aufgabe als Eingabe.
+    _alle = aufgaben.alle
+    probe = dict(wv[0]) if wv else None
+    aufgaben.alle = lambda **_: [probe]
+    try:
+        zeile = einstieg.alle_handgriffe()
+    finally:
+        aufgaben.alle = _alle
+    pruefe("Wer nur nachzufassen hat, steht mit nachfassen da – nicht mit Suchprofil",
+           probe is not None and len(zeile) == 1 and zeile[0]["knopf"] == "nachfassen"
+           and zeile[0]["coach"] == probe["coach"] and zeile[0]["link"] == probe["link"],
+           zeile[:1])
+
+    # „Alle Filter zuruecksetzen" steht an zwei Stellen: unter der Reglerbank und im
+    # Leertext „Nichts gefunden … zuruecksetzen". Beide muessen auf der Tafel bleiben.
+    for name, adresse, erwartet in (
+            ("Gesamtbild", f"/taskforce?kunde={kid}&score=6", "/taskforce/tafel"),
+            ("Arbeitssuche", "/taskforce/arbeit?score=8", "/taskforce/arbeit"),
+            ("Wohnungssuche", "/taskforce/wohnung?miete=100", "/taskforce/wohnung")):
+        t = c.get(adresse).text
+        rueck = re.findall(r'href="([^"]+)"[^>]*>alle Filter zurücksetzen', t)
+        leertext = re.findall(r'href="([^"]+)">zurücksetzen', t)
+        pruefe(f"Zurücksetzen bleibt auf der Tafel ({name})",
+               rueck == [erwartet] and all(z == erwartet for z in leertext),
+               rueck + leertext)
+    pruefe("Die Aufgabenliste verlinkt die Tafel, nicht den Einstieg",
+           all(a["link"].startswith("/taskforce/tafel")
+               for a in aufgaben.gute_angebote_liegen()),
+           [a["link"] for a in aufgaben.gute_angebote_liegen()][:2] or "keine offen")
 
     fehl = [n for n, ok, _ in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

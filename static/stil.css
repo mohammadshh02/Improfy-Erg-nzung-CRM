@@ -359,3 +359,25 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
 .pfad a:hover{color:var(--heading);border-bottom-color:var(--line-strong)}
 .pfad span[aria-current]{color:var(--heading);font-weight:560}
 .pfad-pfeil{opacity:.45}
+
+
+/* ---------- Leerlaufband. Fuenf Stufen vom Menschen bis zur Antwort, nebeneinander.
+   Die Tafel zeigt 754 gefundene Angebote; erst diese Reihe zeigt, dass davon nichts
+   ankommt. Rot ist die Stelle, an der es stehenbleibt – sie ist der Knopf. */
+.kette{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:0 0 12px}
+.kette-stufe{flex:1 1 150px;min-width:140px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius-sm);padding:10px 14px}
+.kette-stufe.bruch{border-color:var(--red);background:var(--red-soft)}
+.kette-zahl{font-family:var(--font-mono);font-size:24px;font-weight:600;line-height:1.15;color:var(--heading)}
+.kette-name{font-size:13px;font-weight:560;color:var(--ink)}
+.kette-stufe .marke{margin-top:5px}
+.kette-pfeil{align-self:center;color:var(--muted);opacity:.45}
+
+/* ---------- Ein Handgriff je Mensch: Name, Coach, was fehlt, ein Knopf. Eine Zeile,
+   weil eine Aufgabe, die man erst aufklappen muss, niemand erledigt. */
+.handgriff{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:9px 16px;
+  border-bottom:1px solid var(--line)}
+.handgriff:last-child{border-bottom:none}
+.handgriff-name{min-width:170px;font-weight:560;color:var(--heading)}
+.handgriff-fehlt{flex:1;min-width:200px;font-size:13px;color:var(--ink)}
+.handgriff .marke{margin-top:0}
