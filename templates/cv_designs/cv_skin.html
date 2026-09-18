@@ -18,7 +18,14 @@
   --text:   #1d1f21;
   --grau:   #55595c;
   --linie:  #dde0e2;
+  /* Die Stimme der Vorlage: Titelschrift und Textschrift. Vier Stimmen teilen sich die
+     23 Nummern - siehe cv_sammlung.STIMMEN. `| safe` ist Pflicht, sonst zerlegt Jinja
+     die Anfuehrungszeichen in den Schriftnamen. */
+  --titelschrift: {{ skin.schrift.titel | safe }};
+  --textschrift:  {{ skin.schrift.text | safe }};
 }
+body { font-family: var(--textschrift); }
+.kopf .name, h2, h3, .eintrag .titel { font-family: var(--titelschrift); }
 @page { margin: 0 0 12mm; }
 body { color: var(--text); }
 
@@ -32,20 +39,29 @@ table.seite td { padding: 0; vertical-align: top; }
    Zipfelspitze auf dem ersten Wort ("SCHULBILDUNG" ohne S, gesehen am 18.09.2026).
    Der Tabellenkopf dagegen wird von Chrome auf jeder Seite neu gesetzt - seine
    Polsterung damit auch. Bei `band` muss sie groesser sein als der Zipfel hoch ist. */
-table.seite > thead td { padding-bottom: {{ '13mm' if skin.kopfform == 'band' else '9mm' }}; }
+table.seite > thead td { padding-bottom: {{ '10mm' if skin.kopfform == 'band' else '9mm' }}; }
 
 /* ------------------------------------------------------------------ Kopfformen */
 .kopf { position: relative; }
-.kopf .name { line-height: 1.12; font-weight: 700; }
-.kopf .rolle { font-size: 10.5pt; font-weight: 600; letter-spacing: .18em;
-               text-transform: uppercase; }
+/* Name und Rolle folgen der Stimme: die Serifenstimme setzt gemischt und ruhig, die
+   schmale Grotesk gross und in Versalien, die neutrale leicht und weit. Vorher war der
+   Name in allen 23 derselbe fette Block - das war der zweite Grund, warum die Sammlung
+   wie ein Baukasten aussah. */
+.kopf .name { line-height: 1.1;
+              font-weight: {{ skin.schrift.name_gewicht | safe }};
+              text-transform: {{ skin.schrift.name_versal | safe }};
+              letter-spacing: {{ skin.schrift.name_sperr | safe }}; }
+.kopf .rolle { font-size: 9.5pt; font-weight: 600; letter-spacing: .22em;
+               text-transform: uppercase; font-family: var(--textschrift); }
 
 {% if skin.kopfform == 'band' %}
-.kopf { background: var(--farbe); padding: 16mm 16mm 12mm; }
+.kopf { background: var(--farbe); padding: 14mm 16mm 10mm; }
 .kopf .name { color: #fff; font-size: 25pt; }
 .kopf .rolle { color: #ffffffd0; margin-bottom: 2.5mm; }
-.zipfel { position: absolute; left: 18mm; bottom: -9mm; width: 0; height: 0;
-          border-left: 9mm solid var(--farbe); border-bottom: 9mm solid transparent; }
+/* Der Zipfel kostet auf **jeder** Seite Hoehe, weil der Abstand darunter groesser sein
+   muss als er hoch ist. 7 mm reichen fuer die Form und sparen bei jedem Blatt 3 mm. */
+.zipfel { position: absolute; left: 18mm; bottom: -7mm; width: 0; height: 0;
+          border-left: 7mm solid var(--farbe); border-bottom: 7mm solid transparent; }
 /* Der Zipfel ragt unter den Kopf hinaus. Auf Seite 1 war darunter Platz, auf Seite 2
    begann der Text sofort - dort lag die Spitze auf dem Wort „SCHULBILDUNG" und
    verdeckte den ersten Buchstaben. Der Abstand muss deshalb groesser sein als der
@@ -138,9 +154,21 @@ td.links { width: 52mm; padding-right: 9mm !important; }
 .foto { width: 52mm; height: 66mm; border-radius: 2mm;
         {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
         {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
-.kontakt { margin-top: 6mm; font-size: 9pt; line-height: 1.85; color: var(--grau);
-           {% if skin.kopfform in ('flaeche', 'rahmen') %}text-align: center;{% endif %} }
-.kontakt div { overflow-wrap: anywhere; }
+.kontakt svg { width: 3.3mm; height: 3.3mm; flex: none; margin-top: .3mm;
+               fill: none; stroke: var(--farbe); stroke-width: 1.35;
+               stroke-linecap: round; stroke-linejoin: round; }
+.kontakt div { display: flex; align-items: flex-start; gap: 2.4mm; }
+/* Eine Telefonnummer darf nie umbrechen - eine halbe Nummer ist keine Nummer. */
+.kontakt .nummer { white-space: nowrap; }
+/* Eng gesetzt: Die Zeichen kosten Hoehe, und der Kontaktblock steht neben dem Foto -
+   waechst er, schiebt er bei duennen Lebenslaeufen eine Zeile auf ein neues Blatt. */
+.kontakt { margin-top: 5mm; font-size: 8.8pt; line-height: 1.35; color: var(--grau);
+           display: flex; flex-direction: column; gap: 1.3mm;
+           {% if skin.kopfform in ('flaeche', 'rahmen') %}align-items: center;{% endif %} }
+/* Ohne Notbremse reisst eine sehr lange Adresse aus der Spalte; mit ihr bricht sie
+   an den unsichtbaren Trennstellen hinter @ und Punkt, nicht mitten im Wort. */
+.kontakt div { overflow-wrap: break-word; }
+.kontakt .mail { overflow-wrap: anywhere; }
 
 /* ------------------------------------------------------------------ Satzbild
 
@@ -159,16 +187,32 @@ td.links { width: 52mm; padding-right: 9mm !important; }
      Eine feine Linie mit einem farbigen Punkt fuehrt an den Eintraegen entlang. Das
      gibt dem Auge eine Kante und macht aus einer Liste einen Verlauf. */
 
-h2 { color: var(--farbe); font-size: 12pt; font-weight: 600; letter-spacing: .2em;
-     text-transform: uppercase; position: relative; padding-bottom: 2.4mm; }
+h2 { color: var(--farbe); position: relative; padding-bottom: 2.4mm;
+     font-size: {{ '14pt' if skin.stimme == 'klassik' else '12pt' }};
+     font-weight: {{ skin.schrift.h2_gewicht | safe }};
+     letter-spacing: {{ skin.schrift.h2_sperr | safe }};
+     text-transform: {{ skin.schrift.h2_versal | safe }}; }
 /* Haarlinie ueber die Breite, darauf ein kurzes kraeftiges Stueck in der Hausfarbe -
-   der Unterschied zwischen "unterstrichen" und "gesetzt". */
+   der Unterschied zwischen "unterstrichen" und "gesetzt". Die schmale Grotesk traegt
+   einen kraeftigeren Balken, die Serifenstimme nur die Haarlinie: zu jeder Schrift
+   gehoert ein anderes Gewicht an Linien. */
 h2::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0;
              height: .25mm; background: var(--linie); }
+{% if skin.stimme != 'klassik' %}
 h2::after  { content: ""; position: absolute; left: 0; bottom: 0;
-             width: 16mm; height: .8mm; background: var(--farbe); }
+             width: {{ '26mm' if skin.stimme == 'technik' else '16mm' }};
+             height: {{ '1.2mm' if skin.stimme == 'technik' else '.8mm' }};
+             background: var(--farbe); }
+{% else %}
+/* Klassik: ein Quadrat vor der Ueberschrift statt eines Balkens darunter. */
+h2 { padding-left: 7mm; }
+h2::after { content: ""; position: absolute; left: 0; top: .9em;
+            width: 3.4mm; height: 3.4mm; background: var(--farbe);
+            transform: translateY(-50%) rotate(45deg); }
+{% endif %}
 h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16em;
-     text-transform: uppercase; margin-top: 7mm; opacity: .78; }
+     text-transform: uppercase; margin-top: 7mm; opacity: .78;
+     font-family: var(--textschrift); }
 
 /* `flow-root` ist hier der entscheidende Punkt: Ohne ihn laeuft der Kasten eines
    Eintrags **unter** der Fotospalte durch und nur der Text weicht aus. Die Linie und
@@ -190,7 +234,17 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
 .eintrag .titel:first-child { border-left: .8mm solid var(--farbe); padding-left: 3mm; }
 .eintrag .titel { font-weight: 700; font-size: 11.5pt; line-height: 1.25; }
 .eintrag .firma { display: block; font-size: 10pt; font-weight: 600;
-                  color: var(--farbe); margin-top: .4mm; }
+                  color: var(--farbe); margin-top: .4mm;
+                  font-family: var(--textschrift); }
+/* Zahlen in Tabellenziffern: Zeitraeume stehen dann sauber untereinander statt zu
+   flackern, weil die Eins schmaler ist als die Null. */
+.eintrag .wann, .sprachzeile, .paar { font-variant-numeric: tabular-nums; }
+/* Die laufende Massnahme ist die juengste Station und die einzige, die noch andauert.
+   Ein feiner Rahmen hebt sie heraus, ohne sie anzuschreien. */
+.eintrag.laufend { background: rgba(0, 0, 0, .028); border-radius: 0 2mm 2mm 0;
+                   padding: 2.5mm 3mm 2.5mm 4mm; margin-left: -4mm;
+                   border-left: .8mm solid var(--farbe); }
+.eintrag.laufend .wann::before { display: none; }
 .eintrag .dazu  { font-size: 9.5pt; color: var(--grau); margin-top: .4mm; }
 
 /* „Über mich" ist das Erste, was gelesen wird - es bekommt eine eigene Flaeche statt
@@ -323,11 +377,19 @@ li { margin-bottom: 1.4mm; }
 <table class="kopfreihe"><tr>
   <td class="links">
     {% if zeige_foto %}<img class="foto" src="{{ foto }}" alt="">{% endif %}
+    {# Zeichen statt einer grauen Liste. Sie sind als SVG im Blatt, nicht als Schrift:
+       ein Symbolfont waere eine weitere Abhaengigkeit, und fehlt er, stehen Kaestchen
+       im Lebenslauf. Die Zeichen sind bewusst Strichzeichnungen in der Hausfarbe -
+       sie sollen den Blick fuehren, nicht um Aufmerksamkeit kaempfen. #}
     <div class="kontakt">
-      {% if d.geburtsdatum %}<div>{{ d.geburtsdatum }}</div>{% endif %}
-      {% if d.adresse %}<div>{{ d.adresse }}</div>{% endif %}
-      {% if d.mobil %}<div>{{ d.mobil }}</div>{% endif %}
-      {% if d.email %}<div>{{ d.email }}</div>{% endif %}
+      {% if d.geburtsdatum %}
+      <div><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.2" width="12" height="11" rx="1.6"/><path d="M2 6.6h12M5.4 1.8v2.6M10.6 1.8v2.6"/></svg><span>{{ d.geburtsdatum }}</span></div>{% endif %}
+      {% if d.adresse %}
+      <div><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14.6S13 9.9 13 6.4A5 5 0 0 0 3 6.4C3 9.9 8 14.6 8 14.6Z"/><circle cx="8" cy="6.3" r="1.9"/></svg><span>{{ d.adresse }}</span></div>{% endif %}
+      {% if d.mobil %}
+      <div><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.1 2.6h3l1.2 3-1.6 1.2a8.4 8.4 0 0 0 3.5 3.5l1.2-1.6 3 1.2v3a1 1 0 0 1-1.1 1C6.6 13.4 2.6 9.4 2.1 3.7a1 1 0 0 1 1-1.1Z"/></svg><span class="nummer">{{ d.mobil }}</span></div>{% endif %}
+      {% if d.email %}
+      <div><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="3.4" width="12.4" height="9.2" rx="1.4"/><path d="m2.2 4.4 5.8 4.3 5.8-4.3"/></svg><span class="mail">{{ d.email | replace('@', '@' ~ '​') | replace('.', '.' ~ '​') }}</span></div>{% endif %}
     </div>
   </td>
   <td>
@@ -350,7 +412,7 @@ li { margin-bottom: 1.4mm; }
          weiter, damit kein halbes Blatt leer bleibt. #}
       {% if weitere.beruf %}<img class="nebenfoto" src="{{ weitere.beruf }}" alt="">{% endif %}
       {% for b in beruf %}
-      <div class="eintrag">
+      <div class="eintrag{{ ' laufend' if loop.first and b.firma and 'Improfy' in b.firma }}">
         {# Zeitraum oben und leise, darunter die Stelle. Steht nur eines von Titel und
            Firma da, rueckt es schlicht in die Titelzeile - kein leeres Feld, kein
            Trennstrich, der im Nichts haengt. #}
