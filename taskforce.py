@@ -476,8 +476,19 @@ def profil_loeschen(pid):
         con.execute("DELETE FROM tf_profil WHERE id=?", (pid,))
 
 
-def uebersicht(standort=db.STANDORT_STANDARD):
+def _art_bedingung(art, praefix="p."):
+    """Die Aufspaltung an einer Stelle: entweder Arbeitssuche, oder Wohnungssuche, oder beides.
+
+    Jede Auswertung der Tafel nimmt denselben Filter, damit die Zahlen einer Ansicht
+    zusammenpassen. Ohne art bleibt alles wie vorher – das Gesamtbild."""
+    if art not in ("job", "wohnung"):
+        return "", ()
+    return " AND %sart=?" % praefix, (art,)
+
+
+def uebersicht(standort=db.STANDORT_STANDARD, art=None):
     """Alle Profile mit Zählern – die Tafel der Taskforce."""
+    wo, werte = _art_bedingung(art)
     return db.hole(
         "SELECT p.*, k.name AS kunde, k.sprache, m.name AS coach,"
         "  (SELECT COUNT(*) FROM tf_angebot a WHERE a.profil_id=p.id AND a.status='neu') AS neu,"
@@ -486,13 +497,16 @@ def uebersicht(standort=db.STANDORT_STANDARD):
         "  (SELECT COUNT(*) FROM tf_angebot a WHERE a.profil_id=p.id) AS gesamt"
         "  FROM tf_profil p JOIN kunde k ON k.id=p.kunde_id"
         "  LEFT JOIN mitarbeiter m ON m.id=k.coach_id"
-        " WHERE p.standort=? ORDER BY neu DESC, k.name, p.art", (standort,))
+        " WHERE p.standort=?" + wo + " ORDER BY neu DESC, k.name, p.art",
+        (standort,) + werte)
 
 
-def anzahl_neu(standort=db.STANDORT_STANDARD):
+def anzahl_neu(standort=db.STANDORT_STANDARD, art=None):
+    wo, werte = _art_bedingung(art)
     return db.wert(
         "SELECT COUNT(*) FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
-        " WHERE a.status='neu' AND p.standort=? AND p.aktiv=1", (standort,)) or 0
+        " WHERE a.status='neu' AND p.standort=? AND p.aktiv=1" + wo,
+        (standort,) + werte) or 0
 
 
 def neue_angebote(limit=80, standort=db.STANDORT_STANDARD, kunde_id=None, art=None,
@@ -583,11 +597,12 @@ def neue_angebote(limit=80, standort=db.STANDORT_STANDARD, kunde_id=None, art=No
     return gefiltert
 
 
-def angebote_zaehlen(standort=db.STANDORT_STANDARD):
+def angebote_zaehlen(standort=db.STANDORT_STANDARD, art=None):
     """Zähler je Status über alle aktiven Profile."""
+    wo, werte = _art_bedingung(art)
     zeilen = db.hole(
         "SELECT a.status, COUNT(*) AS n FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
-        " WHERE p.standort=? AND p.aktiv=1 GROUP BY a.status", (standort,))
+        " WHERE p.standort=? AND p.aktiv=1" + wo + " GROUP BY a.status", (standort,) + werte)
     return {z["status"]: z["n"] for z in zeilen}
 
 
@@ -633,7 +648,7 @@ def angebote_status(ids, status, bearbeiter=None):
 WIEDERVORLAGE_TAGE = 7          # so lange geben wir einem Arbeitgeber oder Vermieter Zeit
 
 
-def wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD, limit=60):
+def wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD, limit=60, art=None):
     """Angeschrieben, aber seit Tagen nichts gehört - das ist die eigentliche Arbeit.
 
     Ein Anschreiben ohne Nachfassen ist verschenkte Arbeit: die meisten Zusagen kommen
@@ -645,15 +660,18 @@ def wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD, limit=
         "  CAST(julianday('now') - julianday(a.status_am) AS INT) AS tage_offen"
         "  FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id JOIN kunde k ON k.id=p.kunde_id"
         " WHERE a.status='angeschrieben' AND p.standort=? AND p.aktiv=1 AND a.status_am <= ?"
-        " ORDER BY a.status_am LIMIT ?", (standort, grenze, limit))
+        + _art_bedingung(art)[0] +
+        " ORDER BY a.status_am LIMIT ?",
+        (standort, grenze) + _art_bedingung(art)[1] + (limit,))
 
 
-def anzahl_wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD):
+def anzahl_wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD, art=None):
     grenze = (datetime.datetime.now() - datetime.timedelta(days=tage)).isoformat()
+    wo, werte = _art_bedingung(art)
     return db.wert(
         "SELECT COUNT(*) FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
-        " WHERE a.status='angeschrieben' AND p.standort=? AND p.aktiv=1 AND a.status_am <= ?",
-        (standort, grenze)) or 0
+        " WHERE a.status='angeschrieben' AND p.standort=? AND p.aktiv=1 AND a.status_am <= ?" + wo,
+        (standort, grenze) + werte) or 0
 
 
 def nachgefasst(aid, bearbeiter=None):
@@ -1394,9 +1412,12 @@ QUELLEN = {
 }
 
 
-def quellen_stand():
+def quellen_stand(nur_art=None):
+    """Welche Quellen es gibt und ob sie verbunden sind. nur_art blendet die andere Hälfte aus –
+    wer in der Wohnungssuche steht, muss nicht acht Jobportale durchlesen."""
     return [{"schluessel": s, "name": n, "art": art, "bereit": bereit()}
-            for s, (n, art, _, bereit) in QUELLEN.items()]
+            for s, (n, art, _, bereit) in QUELLEN.items()
+            if nur_art not in ("job", "wohnung") or art == nur_art]
 
 
 def quellen_fuer(p):
@@ -1657,10 +1678,15 @@ def lauf(pid):
     return gesamt, neu_gesamt, meldungen
 
 
-def alle_laufen(standort=db.STANDORT_STANDARD, alarm=True):
+def alle_laufen(standort=db.STANDORT_STANDARD, alarm=True, art=None):
+    """art='job' laesst nur die Arbeits-Agenten laufen, art='wohnung' nur die Wohnungs-Agenten.
+
+    Das ist nicht nur Anzeige: ein voller Lauf fragt zehn Portale und dauert bis zu zwei
+    Minuten. Wer nur Wohnungen sucht, soll nicht darauf warten muessen."""
+    wo, werte = _art_bedingung(art, praefix="")
     ergebnisse = []
-    for p in db.hole("SELECT id, titel FROM tf_profil WHERE aktiv=1 AND standort=? ORDER BY id",
-                     (standort,)):
+    for p in db.hole("SELECT id, titel FROM tf_profil WHERE aktiv=1 AND standort=?" + wo
+                     + " ORDER BY id", (standort,) + werte):
         gefunden, neu, meldungen = lauf(p["id"])
         ergebnisse.append((p["id"], p["titel"], gefunden, neu, "; ".join(meldungen)))
     if alarm:

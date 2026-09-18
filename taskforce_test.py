@@ -250,6 +250,15 @@ def main():
     pruefe("Nur Jobs / nur Wohnungen trennt sauber",
            zeilen("/taskforce?art=job") + zeilen("/taskforce?art=wohnung") >= alle
            and zeilen("/taskforce?art=wohnung") < alle)
+    pruefe("Die Aufspaltung hat eigene Adressen",
+           zeilen("/taskforce/arbeit") == zeilen("/taskforce?art=job")
+           and zeilen("/taskforce/wohnung") == zeilen("/taskforce?art=wohnung"))
+    pruefe("Beide Halften stehen auf jeder der drei Ansichten zur Wahl",
+           all(c.get(u).text.count("modus-knopf") == 3
+               for u in ("/taskforce", "/taskforce/arbeit", "/taskforce/wohnung")))
+    pruefe("In der Wohnungssuche stehen keine Stellenregler",
+           "GEHALT AB" not in c.get("/taskforce/wohnung").text.upper()
+           and "GEHALT AB" in c.get("/taskforce/arbeit").text.upper())
     pruefe("Relevanzschwelle blendet aus", zeilen("/taskforce?score=8") <= alle)
     pruefe("Abgleichschwelle blendet aus", zeilen("/taskforce?match=67") <= alle)
     pruefe("Zeitraum wirkt", zeilen("/taskforce?tage=1") <= zeilen("/taskforce?tage=30"))

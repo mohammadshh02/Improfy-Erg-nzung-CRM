@@ -2,9 +2,35 @@
 {% block titel %}Taskforce – Improfy-OS{% endblock %}
 {% block inhalt %}
 <h1>Taskforce</h1>
+
+{# Die Aufspaltung. Arbeitssuche und Wohnungssuche sind zwei verschiedene Arbeiten: andere
+   Quellen, andere Regler, andere Ansprechpartner. Vorher stand die Wahl als Auswahlfeld
+   unter zwoelf anderen Reglern und war damit praktisch unsichtbar – jetzt entscheidet sie
+   die ganze Seite. Die Zahl an der anderen Haelfte bleibt sichtbar, damit man nicht
+   hinueberwechseln muss, um zu sehen, ob dort etwas liegt. #}
+<nav class="modus" aria-label="Was gesucht wird">
+  <a class="modus-knopf{{ ' an' if modus=='job' }}" href="{{ url_for('taskforce_arbeit') }}">
+    <strong>Arbeitssuche</strong>
+    <span>{{ stand.job.profile }} Profile{% if stand.job.neu %} · <b>{{ stand.job.neu }} neu</b>{% endif %}</span></a>
+  <a class="modus-knopf{{ ' an' if modus=='wohnung' }}" href="{{ url_for('taskforce_wohnung') }}">
+    <strong>Wohnungssuche</strong>
+    <span>{{ stand.wohnung.profile }} Profile{% if stand.wohnung.neu %} · <b>{{ stand.wohnung.neu }} neu</b>{% endif %}</span></a>
+  <a class="modus-knopf{{ ' an' if not modus }}" href="{{ url_for('taskforce_seite') }}">
+    <strong>beides</strong>
+    <span>Gesamtbild</span></a>
+</nav>
+
 <p class="unterzeile">
-  Job- und Wohnungs-Agenten je Kunde. Neue Treffer erscheinen hier, bis jemand aus der
-  Taskforce sie auf <em>angeschrieben</em> oder <em>verworfen</em> setzt.
+  {% if modus == 'job' %}
+    Stellen für die Kunden, die in einer Maßnahme sind. Neue Treffer stehen hier, bis jemand
+    aus der Taskforce sie auf <em>angeschrieben</em> oder <em>verworfen</em> setzt.
+  {% elif modus == 'wohnung' %}
+    Wohnungen für die Kunden, die eine suchen. Die Treffer kommen aus den
+    ImmoScout24-Suchaufträgen und von Kleinanzeigen; angeschrieben wird der Vermieter.
+  {% else %}
+    Job- und Wohnungs-Agenten je Kunde. Neue Treffer erscheinen hier, bis jemand aus der
+    Taskforce sie auf <em>angeschrieben</em> oder <em>verworfen</em> setzt.
+  {% endif %}
 </p>
 
 {% if lauf and lauf.laeuft %}
@@ -32,14 +58,21 @@
     <div class="marke">warten auf die Taskforce</div></div>
   <div class="karte"><h3>Aktive Profile</h3>
     <div class="zahl">{{ profile|selectattr('aktiv')|list|length }}</div>
-    <div class="marke">{{ profile|selectattr('art','equalto','job')|list|length }} Job ·
-      {{ profile|selectattr('art','equalto','wohnung')|list|length }} Wohnung</div></div>
+    <div class="marke">{% if modus == 'job' %}Jobprofile
+      {%- elif modus == 'wohnung' %}Wohnprofile
+      {%- else %}{{ profile|selectattr('art','equalto','job')|list|length }} Job ·
+      {{ profile|selectattr('art','equalto','wohnung')|list|length }} Wohnung{% endif %}</div></div>
   <div class="karte"><h3>Angeschrieben</h3>
     <div class="zahl">{{ profile|sum(attribute='angeschrieben') }}</div>
-    <div class="marke">Arbeitgeber und Vermieter</div></div>
+    <div class="marke">{{ 'Arbeitgeber' if modus == 'job' else ('Vermieter' if modus == 'wohnung' else 'Arbeitgeber und Vermieter') }}</div></div>
   <div class="karte"><h3>Agenten</h3>
     <form method="post" action="{{ url_for('taskforce_lauf') }}" style="margin:0">
-      <button type="submit" {{ 'disabled' if not profile or (lauf and lauf.laeuft) }}>{{ 'läuft gerade …' if (lauf and lauf.laeuft) else 'alle jetzt laufen lassen' }}</button>
+      <input type="hidden" name="art" value="{{ modus or '' }}">
+      <button type="submit" {{ 'disabled' if not profile or (lauf and lauf.laeuft) }}>
+        {%- if lauf and lauf.laeuft %}läuft gerade …
+        {%- elif modus == 'job' %}Arbeits-Agenten laufen lassen
+        {%- elif modus == 'wohnung' %}Wohnungs-Agenten laufen lassen
+        {%- else %}alle jetzt laufen lassen{% endif %}</button>
     </form>
     <div class="marke" style="margin-top:8px">{{ quellen|selectattr('bereit')|list|length }} von {{ quellen|length }} Quellen aktiv ·
       Chat-Alarm {% if alarm %}<span class="plakette p-gruen">an</span>{% else %}<span class="plakette p-grau">aus</span>{% endif %}</div></div>
@@ -86,10 +119,10 @@
   – Lebenslauf verknüpfen (Drive-Link oder aus der Chat-Gruppe „CVs Köln"), sonst kann niemand bewerben.</div>
 {% endif %}
 
-<h2>Quellen</h2>
+<h2>Quellen{% if modus %} der {{ 'Arbeitssuche' if modus == 'job' else 'Wohnungssuche' }}{% endif %}</h2>
 <div class="karte" style="padding:12px 20px">
   {% for q in quellen %}
-  <span class="plakette {{ 'p-gruen' if q.bereit else 'p-grau' }}" style="margin:4px 6px 4px 0" title="{{ q.schluessel }}">{{ 'Job' if q.art=='job' else 'Wohnung' }} · {{ q.name }}{% if not q.bereit %} – nicht verbunden{% endif %}</span>
+  <span class="plakette {{ 'p-gruen' if q.bereit else 'p-grau' }}" style="margin:4px 6px 4px 0" title="{{ q.schluessel }}">{% if not modus %}{{ 'Job' if q.art=='job' else 'Wohnung' }} · {% endif %}{{ q.name }}{% if not q.bereit %} – nicht verbunden{% endif %}</span>
   {% endfor %}
   <div class="marke" style="margin-top:8px">Nicht verbundene Quellen brauchen Zugangsdaten in der <code>.env</code>:
     ImmoScout24-Postfach (TF_IMAP_HOST/USER/PASSWORT), Adzuna (ADZUNA_APP_ID/KEY), Jooble (JOOBLE_KEY).
@@ -131,9 +164,7 @@
       <select name="coach" onchange="this.form.submit()"><option value="">alle</option>
         {% for c in coaches %}<option value="{{ c.id }}" {{ 'selected' if filter.coach_id==c.id }}>{{ c.name }}</option>{% endfor %}</select></label>
     <label>Art
-      <select name="art" onchange="this.form.submit()"><option value="">Job + Wohnung</option>
-        <option value="job" {{ 'selected' if filter.art=='job' }}>nur Jobs</option>
-        <option value="wohnung" {{ 'selected' if filter.art=='wohnung' }}>nur Wohnungen</option></select></label>
+      <span class="artfest">{% if modus == 'job' %}nur Stellen{% elif modus == 'wohnung' %}nur Wohnungen{% else %}Stellen + Wohnungen{% endif %}</span></label>
     <label>Status
       <select name="status" onchange="this.form.submit()">
         {% for s in status_liste %}<option value="{{ s }}" {{ 'selected' if filter.status==s }}>{{ s }}</option>{% endfor %}
@@ -197,7 +228,7 @@
 
   <div class="reglerreihe reglerfuss">
     <button type="submit" class="btn btn-primary">filtern</button>
-    <a class="btn" href="{{ url_for('taskforce_seite') }}">alle Filter zurücksetzen</a>
+    <a class="btn" href="{{ basis_url }}">alle Filter zurücksetzen</a>
     <span class="marke">{{ neue|length }} von {{ zaehler.get(filter.status or 'neu', 0) }}
       {{ filter.status or 'neuen' }}{% if zaehler.get('doppelt') %} · {{ zaehler.doppelt }} Dubletten ausgeblendet{% endif %}
       · Angebote ohne Angabe bleiben stehen, damit nichts still verschwindet</span>
@@ -251,7 +282,7 @@
 {% if ohne_profil %}
 <div class="hinweis"><strong>{{ ohne_profil }} laufende Maßnahmen haben kein Suchprofil.</strong>
   Für diese Menschen sucht der Agent nichts.
-  <a href="{{ url_for('sammelanlage_seite') }}">Profile in einem Schritt anlegen →</a></div>
+  <a href="{{ url_for('sammelanlage_seite', art=modus or 'job') }}">Profile in einem Schritt anlegen →</a></div>
 {% endif %}
 <form class="filter" method="get" action="{{ url_for('taskforce_kunde_wahl') }}">
   <select name="kid" required>

@@ -115,13 +115,18 @@ def staende():
 
 
 # ------------------------------------------------------- Nächtlicher Agentenlauf
-def agenten_lauf():
-    """Alle aktiven Taskforce-Profile durchlaufen. Gibt eine lesbare Bilanz zurück."""
+def agenten_lauf(art=None):
+    """Alle aktiven Taskforce-Profile durchlaufen. Gibt eine lesbare Bilanz zurück.
+
+    art grenzt auf eine Haelfte ein ('job' oder 'wohnung'); der naechtliche Lauf laesst es
+    weg und nimmt weiter alles."""
     import taskforce as tf
-    ergebnisse = tf.alle_laufen()
+    ergebnisse = tf.alle_laufen(art=art)
     neu = sum(n for _, _, _, n, _ in ergebnisse)
     gefunden = sum(g for _, _, g, _, _ in ergebnisse)
-    return f"{len(ergebnisse)} Profile · {gefunden} gefunden · {neu} neu"
+    woran = {"job": "Arbeitssuche", "wohnung": "Wohnungssuche"}.get(art)
+    vorn = f"{woran}: " if woran else ""
+    return f"{vorn}{len(ergebnisse)} Profile · {gefunden} gefunden · {neu} neu"
 
 
 # --------------------------------------------------------------------- Zeitplan
@@ -161,19 +166,23 @@ def einmal_pruefen():
 # Der Knopf „alle jetzt laufen lassen" hing die Seite, bis zehn Portale geantwortet hatten –
 # bis zu zwei Minuten weißer Bildschirm. Jetzt startet der Lauf einen Faden und die Seite
 # kommt sofort zurück; der Zustand steht hier und wird oben auf der Tafel angezeigt.
-_lauf = {"laeuft": False, "seit": None, "ergebnis": None, "fehler": None}
+_lauf = {"laeuft": False, "seit": None, "ergebnis": None, "fehler": None, "art": None}
 
 
-def lauf_starten():
-    """Gibt True zurück, wenn der Lauf angestoßen wurde, False wenn schon einer läuft."""
+def lauf_starten(art=None):
+    """Gibt True zurück, wenn der Lauf angestoßen wurde, False wenn schon einer läuft.
+
+    Es bleibt bei *einem* Lauf gleichzeitig, auch bei getrennten Haelften: zwei parallele
+    Laeufe wuerden dieselben Portale doppelt fragen und sich Sperren einhandeln. Die Seite
+    schreibt darum mit, welche Haelfte gerade dran ist."""
     if _lauf["laeuft"]:
         return False
     _lauf.update(laeuft=True, seit=jetzt().isoformat(timespec="seconds"),
-                 ergebnis=None, fehler=None)
+                 ergebnis=None, fehler=None, art=art)
 
     def arbeiten():
         try:
-            _lauf["ergebnis"] = agenten_lauf()
+            _lauf["ergebnis"] = agenten_lauf(art)
             _notieren("agenten", _lauf["ergebnis"] + " (von Hand)")
         except Exception as e:
             _lauf["fehler"] = str(e)[:300]

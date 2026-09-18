@@ -13,6 +13,7 @@ import hmac
 import os
 import re
 import secrets
+import sys
 import urllib.parse
 
 from flask import (Flask, abort, redirect, render_template, request, send_file,
@@ -795,14 +796,20 @@ def lebenslauf_datei(dateiname):
 # Job- und Wohnungs-Agenten je Kunde. Alles Fachliche steht in taskforce.py;
 # hier nur die Seiten und die Knöpfe.
 
-def _tf_seite(meldungen=None):
+def _tf_seite(meldungen=None, modus=None):
+    """Die Tafel. Jeder Filter steht in der Adresse, damit man eine Ansicht teilen kann.
+
+    `modus` ist die Aufspaltung: 'job' (Arbeitssuche), 'wohnung' (Wohnungssuche) oder None
+    fuer das Gesamtbild. Er wirkt auf alles auf dieser Seite – Kennzahlen, Wiedervorlage,
+    Quellen, Regler, Tabelle und den Agentenlauf –, damit die Zahlen einer Ansicht
+    zusammenpassen und nicht die Haelfte aus der anderen Suche stammt."""
     if not meldungen and request.args.get("meldung"):
         meldungen = [request.args["meldung"]]
-    """Die Tafel. Jeder Filter steht in der Adresse, damit man eine Ansicht teilen kann."""
+
     def zahl(name, typ=int):
         return request.args.get(name, type=typ)
 
-    f = {"kunde_id": zahl("kunde"), "art": request.args.get("art") or None,
+    f = {"kunde_id": zahl("kunde"), "art": modus,
          "quelle": request.args.get("quelle") or None,
          "suche": (request.args.get("q") or "").strip() or None,
          "status": request.args.get("status", "neu") or None,
@@ -813,22 +820,29 @@ def _tf_seite(meldungen=None):
          "min_gehalt": zahl("gehalt"), "max_miete": zahl("miete"),
          "min_zimmer": zahl("zimmer", float), "min_flaeche": zahl("flaeche"),
          "sortierung": request.args.get("sort") or None}
+    # Die Zahlen an den beiden Knoepfen: man sieht die andere Haelfte, ohne hinzuwechseln.
+    stand = {art: {"profile": len([p for p in tf.uebersicht(art=art) if p["aktiv"]]),
+                   "neu": tf.anzahl_neu(art=art)} for art in ("job", "wohnung")}
     return render_template(
-        "taskforce.html", profile=tf.uebersicht(), neu=tf.anzahl_neu(), filter=f,
-        neue=tf.neue_angebote(limit=100, **f), zaehler=tf.angebote_zaehlen(),
+        "taskforce.html", modus=modus, stand=stand, basis_url=request.path,
+        profile=tf.uebersicht(art=modus), neu=tf.anzahl_neu(art=modus), filter=f,
+        neue=tf.neue_angebote(limit=100, **f), zaehler=tf.angebote_zaehlen(art=modus),
         arbeitszeiten=tf.ARBEITSZEITEN, status_liste=tf.STATUS,
         coaches=db.hole("SELECT DISTINCT m.id, m.name FROM mitarbeiter m JOIN kunde k"
                         " ON k.coach_id=m.id WHERE m.standort=? ORDER BY m.name",
                         (db.STANDORT_STANDARD,)),
         laeufe=tf.laeufe(limit=15), imap=tf.imap_konfiguriert(), alarm=tf.alarm_konfiguriert(),
-        meldungen=meldungen, quellen=tf.quellen_stand(), kpi=tf.kpi_mitarbeiter(),
+        meldungen=meldungen, quellen=tf.quellen_stand(modus), kpi=tf.kpi_mitarbeiter(),
         lauf=betrieb.lauf_zustand(),
+        # „Kein Suchprofil" heisst im Modus: keins *dieser Art*. Wer ein Jobprofil hat, aber
+        # dringend eine Wohnung sucht, fiel in der alten Zaehlung durch.
         ohne_profil=db.wert(
             "SELECT COUNT(*) FROM kunde k WHERE k.standort=? AND k.status_code IN ('H','I')"
-            "  AND NOT EXISTS (SELECT 1 FROM tf_profil t WHERE t.kunde_id=k.id AND t.aktiv=1)",
-            (db.STANDORT_STANDARD,)),
-        wiedervorlage=tf.wiedervorlage(), wv_tage=tf.WIEDERVORLAGE_TAGE,
-        leute=_tf_leute(), ohne_cv=tf.ohne_lebenslauf(),
+            "  AND NOT EXISTS (SELECT 1 FROM tf_profil t WHERE t.kunde_id=k.id AND t.aktiv=1"
+            + (" AND t.art=?" if modus else "") + ")",
+            (db.STANDORT_STANDARD,) + ((modus,) if modus else ())),
+        wiedervorlage=tf.wiedervorlage(art=modus), wv_tage=tf.WIEDERVORLAGE_TAGE,
+        leute=_tf_leute(), ohne_cv=(tf.ohne_lebenslauf() if modus != "wohnung" else []),
         kunden=db.hole("SELECT id, name FROM kunde WHERE standort=? ORDER BY name",
                        (db.STANDORT_STANDARD,)))
 
@@ -858,18 +872,46 @@ def _bearbeiter(aus_formular=None):
 
 @app.route("/taskforce")
 def taskforce_seite():
-    return _tf_seite()
+    """Gesamtbild – beide Suchen nebeneinander.
+
+    `?art=job` und `?art=wohnung` gelten weiter: das CRM, Lesezeichen und geteilte Ansichten
+    verlinken so. Sie sind dasselbe wie /taskforce/arbeit bzw. /taskforce/wohnung."""
+    art = request.args.get("art")
+    return _tf_seite(modus=art if art in ("job", "wohnung") else None)
+
+
+@app.route("/taskforce/arbeit")
+def taskforce_arbeit():
+    """Arbeitssuche: Stellen, Arbeitgeber, Lebenslauf, Gehalt, Arbeitszeit."""
+    return _tf_seite(modus="job")
+
+
+@app.route("/taskforce/wohnung")
+def taskforce_wohnung():
+    """Wohnungssuche: Exposés, Vermieter, Miete, Zimmer, Fläche."""
+    return _tf_seite(modus="wohnung")
+
+
+TF_SEITE = {"job": "taskforce_arbeit", "wohnung": "taskforce_wohnung"}
 
 
 @app.route("/taskforce/lauf", methods=["POST"])
 def taskforce_lauf():
-    """Stößt den Lauf an und kommt sofort zurück – die Portale brauchen bis zu zwei Minuten."""
-    if betrieb.lauf_starten():
-        notieren("Agentenlauf gestartet", "taskforce")
-        meldung = "Der Lauf ist gestartet und arbeitet im Hintergrund. Diese Seite zeigt oben, wann er fertig ist."
+    """Stößt den Lauf an und kommt sofort zurück – die Portale brauchen bis zu zwei Minuten.
+
+    Aus der Arbeitssuche laufen nur die Jobportale, aus der Wohnungssuche nur die
+    Wohnungsquellen. Das halbiert die Wartezeit und fragt keine Portale ohne Anlass."""
+    art = request.form.get("art") or None
+    if art not in ("job", "wohnung"):
+        art = None
+    ziel = TF_SEITE.get(art, "taskforce_seite")
+    woran = {"job": "Arbeits-Agenten", "wohnung": "Wohnungs-Agenten"}.get(art, "Agentenlauf")
+    if betrieb.lauf_starten(art):
+        notieren(f"{woran} gestartet", "taskforce")
+        meldung = f"{woran}: der Lauf ist gestartet und arbeitet im Hintergrund. Diese Seite zeigt oben, wann er fertig ist."
     else:
         meldung = "Es läuft bereits ein Durchgang – der zweite würde dieselben Portale doppelt fragen."
-    return redirect(url_for("taskforce_seite", meldung=meldung))
+    return redirect(url_for(ziel, meldung=meldung))
 
 
 @app.route("/taskforce/profile-anlegen")
@@ -1207,7 +1249,11 @@ if __name__ == "__main__":
     db.init()
     konten.init()
     tf.init()
+    # Port: Umgebungsvariable PORT oder --port. Zweiteres, damit mehrere Arbeitsstaende
+    # desselben Repos (git worktree) gleichzeitig laufen koennen, ohne sich den Port zu nehmen.
     port = int(os.environ.get("PORT", "8101"))   # 8100 gehoert dem alten OS
+    if "--port" in sys.argv:
+        port = int(sys.argv[sys.argv.index("--port") + 1])
     print(f"\n  Improfy-OS läuft  →  http://localhost:{port}\n")
     # Mit Passwort im Netz erreichbar, ohne Passwort nur auf diesem Rechner.
     app.run(host="0.0.0.0" if PASSWORT else "127.0.0.1", port=port, debug=False)
