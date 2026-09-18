@@ -73,7 +73,12 @@ table.seite > thead td { padding-bottom: {{ '13mm' if skin.kopfform == 'band' el
                 width: 72mm; height: 72mm; border-radius: 50%; background: var(--farbe2); }
 .kopf::after { content: ""; position: absolute; left: -14mm; top: -20mm;
                width: 52mm; height: 52mm; border-radius: 50%; background: var(--farbe); }
-.kopf .inhalt { position: relative; z-index: 2; padding-left: 26mm; }
+/* Der Kreis oben rechts ist 72 mm breit und ragt ueber die Blattkante hinaus. Ohne
+   Abstand nach rechts laeuft ein langer Name oder eine lange Berufsbezeichnung darunter
+   durch - bei "Sachbearbeiterin fuer ..." war der Text zu 7 % verdeckt (gefunden von
+   seitenpruefung.py am 18.09.2026, vorher nie aufgefallen). */
+.kopf .inhalt { position: relative; z-index: 2; padding-left: 26mm;
+                padding-right: 46mm; }
 .kopf .name { color: var(--text); font-size: 25pt; }
 .kopf .rolle { color: var(--farbe); margin-bottom: 2.5mm; }
 .blatt { padding: 0 16mm 4mm; }
@@ -109,8 +114,10 @@ body { background: var(--farbe2); }
 {% endif %}
 
 /* ---------------------------------------------------- Foto, Kontakt, Inhalt */
-.reihe::after { content: ""; display: block; clear: both; }
-.links { float: left; width: 52mm; margin: 0 9mm 6mm 0; }
+/* Zwei echte Spalten statt Float und Textumfluss - siehe Kopf dieser Datei. */
+table.kopfreihe { width: 100%; border-collapse: collapse; margin-bottom: 2mm; }
+table.kopfreihe > tbody > tr > td { padding: 0; vertical-align: top; }
+td.links { width: 52mm; padding-right: 9mm !important; }
 .foto { width: 52mm; height: 66mm; border-radius: 2mm;
         {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
         {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
@@ -151,11 +158,7 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
    der Punkt sitzen am Kastenrand - und landeten damit mitten auf der Telefonnummer.
    Mit `flow-root` stellt sich jeder Eintrag neben die Fotospalte, solange sie reicht,
    und nimmt darunter die volle Breite. Kein Ueberlappen, kein verschenkter Rand. */
-/* `flow-root` ist hier der entscheidende Punkt: Ohne ihn laeuft der Kasten eines
-   Eintrags **unter** der Fotospalte durch und nur der Text weicht aus - Linie und Punkt
-   sassen dann mitten auf der Telefonnummer. Mit `flow-root` stellt sich jeder Eintrag
-   neben die Fotospalte, solange sie reicht, und nimmt darunter die volle Breite. */
-.eintrag { display: flow-root; }
+
 /* Die Marke sitzt **am Text**, nicht am Kastenrand. Am Kasten sprang sie: der erste
    Eintrag steht neben dem Foto, die folgenden am linken Rand - eine durchgehende Linie
    haette dort einen Absatz gemacht und ausgesehen wie ein Fehler, nicht wie Absicht. */
@@ -201,10 +204,24 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
 
 /* Mehr Luft zwischen den Kapiteln. Der enge Satz war der zweite Grund, warum das Blatt
    gedraengt wirkte: sieben Stationen und vier Kapitel ohne Atempause dazwischen. */
-.zweispaltig { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10mm;
-               break-inside: avoid; }
-.zweispaltig .spalte > h3:first-child { margin-top: 0; }
+/* `auto-fit` mit einer Mindestbreite verteilt selbst: zwei Listen nebeneinander, eine
+   dritte rueckt in die naechste Reihe. 58 mm ist die Untergrenze, bei der eine
+   Faehigkeit samt Bewertung noch in eine Zeile passt.
+
+   `min-width: 0` ist hier **Pflicht**, nicht Kosmetik: Rasterelemente schrumpfen von
+   sich aus nicht unter ihren Inhalt. Ohne die Regel trat jede Spalte ueber ihre Bahn
+   hinaus - Spalte 1 endete bei 236 pt, Spalte 2 begann bei 222 pt, und die dritte
+   schob "ENGLISCH Grundkenntnisse" in den Seitenrand. (18.09.2026, gefunden von
+   seitenpruefung.py.) */
+.quali-raster { display: grid; gap: 4mm 9mm;
+                grid-template-columns: repeat(auto-fit, minmax(58mm, 1fr)); }
+.quali-raster > .spalte { min-width: 0; }
+.quali-raster .spalte > h3:first-child { margin-top: 0; }
 .spalte { break-inside: avoid; }
+.paare > *, .paar .was { min-width: 0; overflow-wrap: anywhere; }
+.sprachzeile { min-width: 0; }
+.sprachzeile .sp { min-width: 0; overflow-wrap: anywhere; }
+.sprachzeile .grad { white-space: nowrap; }
 
 .kapitel { margin-bottom: 8.5mm; }
 /* Der Abstand **hinter** dem letzten Kapitel hat nichts mehr zu trennen - er schob den
@@ -212,7 +229,7 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
    noch der wiederholte Kopf und die Seitenzahl standen. Eine leere Seite in einem
    Lebenslauf sieht nach Unfall aus. (18.09.2026) */
 .kapitel:last-child { margin-bottom: 0; }
-.blatt > .reihe > .rechts > .kapitel:last-child { margin-bottom: 0; }
+.blatt > .kapitel:last-child { margin-bottom: 0; }
 .kapitel > h2 { margin-bottom: 4.5mm; }
 h3 + .paare, h3 + .eintrag { margin-top: 3mm; }
 .eintrag { margin-bottom: 5.5mm; }
@@ -267,8 +284,11 @@ li { margin-bottom: 1.4mm; }
 </td></tr></thead>
 <tbody><tr><td>
 <div class="blatt">
-<div class="reihe">
-  <div class="links">
+{# Kopfteil: Foto und Kontakt links, "Ueber mich" daneben - zwei Tabellenzellen,
+   damit nichts unter der Spalte durchlaufen kann. Alles Weitere steht darunter ueber
+   die volle Breite. #}
+<table class="kopfreihe"><tr>
+  <td class="links">
     {% if zeige_foto %}<img class="foto" src="{{ foto }}" alt="">{% endif %}
     <div class="kontakt">
       {% if d.geburtsdatum %}<div>{{ d.geburtsdatum }}</div>{% endif %}
@@ -276,9 +296,8 @@ li { margin-bottom: 1.4mm; }
       {% if d.mobil %}<div>{{ d.mobil }}</div>{% endif %}
       {% if d.email %}<div>{{ d.email }}</div>{% endif %}
     </div>
-  </div>
-
-  <div class="rechts">
+  </td>
+  <td>
     {% if d.ueber_mich %}
     <section class="kapitel">
       <h2>Über mich</h2>
@@ -287,6 +306,8 @@ li { margin-bottom: 1.4mm; }
       </div>
     </section>
     {% endif %}
+  </td>
+</tr></table>
 
     {% if beruf %}
     <section class="kapitel">
@@ -324,12 +345,12 @@ li { margin-bottom: 1.4mm; }
     <section class="kapitel">
       <h2>Persönliche Qualifikation</h2>
 
-      {# Beides sind kurze Listen mit einer Bewertung rechts. Untereinander fuellten sie
-         eine halbe Seite und schoben die Sprachen auf ein fast leeres Blatt. Nebeneinander
-         passen sie in denselben Raum - und der Block wirkt gesetzt statt gestapelt.
-         Ist nur eine der beiden Listen da, bleibt sie ueber die volle Breite. #}
-      {% set zwei = d.soft_skills and d.edv_kenntnisse %}
-      <div class="{{ 'zweispaltig' if zwei else '' }}">
+      {# Drei kurze Listen, die gestapelt eine halbe Seite fuellten und die letzte davon
+         auf ein fast leeres Blatt schoben (bei duenner Datenlage standen auf Seite 2 genau
+         110 Zeichen). Nebeneinander passen sie in denselben Raum - und der Block wirkt
+         gesetzt statt gestapelt. Das Raster verteilt selbst: eine Liste nimmt die volle
+         Breite, drei nehmen je ein Drittel. #}
+      <div class="quali-raster">
         {% if d.soft_skills %}
         <div class="spalte">
           <h3>Soft Skills</h3>
@@ -351,6 +372,15 @@ li { margin-bottom: 1.4mm; }
           </div>
         </div>
         {% endif %}
+
+        {% if d.sprachen %}
+        <div class="spalte">
+          <h3>Sprachkenntnisse</h3>
+          {% for s in d.sprachen %}
+          <div class="sprachzeile{{ ' mit-grad' if s.niveau }}"><span class="sp">{{ s.sprache }}</span>{% if s.niveau %}<span class="grad">{{ s.niveau }}</span>{% endif %}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
 
       {% if d.zusatzqualifikationen or fs.vorhanden %}
@@ -361,21 +391,12 @@ li { margin-bottom: 1.4mm; }
       </ul></div>
       {% endif %}
 
-      {% if d.sprachen %}
-      <h3>Sprachkenntnisse</h3>
-      {% for s in d.sprachen %}
-      <div class="sprachzeile{{ ' mit-grad' if s.niveau }}"><span class="sp">{{ s.sprache }}</span>{% if s.niveau %}<span class="grad">{{ s.niveau }}</span>{% endif %}</div>
-      {% endfor %}
-      {% endif %}
-
       {% if d.hobbys %}
       <h3>Hobbys</h3>
       <p>{{ d.hobbys }}</p>
       {% endif %}
     </section>
     {% endif %}
-  </div>
-</div>
 </div>
 </td></tr></tbody>
 </table>

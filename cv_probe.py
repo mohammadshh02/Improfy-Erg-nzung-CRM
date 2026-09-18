@@ -196,6 +196,11 @@ def pruefe(schluessel, fall_name, daten, speichern=True):
         os.makedirs(AUSGABE, exist_ok=True)
         with open(os.path.join(AUSGABE, f"{schluessel}_{fall_name}.pdf"), "wb") as f:
             f.write(pdf)
+    # Liegt etwas uebereinander oder ragt in den Rand? Das faellt sonst erst am
+    # Bildschirm auf - dreimal hintereinander genau so passiert (18.09.2026).
+    import seitenpruefung
+    fehlt += seitenpruefung.pruefe(pdf)
+
     if seiten > 1:
         import pymupdf
         with pymupdf.open(stream=pdf, filetype="pdf") as doc:
@@ -231,7 +236,7 @@ def main(nur=None):
     if schlecht:
         print(f"{schlecht} Durchgänge mit Verlust oder Fehler – das muss auf null.")
     else:
-        print("Kein Inhalt verloren, keine fast leere Schlussseite.")
+        print("Kein Inhalt verloren, nichts uebereinander, keine leere Schlussseite.")
     return 0 if not schlecht else 1
 
 
