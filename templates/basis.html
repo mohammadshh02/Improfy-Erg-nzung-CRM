@@ -79,9 +79,17 @@
     <header class="topbar">
       <h1 class="page-title">{{ ns.titel }}</h1>
       <div class="topbar-right">
+{# Tippen und den Menschen bekommen. Die Vorschlaege vergleichen ohne Umlaute, Akzente
+           und Reihenfolge – „ammar moh" findet „Mohamed Ammar". Enter ohne Auswahl fuehrt
+           weiter auf die Ergebnisseite, die auch Telefon, Firma und Angebote durchsucht. #}
         <form method="get" action="{{ url_for('suche_seite') }}" class="kopfsuche">
-          <input type="search" name="q" value="{{ request.args.get('q', '') if request.endpoint == 'suche_seite' }}"
-                 placeholder="Suchen … (Name, Telefon, Firma)" aria-label="Gesamtsuche">
+          <div class="ksuche" data-ziel="seite" data-url="{{ url_for('kunde_detail', kid=0) }}"
+               data-api="{{ url_for('api_kunden_suche') }}">
+            <input type="search" name="q" class="ksuche-feld" autocomplete="off"
+                   value="{{ request.args.get('q', '') if request.endpoint == 'suche_seite' }}"
+                   placeholder="Suchen … (Name, Telefon, Firma)" aria-label="Gesamtsuche">
+            <div class="ksuche-liste" hidden></div>
+          </div>
         </form>
         <a class="btn btn-sm" href="{{ url_for('aufgaben_seite') }}">Aufgaben</a>
         <a class="btn btn-sm" href="{{ url_for('logout') }}">abmelden</a>
@@ -96,5 +104,80 @@
     </main>
   </div>
 </div>
+<script>
+/* Personensuche. Bei 93 Kunden ist eine Auswahlliste mit allen Namen unbedienbar: man muss
+   wissen, wie der Name im Bestand geschrieben steht, um ihn zu finden. Hier tippt man, was
+   man im Kopf hat – der Server vergleicht ohne Umlaute, Akzente und Reihenfolge.
+   Mit Maus und mit Tastatur bedienbar (Pfeile, Enter, Esc), weil die Taskforce schnell arbeitet. */
+document.querySelectorAll('.ksuche').forEach(function (wurzel) {
+  var feld      = wurzel.querySelector('.ksuche-feld');
+  var liste     = wurzel.querySelector('.ksuche-liste');
+  var versteckt = wurzel.querySelector('input[type=hidden]');
+  var treffer = [], zeiger = -1, lauf = 0;
+
+  function sicher(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function zeichnen() {
+    if (!treffer.length) { liste.hidden = true; liste.innerHTML = ''; return; }
+    liste.innerHTML = treffer.map(function (k, i) {
+      var rechts = (k.profile ? k.profile + ' Profile' : 'kein Profil')
+                 + (k.neu ? ' · <b>' + k.neu + ' neu</b>' : '');
+      var neben = [k.coach, k.status_text].filter(Boolean).map(sicher).join(' · ');
+      return '<div class="ksuche-zeile' + (i === zeiger ? ' an' : '') + '" data-i="' + i + '">'
+           + '<span class="ksuche-name">' + sicher(k.name) + '</span>'
+           + '<span class="ksuche-neben">' + rechts + '</span>'
+           + (neben ? '<span class="ksuche-neben">' + neben + '</span>' : '')
+           + '</div>';
+    }).join('');
+    liste.hidden = false;
+  }
+
+  function waehlen(k) {
+    if (!k) return;
+    if (wurzel.dataset.ziel === 'seite') {
+      window.location.href = wurzel.dataset.url.replace(/0$/, k.id);
+      return;
+    }
+    versteckt.value = k.id;
+    feld.value = k.name;
+    liste.hidden = true;
+    if (!feld.dataset.nichtAbschicken) wurzel.closest('form').submit();
+  }
+
+  feld.addEventListener('input', function () {
+    var q = feld.value.trim(), meiner = ++lauf;
+    if (versteckt && !q) versteckt.value = '';   /* Feld leeren heißt: Filter weg */
+    if (q.length < 2) { treffer = []; zeiger = -1; zeichnen(); return; }
+    fetch(wurzel.dataset.api + '?q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (meiner !== lauf) return;   /* eine ältere Antwort darf die neuere nicht überschreiben */
+        treffer = d.kunden || []; zeiger = treffer.length ? 0 : -1; zeichnen();
+      })
+      .catch(function () { treffer = []; zeichnen(); });
+  });
+
+  feld.addEventListener('keydown', function (e) {
+    if (liste.hidden) return;
+    if (e.key === 'ArrowDown') { zeiger = Math.min(zeiger + 1, treffer.length - 1); zeichnen(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { zeiger = Math.max(zeiger - 1, 0); zeichnen(); e.preventDefault(); }
+    else if (e.key === 'Enter' && zeiger >= 0) { waehlen(treffer[zeiger]); e.preventDefault(); }
+    else if (e.key === 'Escape') { liste.hidden = true; }
+  });
+
+  liste.addEventListener('mousedown', function (e) {
+    var zeile = e.target.closest('.ksuche-zeile');
+    if (zeile) { e.preventDefault(); waehlen(treffer[+zeile.dataset.i]); }
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!wurzel.contains(e.target)) liste.hidden = true;
+  });
+});
+</script>
 </body>
 </html>

@@ -286,3 +286,62 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
 .modus-knopf.an strong{color:var(--pine-2)}
 .artfest{display:inline-flex;align-items:center;height:34px;font-size:13px;font-weight:500;
   letter-spacing:0;text-transform:none;color:var(--heading)}
+
+/* ---------- Ordnung auf der Taskforce-Seite: Kopf, Personensuche, Abschnitte ------------
+   Die Seite hatte zehn gleichrangige Ueberschriften untereinander. Rang entsteht hier durch
+   drei Mittel: der Kopf traegt Suche und Aufspaltung, Arbeitsabschnitte stehen offen mit
+   Abstand dazwischen, Nachschlagewerk liegt eingeklappt. Keine neuen Farben, keine neuen
+   Schriften - nur Abstand, Linie und Rangfolge. */
+.tf-kopf{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  margin:0 0 14px}
+.tf-kopf h1{margin:0}
+
+/* Abschnitt = eine Arbeit. Der Abstand davor ist groesser als jeder Abstand darin, damit
+   das Auge die Grenze sieht, ohne dass eine Linie noetig ist. */
+.tf-abschnitt{margin:30px 0 0}
+.tf-abschnitt > h2{margin-bottom:6px}
+.tf-abschnitt > h2 .marke{text-transform:none;letter-spacing:0;font-weight:400}
+
+/* Nachschlagewerk: zu, bis jemand es braucht. */
+.tf-nach{margin:10px 0 0;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow)}
+.tf-nach > summary{cursor:pointer;user-select:none;list-style:none;padding:13px 20px;
+  font-weight:600;color:var(--heading);display:flex;align-items:baseline;gap:8px}
+.tf-nach > summary::-webkit-details-marker{display:none}
+.tf-nach > summary:before{content:"A";display:inline-block;transition:transform .15s;
+  opacity:.5;font-size:17px;line-height:1}
+.tf-nach[open] > summary:before{transform:rotate(90deg)}
+.tf-nach > summary .marke{font-weight:400;text-transform:none;letter-spacing:0}
+.tf-nach-inhalt{padding:0 20px 18px}
+.tf-nach-inhalt .tabellenkasten{box-shadow:none}
+.tf-nach + .tf-abschnitt{margin-top:30px}
+
+/* Feinere Regler in der Reglerbank. */
+.tf-mehr > summary{cursor:pointer;user-select:none;list-style:none;padding:10px 0 2px;
+  font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tf-mehr > summary::-webkit-details-marker{display:none}
+.tf-mehr > summary:before{content:"A";display:inline-block;margin-right:6px;
+  transition:transform .15s;opacity:.6}
+.tf-mehr[open] > summary:before{transform:rotate(90deg)}
+.tf-mehr > summary .plakette{text-transform:none;letter-spacing:0}
+.reglertitel{align-self:center;font-size:11px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted);min-width:78px}
+
+/* ---------- Personensuche (tippen statt scrollen) */
+.ksuche{position:relative;min-width:320px}
+.ksuche-klein{min-width:0;width:100%}
+.ksuche .ksuche-feld{width:100%;margin:0}
+.ksuche-liste{position:absolute;z-index:40;left:0;right:0;top:calc(100% + 4px);
+  background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-pop);max-height:340px;overflow:auto;padding:4px}
+.ksuche-zeile{display:grid;grid-template-columns:1fr auto;gap:0 12px;padding:8px 12px;
+  border-radius:var(--radius-sm);cursor:pointer;line-height:1.35}
+.ksuche-zeile.an,.ksuche-zeile:hover{background:var(--accent-soft)}
+.ksuche-name{font-weight:560;color:var(--heading)}
+.ksuche-neben{font-size:12px;color:var(--muted);text-align:right}
+.ksuche-zeile .ksuche-neben:last-child{grid-column:1 / -1;text-align:left}
+.ksuche-neben b{color:var(--red);font-weight:600}
+/* Die Vorschlagsliste der Kopfsuche darf breiter sein als das Feld – die Namen stehen
+   sonst umgebrochen da. Sie haengt rechtsbuendig, damit sie nicht aus dem Fenster laeuft. */
+.kopfsuche .ksuche{min-width:0}
+.kopfsuche .ksuche-liste{left:auto;right:0;min-width:340px}

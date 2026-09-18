@@ -223,6 +223,13 @@ def konten_aendern(bid):
     return redirect(url_for("konten_seite", meldung="Gespeichert."))
 
 
+@app.route("/api/kunden-suche")
+def api_kunden_suche():
+    """Die Vorschlaege, waehrend getippt wird – fuer die Kopfsuche und die Regler."""
+    from flask import jsonify
+    return jsonify(kunden=tf.kunden_suchen(request.args.get("q") or ""))
+
+
 @app.route("/suche")
 def suche_seite():
     """Ein Feld für alles.
@@ -820,11 +827,19 @@ def _tf_seite(meldungen=None, modus=None):
          "min_gehalt": zahl("gehalt"), "max_miete": zahl("miete"),
          "min_zimmer": zahl("zimmer", float), "min_flaeche": zahl("flaeche"),
          "sortierung": request.args.get("sort") or None}
+    # Wie viele der eingeklappten Feinregler stehen? Ein gesetzter Regler, den man nicht
+    # sieht, erklaert eine leere Tabelle nicht – die Zahl steht darum am Klappknopf.
+    fein = ("coach_id", "quelle", "min_score", "min_match", "max_km", "seit_tage",
+            "arbeitszeit", "quereinstieg", "min_gehalt", "max_miete", "min_zimmer", "min_flaeche")
+    feine_regler = len([s for s in fein if f.get(s)])
+    kunde_name = db.wert("SELECT name FROM kunde WHERE id=?", (f["kunde_id"],)) if f["kunde_id"] else None
+
     # Die Zahlen an den beiden Knoepfen: man sieht die andere Haelfte, ohne hinzuwechseln.
     stand = {art: {"profile": len([p for p in tf.uebersicht(art=art) if p["aktiv"]]),
                    "neu": tf.anzahl_neu(art=art)} for art in ("job", "wohnung")}
     return render_template(
         "taskforce.html", modus=modus, stand=stand, basis_url=request.path,
+        feine_regler=feine_regler, filter_kunde_name=kunde_name,
         profile=tf.uebersicht(art=modus), neu=tf.anzahl_neu(art=modus), filter=f,
         neue=tf.neue_angebote(limit=100, **f), zaehler=tf.angebote_zaehlen(art=modus),
         arbeitszeiten=tf.ARBEITSZEITEN, status_liste=tf.STATUS,
@@ -893,6 +908,7 @@ def taskforce_wohnung():
 
 
 TF_SEITE = {"job": "taskforce_arbeit", "wohnung": "taskforce_wohnung"}
+
 
 
 @app.route("/taskforce/lauf", methods=["POST"])

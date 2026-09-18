@@ -45,6 +45,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1991,6 +1992,63 @@ def abgleich_von(a):
         return json.loads(a.get("abgleich") or "{}")
     except (TypeError, ValueError):
         return {}
+
+
+def vergleichbar(s):
+    """Namen vergleichbar machen, damit Tippen zum Ziel fuehrt.
+
+    Die Namen im Bestand kommen aus vier Quellen und sind uneinheitlich geschrieben:
+    „Müller" und „Mueller", „Zahra" und „ZAHRA", arabische und persische Namen mit und
+    ohne Akzent. Wer sucht, tippt aber, was er im Kopf hat. Also wird beides auf eine
+    einfache Form gebracht, bevor verglichen wird."""
+    s = (s or "").lower()
+    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        s = s.replace(a, b)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9 ]+", " ", s).strip()
+
+
+def kunden_suchen(text, standort=db.STANDORT_STANDARD, limit=12):
+    """Personensuche: tippen, und der Richtige steht da.
+
+    Die Auswahlliste mit allen Namen war bei 93 Kunden nicht mehr zu bedienen – man musste
+    wissen, wie der Name im Bestand geschrieben ist, um ihn zu finden. Hier genuegen ein
+    paar Buchstaben aus *irgendeinem* Teil des Namens; die Reihenfolge ist egal, „ammar moh"
+    findet „Mohamed Ammar" genauso wie „mohamed". Die Kundennummer geht auch.
+
+    Sortiert wird nach Treffergenauigkeit, nicht alphabetisch: wer den Anfang des Namens
+    tippt, will nicht erst durch alle Namen scrollen, die den Buchstaben in der Mitte haben."""
+    teile = vergleichbar(text).split()
+    if not teile:
+        return []
+    zeilen = db.hole(
+        "SELECT k.id, k.name, k.ort_jc, k.kundennummer, k.status_code, m.name AS coach,"
+        "  (SELECT COUNT(*) FROM tf_profil t WHERE t.kunde_id=k.id AND t.aktiv=1) AS profile,"
+        "  (SELECT COUNT(*) FROM tf_angebot a JOIN tf_profil t ON t.id=a.profil_id"
+        "     WHERE t.kunde_id=k.id AND a.status='neu') AS neu"
+        "  FROM kunde k LEFT JOIN mitarbeiter m ON m.id=k.coach_id"
+        " WHERE k.standort=? ORDER BY k.name", (standort,))
+    gefunden = []
+    for k in zeilen:
+        name = vergleichbar(k["name"])
+        worte = name.split()
+        nummer = (k.get("kundennummer") or "").lower()
+        rang = 0
+        for teil in teile:
+            if name.startswith(teil):
+                rang += 0                      # Anfang des ganzen Namens: bester Treffer
+            elif any(w.startswith(teil) for w in worte):
+                rang += 1                      # Anfang eines Namensteils, etwa des Nachnamens
+            elif teil in name or teil in nummer:
+                rang += 2                      # irgendwo drin – findet Tippfehler am Anfang
+            else:
+                break
+        else:
+            k["status_text"] = db.STATUS.get(k.get("status_code"), "")
+            gefunden.append((rang, k["name"], k))
+    gefunden.sort(key=lambda z: (z[0], z[1]))
+    return [k for _, _, k in gefunden[:limit]]
 
 
 def kunden_info(kunde_id):
