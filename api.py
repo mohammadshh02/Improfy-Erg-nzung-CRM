@@ -198,7 +198,8 @@ VERZEICHNIS = [
     ("GET /api/taskforce/kpi", "Zahlen je Mitarbeiter: angeschrieben, Antworten, Quoten"),
     ("GET /api/taskforce/laeufe?profil=&limit=", "was die Agenten zuletzt gefragt haben"),
 
-    ("GET /api/taskforce/suche?art=&was=&wo=&km=&…", "live bei allen Portalen suchen – ohne Kunde, ohne Ablage"),
+    ("GET /api/taskforce/suche?art=job|wohnung|beides&was=&wo=&km=&…",
+     "live bei allen Portalen suchen – ohne Kunde, ohne Ablage"),
     ("POST /api/taskforce/profil/<id>/uebernehmen", "Treffer einer Suche auf die Tafel eines Profils legen"),
 
     ("GET /taskforce/export.csv?kunde=&status=", "Taskforce-Angebote als CSV"),
@@ -598,7 +599,7 @@ def tf_suche():
 
     Die Naht, an der das CRM am wenigsten von uns wissen muss: Frage rein, Treffer raus.
     Alle Portale werden gleichzeitig gefragt, das dauert wenige Sekunden."""
-    art = _text("art") if _text("art") in ("job", "wohnung") else "job"
+    art = _text("art") if _text("art") in ("job", "wohnung", "beides") else "job"
     # Ohne Frage keine Abfrage. Ein Aufruf ohne `was` und ohne `wo` waere sonst eine
     # Rundfrage an zehn Portale fuer nichts - und der Gesamttest, der jede Seite einmal
     # aufruft, loeste bei jedem Lauf eine echte Suche aus.
@@ -619,8 +620,21 @@ def tf_suche():
                       max_miete=_int("miete"), min_zimmer=request.args.get("zimmer", type=float),
                       min_flaeche=_int("flaeche"), kriterien=kriterien)
     begonnen = time.time()
-    treffer, meldungen = tf.direktsuche(p, quellen=request.args.getlist("quelle") or None,
-                                        grenze=_int("limit") or 200)
+    if art == "beides":
+        treffer, meldungen = [], []
+        for eine in ("job", "wohnung"):
+            t, m = tf.direktsuche(tf.suchspalte(
+                art=eine, begriffe=_text("was") or "", ort=_text("wo") or "Köln",
+                umkreis_km=_int("km") or 25, arbeitszeit=_text("arbeitszeit"),
+                max_miete=_int("miete"), min_zimmer=request.args.get("zimmer", type=float),
+                min_flaeche=_int("flaeche"), kriterien=kriterien),
+                quellen=request.args.getlist("quelle") or None, grenze=100)
+            treffer += t
+            meldungen += m
+        treffer.sort(key=lambda x: (-(x.get("score") or 0), x.get("titel") or ""))
+    else:
+        treffer, meldungen = tf.direktsuche(p, quellen=request.args.getlist("quelle") or None,
+                                            grenze=_int("limit") or 200)
     return liste(treffer, art=art, meldungen=meldungen,
                  suche={"was": _text("was"), "wo": _text("wo") or "Köln", "km": _int("km") or 25},
                  sekunden=round(time.time() - begonnen, 1))

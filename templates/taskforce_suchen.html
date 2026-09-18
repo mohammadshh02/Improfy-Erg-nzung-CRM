@@ -1,27 +1,38 @@
 {% extends "basis.html" %}
 {% block titel %}Suchen – Taskforce{% endblock %}
 {% block inhalt %}
+{% from "_pfad.html" import pfad %}
 
 {# Die Direktsuche. Bis hierher führte der einzige Weg zu Treffern über Kunde → Suchprofil
    → Agentenlauf. Wer am Telefon wissen will, was es in Leverkusen für Lagerhelfer gibt,
    braucht kein Profil, sondern ein Feld. Gesucht wird live bei allen Portalen der Art;
    gespeichert wird nichts, solange niemand „übernehmen" drückt. #}
 
-<h1>Suchen</h1>
+{{ pfad([("Taskforce", url_for('taskforce_seite')),
+          ("Selbst suchen", url_for('taskforce_suchen')),
+          ("Arbeitssuche" if art == 'job' else ("Wohnungssuche" if art == 'wohnung'
+           else "Arbeit und Wohnung"), None)]) }}
+
+<h1>Selbst suchen</h1>
+<p class="unterzeile">Jetzt sofort bei den Portalen nachfragen – ohne Kunde, ohne angelegtes
+  Profil. Wer den Treffer behalten will, legt daraus unten ein Suchprofil an oder übergibt
+  ihn einem bestehenden.</p>
 
 <nav class="modus" aria-label="Was gesucht wird">
   <a class="modus-knopf{{ ' an' if art=='job' }}" href="{{ url_for('taskforce_suchen', art='job') }}">
     <strong>Arbeitssuche</strong><span>Stellen bei acht Portalen</span></a>
   <a class="modus-knopf{{ ' an' if art=='wohnung' }}" href="{{ url_for('taskforce_suchen', art='wohnung') }}">
     <strong>Wohnungssuche</strong><span>Wohnungen bei Kleinanzeigen</span></a>
-  <a class="modus-knopf" href="{{ url_for('taskforce_seite') }}">
-    <strong>zur Tafel</strong><span>was die Agenten gefunden haben</span></a>
+  <a class="modus-knopf{{ ' an' if art=='beides' }}" href="{{ url_for('taskforce_suchen', art='beides', was=f.was, wo=f.wo, km=f.km) }}">
+    <strong>beides</strong><span>Stellen und Wohnungen zugleich</span></a>
+  <a class="modus-knopf modus-suchen" href="{{ url_for('taskforce_seite') }}">
+    <strong>← zurück zur Tafel</strong><span>was die Agenten schon gefunden haben</span></a>
 </nav>
 
 <form class="reglerbank" method="get" id="suchform">
   <input type="hidden" name="art" value="{{ art }}">
   <div class="reglerreihe">
-    {% if art == 'job' %}
+    {% if art != 'wohnung' %}
     <label style="flex:2;min-width:240px">Beruf oder Stichworte
       <input type="text" name="was" value="{{ f.was or '' }}" autofocus
              placeholder="Reinigungskraft, Lagerhelfer, Sicherheitsmitarbeiter"></label>
@@ -40,7 +51,7 @@
   <details class="tf-mehr" {{ 'open' if f.fein }}>
     <summary>Feinere Regler{% if f.fein %} <span class="plakette p-teal">{{ f.fein }} gesetzt</span>{% endif %}</summary>
     <div class="reglerreihe">
-      {% if art == 'job' %}
+      {% if art != 'wohnung' %}
       <label>Arbeitszeit
         <select name="arbeitszeit"><option value="">egal</option>
           {% for code, name in arbeitszeiten %}<option value="{{ code }}" {{ 'selected' if f.arbeitszeit==code }}>{{ name }}</option>{% endfor %}</select></label>
@@ -48,7 +59,8 @@
         <select name="gehalt"><option value="">egal</option>
           {% for v in [1800, 2200, 2600, 3000, 3500] %}<option value="{{ v }}" {{ 'selected' if f.gehalt==v }}>{{ v }} €</option>{% endfor %}</select></label>
       <label class="reglerhaken"><input type="checkbox" name="quereinstieg" value="1" {{ 'checked' if f.quereinstieg }}> nur Quereinstieg</label>
-      {% else %}
+      {% endif %}
+      {% if art != 'job' %}
       <label>Miete bis
         <select name="miete"><option value="">egal</option>
           {% for v in [500, 700, 900, 1100, 1400] %}<option value="{{ v }}" {{ 'selected' if f.miete==v }}>{{ v }} €</option>{% endfor %}</select></label>
@@ -129,6 +141,38 @@
       Solange keins angelegt ist, ist das hier eine reine Suche – zum Nachsehen und Weitergeben.</p>
     {% endif %}
   </form>
+
+  {# Der Schritt zwischen „ich sehe nach" und „der Agent sucht das täglich". Ohne ihn musste
+     man die Begriffe ein zweites Mal eintippen – auf einer anderen Seite, in einem anderen
+     Formular, und wehe man tippte anders: dann suchte der Agent etwas anderes als der
+     Mensch, der die Suche gut fand. #}
+  <div class="karte" style="margin-top:12px">
+    <h3 style="margin-top:0">Diese Suche für einen Kunden festhalten{% if art == 'beides' %}
+      <span class="marke" style="font-weight:400">– als zwei Profile, für Arbeit und für Wohnung</span>{% endif %}</h3>
+    <form method="post" action="{{ url_for('taskforce_suche_als_profil') }}"
+          style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0">
+      <input type="hidden" name="art" value="{{ art }}">
+      <input type="hidden" name="was" value="{{ f.was or '' }}">
+      <input type="hidden" name="wo" value="{{ f.wo or '' }}">
+      <input type="hidden" name="km" value="{{ f.km }}">
+      <input type="hidden" name="arbeitszeit" value="{{ f.arbeitszeit or '' }}">
+      <input type="hidden" name="miete" value="{{ f.miete or '' }}">
+      <input type="hidden" name="zimmer" value="{{ f.zimmer or '' }}">
+      <input type="hidden" name="flaeche" value="{{ f.flaeche or '' }}">
+      <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+      <div class="ksuche ksuche-klein" data-ziel="filter" style="min-width:260px"
+           data-api="{{ url_for('api_kunden_suche') }}">
+        <input type="search" class="ksuche-feld" autocomplete="off" data-nicht-abschicken="1"
+               placeholder="Für wen? Namen tippen …">
+        <input type="hidden" name="kunde" required>
+        <div class="ksuche-liste" hidden></div>
+      </div>
+      <input type="text" name="titel" placeholder="Name des Profils (sonst der Suchbegriff)"
+             style="min-width:220px">
+      <button type="submit" class="btn btn-primary">als Suchprofil anlegen</button>
+      <span class="marke">Ab dann suchen die Agenten das von selbst, mit genau diesen Reglern.</span>
+    </form>
+  </div>
   {% endif %}
 </section>
 {% endif %}

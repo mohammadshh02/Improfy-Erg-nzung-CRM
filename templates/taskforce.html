@@ -1,6 +1,7 @@
 {% extends "basis.html" %}
 {% block titel %}Taskforce – Improfy-OS{% endblock %}
 {% block inhalt %}
+{% from "_pfad.html" import pfad %}
 
 {#  Aufbau dieser Seite, von oben nach unten:
 
@@ -19,7 +20,11 @@
    Kein eigenes Suchfeld hier: die Kopfsuche oben rechts sucht Personen auf jeder Seite
    und schlaegt beim Tippen vor. Zwei Suchfelder uebereinander waeren genau die Unordnung,
    die dieser Umbau beseitigt. #}
-<h1>Taskforce</h1>
+{{ pfad([("Taskforce", url_for('taskforce_seite')),
+          ("Arbeitssuche" if modus == 'job' else ("Wohnungssuche" if modus == 'wohnung'
+           else "Gesamtbild"), None)]) }}
+
+<h1>Taskforce{% if modus %} · {{ 'Arbeitssuche' if modus == 'job' else 'Wohnungssuche' }}{% endif %}</h1>
 
 {# Die Aufspaltung. Arbeitssuche und Wohnungssuche sind zwei verschiedene Arbeiten: andere
    Quellen, andere Regler, andere Ansprechpartner. Vorher stand die Wahl als Auswahlfeld

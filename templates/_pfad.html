@@ -1,0 +1,21 @@
+{#  Die Pfadleiste. Steht auf jeder Seite der Taskforce ganz oben.
+
+    **Warum.** Die Taskforce hat inzwischen fünf Seiten, die einander verlinken: Tafel,
+    Direktsuche, Stand eines Kunden, seine Suchprofile, ein einzelnes Profil. Wer über die
+    Personensuche oder aus dem CRM mitten hineinspringt, sieht eine Seite ohne Zusammenhang
+    und weiß weder, wo er ist, noch wie er eine Ebene höher kommt. Die Leiste beantwortet
+    beides in einer Zeile – und jeder Schritt darin ist anklickbar.
+
+    Aufruf:  {% raw %}{% from "_pfad.html" import pfad %}
+             {{ pfad([("Taskforce", url_for('taskforce_seite')), ("Arbeitssuche", None)]) }}{% endraw %}
+    Der letzte Eintrag hat kein Ziel – man ist ja schon dort.  #}
+
+{% macro pfad(teile) -%}
+<nav class="pfad" aria-label="Wo Sie gerade sind">
+  {%- for name, ziel in teile %}
+    {%- if ziel %}<a href="{{ ziel }}">{{ name }}</a>
+    {%- else %}<span aria-current="page">{{ name }}</span>{% endif %}
+    {%- if not loop.last %}<span class="pfad-pfeil">›</span>{% endif %}
+  {%- endfor %}
+</nav>
+{%- endmacro %}

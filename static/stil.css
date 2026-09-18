@@ -349,3 +349,13 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
    er waehlt nichts aus, er fuehrt woandershin. Darum gestrichelt statt gefuellt. */
 .modus-suchen{border-style:dashed;margin-left:auto}
 .modus-suchen strong{color:var(--pine)}
+
+/* ---------- Pfadleiste. Wer aus der Personensuche oder aus dem CRM mitten in eine Seite
+   springt, sieht sonst eine Ueberschrift ohne Zusammenhang. Eine Zeile sagt, wo er ist
+   und wie er eine Ebene hoeher kommt. */
+.pfad{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px;
+  font-size:12px;letter-spacing:.02em;color:var(--muted)}
+.pfad a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent}
+.pfad a:hover{color:var(--heading);border-bottom-color:var(--line-strong)}
+.pfad span[aria-current]{color:var(--heading);font-weight:560}
+.pfad-pfeil{opacity:.45}

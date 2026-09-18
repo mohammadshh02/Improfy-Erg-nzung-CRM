@@ -1,9 +1,14 @@
 {% extends "basis.html" %}
 {% block titel %}{{ p.titel }} · {{ p.kunde }} – Improfy-OS{% endblock %}
 {% block inhalt %}
-<p class="marke"><a href="{{ url_for('taskforce_seite') }}">← Taskforce</a> ·
-   <a href="{{ url_for('taskforce_kunde', kid=p.kunde_id) }}">{{ p.kunde }}</a></p>
-<h1><span class="plakette {{ 'p-teal' if p.art=='job' else 'p-gelb' }}">{{ 'Job' if p.art=='job' else 'Wohnung' }}</span> {{ p.titel }}</h1>
+{% from "_pfad.html" import pfad %}
+{{ pfad([("Taskforce", url_for('taskforce_seite')),
+          (p.kunde, url_for('taskforce_stand', kid=p.kunde_id)),
+          ("Suchprofile", url_for('taskforce_kunde', kid=p.kunde_id)),
+          (p.titel, None)]) }}
+<h1><span class="plakette {{ 'p-teal' if p.art=='job' else 'p-gelb' }}">{{ 'Jobprofil' if p.art=='job' else 'Wohnprofil' }}</span> {{ p.titel }}</h1>
+<p class="unterzeile" style="margin-bottom:2px">Die Regler dieses Profils bestimmen, wonach die
+  Agenten für {{ p.kunde.split(' ')[0] }} {{ 'in den Stellenportalen' if p.art=='job' else 'in den Wohnungsportalen' }} suchen.</p>
 <p class="unterzeile">{{ p.kunde }}{% if p.coach %} · Coach {{ p.coach }}{% endif %} ·
   letzter Lauf {{ p.letzter_lauf|zeit if p.letzter_lauf else 'noch nie' }}{% if not p.aktiv %} · <strong>pausiert</strong>{% endif %}</p>
 

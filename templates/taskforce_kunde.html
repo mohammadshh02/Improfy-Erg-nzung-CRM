@@ -1,11 +1,16 @@
 {% extends "basis.html" %}
 {% block titel %}Taskforce · {{ kunde.name }} – Improfy-OS{% endblock %}
 {% block inhalt %}
-<p class="marke"><a href="{{ url_for('taskforce_seite') }}">← Taskforce</a> ·
-   <a href="{{ url_for('kunde_detail', kid=kunde.id) }}">Kundenakte</a></p>
+{% from "_pfad.html" import pfad %}
+{{ pfad([("Taskforce", url_for('taskforce_seite')),
+          (kunde.name, url_for('taskforce_stand', kid=kunde.id)),
+          ("Suchprofile", None)]) }}
 <div class="tf-kopf">
   <h1>{{ kunde.name }}</h1>
-  <a class="btn btn-primary" href="{{ url_for('taskforce_stand', kid=kunde.id) }}">Stand und Angebote →</a>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a class="btn" href="{{ url_for('kunde_detail', kid=kunde.id) }}">Kundenakte</a>
+    <a class="btn btn-primary" href="{{ url_for('taskforce_stand', kid=kunde.id) }}">Stand und Angebote →</a>
+  </div>
 </div>
 <p class="unterzeile">{{ kunde.sprache or '' }}{% if kunde.ort_jc %} · {{ kunde.ort_jc }}{% endif %}
   {% if kunde.coach %} · Coach {{ kunde.coach }}{% endif %}</p>
@@ -15,11 +20,12 @@
 
 {% include "_tf_kunde.html" %}
 
-<h2>Profile dieses Kunden</h2>
+<h2>Wonach für {{ kunde.name.split(' ')[0] }} gesucht wird
+  <span class="marke">– ein Suchprofil je Auftrag: Arbeit, Wohnung, oder beides</span></h2>
 <div class="gitter g2">
   {% for p in profile %}
   <div class="karte">
-    <h3>{{ 'Jobprofil' if p.art=='job' else 'Wohnprofil' }}{% if not p.aktiv %} · pausiert{% endif %}</h3>
+    <h3>{{ 'Jobprofil · Arbeitssuche' if p.art=='job' else 'Wohnprofil · Wohnungssuche' }}{% if not p.aktiv %} · pausiert{% endif %}</h3>
     <p style="margin:0 0 6px"><a href="{{ url_for('taskforce_profil', pid=p.id) }}"><strong>{{ p.titel }}</strong></a>
       {% if p.neu %} <span class="plakette p-rot">{{ p.neu }} neu</span>{% endif %}
       <span class="marke">· {{ p.gesamt }} Angebote gesamt</span></p>
@@ -39,16 +45,17 @@
     </dl>
     <p style="margin:12px 0 0">
       <form method="post" action="{{ url_for('taskforce_profil_lauf', pid=p.id) }}" style="display:inline"><button>laufen lassen</button></form>
-      <a class="knopf leise" href="{{ url_for('taskforce_profil', pid=p.id) }}">Angebote &amp; bearbeiten</a>
+      <a class="knopf leise" href="{{ url_for('taskforce_profil', pid=p.id) }}">Regler ändern und Angebote ansehen</a>
     </p>
   </div>
   {% endfor %}
 </div>
 
-<h2>Neues Profil anlegen</h2>
+<h2>Neues Suchprofil anlegen
+  <span class="marke">– links für Arbeit, rechts für Wohnung; ein Mensch darf beide haben</span></h2>
 <div class="gitter g2">
   <div class="karte">
-    <h3>Jobprofil</h3>
+    <h3>Jobprofil anlegen <span class="marke" style="font-weight:400">– Arbeitssuche</span></h3>
     <form method="post" action="{{ url_for('taskforce_profil_neu', kid=kunde.id) }}">
       <input type="hidden" name="art" value="job">
       <input type="hidden" name="formular" value="1">
@@ -69,7 +76,7 @@
     </form>
   </div>
   <div class="karte">
-    <h3>Wohnprofil</h3>
+    <h3>Wohnprofil anlegen <span class="marke" style="font-weight:400">– Wohnungssuche</span></h3>
     <form method="post" action="{{ url_for('taskforce_profil_neu', kid=kunde.id) }}">
       <input type="hidden" name="art" value="wohnung">
       <input type="hidden" name="formular" value="1">

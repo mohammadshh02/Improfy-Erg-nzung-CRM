@@ -297,6 +297,28 @@ def main():
            tf.suchspalte(art="job", begriffe="Lagerhelfer", ort="Köln", umkreis_km=25)["ort"] == "Köln"
            and tf.ba_parameter(tf.suchspalte(begriffe="Lagerhelfer"))["wo"] == "Köln")
     pruefe("Tauschwohnungen sind keine Angebote", bool(tf.TAUSCH.search("TAUSCHWOHNUNG 2 Zimmer")))
+    beides = c.get("/taskforce/suchen?art=beides")
+    pruefe("Man kann Arbeit, Wohnung oder beides suchen",
+           beides.status_code == 200 and "Gehalt ab" in beides.text and "Miete bis" in beides.text)
+
+    # Der Schritt von „ich sehe nach" zu „der Agent sucht das taeglich".
+    zweiter = db.wert("SELECT id FROM kunde WHERE standort=? AND id!=? LIMIT 1",
+                      (db.STANDORT_STANDARD, kid))
+    c.post("/taskforce/suchen/als-profil",
+           data={"kunde": str(zweiter), "art": "job", "was": "Küchenhilfe", "wo": "Leverkusen",
+                 "km": "15", "titel": "Gastro Leverkusen"})
+    angelegt = [p for p in tf.profile_von(zweiter) if p["titel"] == "Gastro Leverkusen"]
+    pruefe("Aus einer Suche wird ein Suchprofil – mit genau ihren Reglern",
+           angelegt and angelegt[0]["suchbegriffe"] == "Küchenhilfe"
+           and angelegt[0]["ort"] == "Leverkusen" and angelegt[0]["umkreis_km"] == 15,
+           angelegt[0] if angelegt else None)
+    c.post("/taskforce/suchen/als-profil",
+           data={"kunde": str(zweiter), "art": "beides", "was": "Lagerhelfer", "wo": "Köln"})
+    beide = {p["art"]: p for p in tf.profile_von(zweiter) if p["titel"] in
+             ("Lagerhelfer", "Wohnungssuche")}
+    pruefe("Beides legt zwei Profile an, und das Wohnprofil erbt keine Berufe",
+           set(beide) == {"job", "wohnung"} and not beide["wohnung"]["suchbegriffe"]
+           and beide["wohnung"]["titel"] == "Wohnungssuche", list(beide))
 
     probe = ("Ansprechpartnerin ist Frau Jansen. Wir freuen uns auf Ihre Bewerbung an "
              "bewerbung@baeckerei-schollin.de oder telefonisch unter 02064/477223.")

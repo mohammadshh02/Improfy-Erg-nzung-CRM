@@ -1,6 +1,7 @@
 {% extends "basis.html" %}
 {% block titel %}{{ kunde.name }} – Taskforce{% endblock %}
 {% block inhalt %}
+{% from "_pfad.html" import pfad %}
 
 {# Die Seite, die ein Coach für einen Menschen aufschlägt. Sie beantwortet drei Fragen in
    dieser Reihenfolge: Wie steht es? Was liegt jetzt an? Was ist bisher gelaufen?
@@ -8,6 +9,9 @@
    Die Tafel zeigt alle Kunden nebeneinander – gut, um zu sehen, wo etwas liegt. Zum
    Arbeiten an einem Menschen taugt sie nicht: man filtert, scrollt, verliert den Faden.
    Hier steht alles zu einer Person auf einer Seite, mit den Knöpfen direkt daneben. #}
+
+{{ pfad([("Taskforce", url_for('taskforce_seite')),
+          (kunde.name, None), ("Stand und Angebote", None)]) }}
 
 <div class="tf-kopf">
   <div>
@@ -19,8 +23,11 @@
       {%- if kunde.massnahme %} · {{ kunde.massnahme }}{% endif %}</p>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-    <a class="btn" href="{{ url_for('taskforce_kunde', kid=kunde.id) }}">Suchprofile</a>
-    <a class="btn" href="{{ url_for('taskforce_stand_csv', kid=kunde.id) }}">als CSV</a>
+    <a class="btn" href="{{ url_for('taskforce_suchen', **suche) }}"
+       title="Sofort bei den Portalen nachfragen, mit den Reglern dieses Menschen">jetzt selbst suchen</a>
+    <a class="btn" href="{{ url_for('taskforce_kunde', kid=kunde.id) }}"
+       title="Job- und Wohnprofile dieses Menschen anlegen und ändern">Suchprofile verwalten</a>
+    <a class="btn" href="{{ url_for('taskforce_stand_csv', kid=kunde.id) }}">Liste als CSV</a>
   </div>
 </div>
 

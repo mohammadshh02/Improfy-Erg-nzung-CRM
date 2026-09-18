@@ -948,19 +948,39 @@ def _suchprofil(art, f):
                          kriterien=kriterien)
 
 
+def _suchen(art, f):
+    """Eine Suche ausfuehren – oder zwei, wenn beides gefragt ist.
+
+    „Beides" ist kein dritter Suchlauf, sondern die zwei vorhandenen nebeneinander. Die
+    Quellen sind ohnehin getrennt (acht Jobportale, zwei Wohnungsportale); sie zusammen
+    abzufragen ist derselbe Aufwand wie einzeln, weil ohnehin alle gleichzeitig gefragt
+    werden. Sortiert wird am Ende ueber beide Haelften – wer beides sucht, will die beste
+    Wohnung neben der besten Stelle sehen, nicht erst 200 Stellen."""
+    if art != "beides":
+        return tf.direktsuche(_suchprofil(art, f), quellen=f["quellen"])
+    treffer, meldungen = [], []
+    for eine in ("job", "wohnung"):
+        t, m = tf.direktsuche(_suchprofil(eine, f), quellen=f["quellen"], grenze=100)
+        treffer += t
+        meldungen += m
+    treffer.sort(key=lambda x: (-(x.get("score") or 0), x.get("titel") or ""))
+    return treffer, meldungen
+
+
 @app.route("/taskforce/suchen")
 def taskforce_suchen():
     """Beruf, Ort, Umkreis – Treffer. Ohne Kunde, ohne angelegtes Profil.
 
     Der Weg ueber Kunde → Suchprofil → Agentenlauf bleibt: er ist der taegliche Betrieb.
     Diese Seite ist das Gegenstueck dafuer, dass jemand einfach nachsehen will."""
-    art = request.args.get("art") if request.args.get("art") in ("job", "wohnung") else "job"
+    art = request.args.get("art")
+    art = art if art in ("job", "wohnung", "beides") else "job"
     f = _suchform()
     gesucht = bool(request.args.get("was") or request.args.get("wo"))
     treffer, meldungen, dauer = [], [], 0.0
     if gesucht:
         begonnen = time.time()
-        treffer, meldungen = tf.direktsuche(_suchprofil(art, f), quellen=f["quellen"])
+        treffer, meldungen = _suchen(art, f)
         dauer = time.time() - begonnen
         session["tf_suche"] = [{k: t.get(k) for k in
                                 ("quelle", "extern_id", "titel", "anbieter", "ort",
@@ -970,8 +990,9 @@ def taskforce_suchen():
                  f"{len(treffer)} Treffer")
     return render_template("taskforce_suchen.html", art=art, f=f, gesucht=gesucht,
                            treffer=treffer, meldungen=meldungen, dauer=dauer,
-                           arbeitszeiten=tf.ARBEITSZEITEN, quellen=tf.quellen_stand(art),
-                           profile=tf.uebersicht(art=art))
+                           arbeitszeiten=tf.ARBEITSZEITEN,
+                           quellen=tf.quellen_stand(None if art == "beides" else art),
+                           profile=tf.uebersicht(art=None if art == "beides" else art))
 
 
 @app.route("/taskforce/suchen/uebernehmen", methods=["POST"])
@@ -995,6 +1016,73 @@ def taskforce_suche_uebernehmen():
                                     f" Der Rest lag schon auf der Tafel."))
 
 
+def _profil_aus_suche(kid, art, formular, doppelt=False):
+    """Aus den Reglern einer Suche ein Suchprofil bauen. Eine Stelle, damit die
+    Einzel- und die Doppelanlage nie auseinanderlaufen.
+
+    `doppelt` heisst: aus einer Suche entstehen zwei Profile. Dann duerfen die Suchbegriffe
+    nicht in die Wohnungshaelfte wandern – „Lagerhelfer, Produktionshelfer" als Name eines
+    Wohnprofils ist nicht nur haesslich, es fuehrt in drei Wochen jemanden in die Irre, der
+    wissen will, wonach dort eigentlich gesucht wird."""
+    wohnsuche = art == "wohnung" and doppelt
+    return tf.profil_speichern({
+        "kunde_id": kid, "art": art, "standort": db.STANDORT_STANDARD,
+        "titel": ("Wohnungssuche" if wohnsuche else
+                  (formular.get("titel") or "").strip()
+                  or (formular.get("was") or "").strip()
+                  or ("Arbeitssuche" if art == "job" else "Wohnungssuche")),
+        "suchbegriffe": "" if wohnsuche else (formular.get("was") or ""),
+        "ort": formular.get("wo") or "Köln",
+        "umkreis_km": formular.get("km") or 25,
+        "max_miete": formular.get("miete") or None,
+        "min_zimmer": formular.get("zimmer") or None,
+        "min_flaeche": formular.get("flaeche") or None,
+        "arbeitszeit": formular.get("arbeitszeit") or None,
+    })
+
+
+@app.route("/taskforce/suchen/als-profil", methods=["POST"])
+def taskforce_suche_als_profil():
+    """Aus einer Suche, die etwas taugt, ein stehendes Suchprofil machen.
+
+    Der fehlende Schritt zwischen „ich sehe nach" und „der Agent sucht das taeglich".
+    Ohne ihn musste man die Begriffe ein zweites Mal eintippen – auf einer anderen Seite,
+    in einem anderen Formular, und wehe man tippte anders."""
+    kid = request.form.get("kunde", type=int)
+    art = request.form.get("art")
+    art = art if art in ("job", "wohnung", "beides") else "job"
+    zurueck = request.form.get("zurueck") or url_for("taskforce_suchen")
+    if not kid or not tf.kunden_info(kid):
+        return _mit_meldung(zurueck, "Kein Kunde gewählt – es wurde nichts angelegt.")
+    # „Beides" ist keine Art, sondern zwei Auftraege. Also werden zwei Profile daraus –
+    # sonst muesste der Mensch dieselbe Suche zweimal machen, um beides festzuhalten.
+    if art == "beides":
+        angelegt = [_profil_aus_suche(kid, eine, request.form, doppelt=True)
+                    for eine in ("job", "wohnung")]
+        notieren("Zwei Suchprofile aus einer Suche angelegt", "taskforce", str(angelegt[0]))
+        return redirect(url_for("taskforce_stand", kid=kid,
+                                meldung="Zwei Suchprofile angelegt, für Arbeit und für Wohnung."
+                                        " Die Agenten suchen ab jetzt beides von selbst."))
+    daten = {
+        "kunde_id": kid, "art": art, "standort": db.STANDORT_STANDARD,
+        "titel": (request.form.get("titel") or "").strip()
+                 or (request.form.get("was") or "").strip()
+                 or ("Arbeitssuche" if art == "job" else "Wohnungssuche"),
+        "suchbegriffe": request.form.get("was") or "",
+        "ort": request.form.get("wo") or "Köln",
+        "umkreis_km": request.form.get("km") or 25,
+        "max_miete": request.form.get("miete") or None,
+        "min_zimmer": request.form.get("zimmer") or None,
+        "min_flaeche": request.form.get("flaeche") or None,
+        "arbeitszeit": request.form.get("arbeitszeit") or None,
+    }
+    pid = tf.profil_speichern(daten)
+    notieren("Suchprofil aus einer Suche angelegt", "taskforce", str(pid), daten["titel"])
+    return redirect(url_for("taskforce_profil", pid=pid,
+                            meldung="Profil angelegt. Der Agent sucht das ab jetzt von selbst – "
+                                    "unten laufen lassen für den ersten Durchgang."))
+
+
 @app.route("/taskforce/api/suche")
 def taskforce_api_suche():
     """Die Direktsuche als Schnittstelle – die Naht, an der das CRM andockt.
@@ -1002,9 +1090,10 @@ def taskforce_api_suche():
     Kein Kunde, keine Ablage: Frage rein, Treffer raus. Das CRM schickt Beruf, Ort und
     Umkreis und bekommt Quelle, Fremd-ID, Titel, Anbieter, Ort und Relevanz zurueck."""
     from flask import jsonify
-    art = request.args.get("art") if request.args.get("art") in ("job", "wohnung") else "job"
+    art = request.args.get("art")
+    art = art if art in ("job", "wohnung", "beides") else "job"
     f = _suchform()
-    treffer, meldungen = tf.direktsuche(_suchprofil(art, f), quellen=f["quellen"])
+    treffer, meldungen = _suchen(art, f)
     return jsonify(art=art, suche={k: f[k] for k in ("was", "wo", "km")},
                    anzahl=len(treffer), meldungen=meldungen, treffer=treffer)
 
@@ -1069,8 +1158,16 @@ def taskforce_stand(kid):
         abort(404)
     offen = [a for a in tf.neue_angebote(limit=200, kunde_id=kid, status=None)
              if a["status"] in ("neu", "gesehen")]
+    # Selbst suchen, ohne die Begriffe neu zu tippen: das Profil dieses Menschen fuellt
+    # die Suchmaske vor. Wer am Telefon schnell nachsehen will, ist dann einen Klick weit weg.
+    profile = tf.profile_von(kid)
+    erstes = next((p for p in profile if p["art"] == "job"), None) or (profile[0] if profile else None)
+    suche = {"art": (erstes or {}).get("art") or "job",
+             "was": (erstes or {}).get("suchbegriffe") or "",
+             "wo": (erstes or {}).get("ort") or kunde.get("stadt") or "Köln",
+             "km": (erstes or {}).get("umkreis_km") or 25}
     return render_template(
-        "taskforce_stand.html", kunde=kunde,
+        "taskforce_stand.html", kunde=kunde, suche=suche,
         bilanz=tf.kunden_bilanz(kid), offen=offen,
         verlauf=tf.kunden_nachweis(kid), status_text=tf.STATUS_TEXT,
         leute=_tf_leute(), meldung=request.args.get("meldung"))
