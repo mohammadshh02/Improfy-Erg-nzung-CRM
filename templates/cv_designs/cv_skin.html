@@ -142,9 +142,12 @@ body { background: var(--farbe2); }
 
 /* ---------------------------------------------------- Foto, Kontakt, Inhalt */
 /* Zwei echte Spalten statt Float und Textumfluss - siehe Kopf dieser Datei. */
-table.kopfreihe { width: 100%; border-collapse: collapse; margin-bottom: 2mm; }
+table.kopfreihe { width: 100%; border-collapse: collapse; table-layout: fixed;
+                  margin-bottom: 2mm; }
 table.kopfreihe > tbody > tr > td { padding: 0; vertical-align: top; }
-/* Eine Zahl fuer beide Fotospalten: Kopf und Folgekapitel muessen dieselbe Kante haben.
+/* Eine Zahl fuer **alle** Spalten: Kopf und jedes Kapitel haben dieselbe Kante, auch
+   wenn kein Foto darin steht. Zwei wandernde Textkanten auf einer Seite lesen sich als
+   "nicht gesetzt"; ein breiter ruhiger Rand ist im Druck normal.
    Bei der Kopfform mit Randspalte frisst die Spalte schon 44 mm vom Blatt - dort bleibt
    fuer den Text sonst zu wenig, und der Satz wird hoch. Deshalb dort schmaler. */
 td.links { width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
@@ -153,7 +156,12 @@ td.links { width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
    Breite, gleiche Kante. Vorher standen sie rechts und wechselten von Seite zu Seite die
    Seite; das sah aus, als haette jede Seite ein anderer gesetzt. Wieder eine Tabelle und
    kein Float: Ein Float laesst nur den Text ausweichen, nicht den Kasten. */
-table.fotoreihe { width: 100%; border-collapse: collapse; }
+/* `table-layout: fixed` ist hier Pflicht, nicht Geschmack: Beim automatischen Layout
+   rechnet der Browser die Spaltenbreite aus dem Inhalt - eine **leere** Fotozelle
+   schrumpft dann, und der Text daneben rueckt nach links. Gemessen: Kapitel mit Foto
+   begannen bei 218 pt, Kapitel ohne bei 193 pt. Genau die wandernde Kante, die weg
+   sollte. Fest gerechnet gilt die angegebene Breite immer. */
+table.fotoreihe { width: 100%; border-collapse: collapse; table-layout: fixed; }
 table.fotoreihe > tbody > tr > td { padding: 0; vertical-align: top; }
 .seitenfoto { display: block; width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
               aspect-ratio: 3 / 4; object-fit: cover;
@@ -415,11 +423,9 @@ li { margin-bottom: 1.4mm; }
 </tr></table>
 
     {% if beruf %}
-    {% if weitere.beruf %}
     <table class="fotoreihe"><tr>
-      <td class="links"><img class="seitenfoto" src="{{ weitere.beruf }}" alt=""></td>
+      <td class="links">{% if weitere.beruf %}<img class="seitenfoto" src="{{ weitere.beruf }}" alt="">{% endif %}</td>
       <td>
-    {% endif %}
     <section class="kapitel">
       <h2>Berufserfahrung</h2>
       {% for b in beruf %}
@@ -434,15 +440,13 @@ li { margin-bottom: 1.4mm; }
       </div>
       {% endfor %}
     </section>
-    {% if weitere.beruf %}</td></tr></table>{% endif %}
+    </td></tr></table>
     {% endif %}
 
     {% if d.bildung %}
-    {% if weitere.bildung %}
     <table class="fotoreihe"><tr>
-      <td class="links"><img class="seitenfoto" src="{{ weitere.bildung }}" alt=""></td>
+      <td class="links">{% if weitere.bildung %}<img class="seitenfoto" src="{{ weitere.bildung }}" alt="">{% endif %}</td>
       <td>
-    {% endif %}
     <section class="kapitel">
       <h2>Schulbildung</h2>
       {% for b in d.bildung %}
@@ -454,16 +458,14 @@ li { margin-bottom: 1.4mm; }
       </div>
       {% endfor %}
     </section>
-    {% if weitere.bildung %}</td></tr></table>{% endif %}
+    </td></tr></table>
     {% endif %}
 
     {% set fs = d.fuehrerschein or {} %}
     {% if d.soft_skills or d.edv_kenntnisse or d.sprachen or d.zusatzqualifikationen or fs.vorhanden %}
-    {% if weitere.quali %}
     <table class="fotoreihe"><tr>
-      <td class="links"><img class="seitenfoto" src="{{ weitere.quali }}" alt=""></td>
+      <td class="links">{% if weitere.quali %}<img class="seitenfoto" src="{{ weitere.quali }}" alt="">{% endif %}</td>
       <td>
-    {% endif %}
     <section class="kapitel">
       <h2>Persönliche Qualifikation</h2>
 
@@ -524,7 +526,7 @@ li { margin-bottom: 1.4mm; }
         {% endif %}
       </div>
     </section>
-    {% if weitere.quali %}</td></tr></table>{% endif %}
+    </td></tr></table>
     {% endif %}
 </div>
 </td></tr></tbody>

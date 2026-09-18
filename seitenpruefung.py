@@ -13,6 +13,13 @@ Was hier geprüft wird, ist die Richtlinie, an der sich jede Vorlage messen lass
   Text       Keine zwei Textblöcke liegen übereinander.
   Formen     Keine farbige Fläche ragt **teilweise** in einen Textblock.
 
+Was hier **nicht** geprüft wird: ob der Inhalt auf jeder Seite an derselben Kante
+beginnt. Ich habe es versucht – über die Überschriften und über die häufigste Kante –
+und beide Male Fehlalarme bekommen: Seite 1 hat mit der Kontaktspalte eine zweite,
+gewollte Kante. Eine Prüfung, die grundlos rot wird, erzieht dazu, Rot zu ignorieren.
+Die Kante ist stattdessen im Aufbau festgeschrieben (`table-layout: fixed` mit fester
+Spaltenbreite) und wird dort geprüft, wo sie entsteht: in `lebenslauf_test.py`.
+
 Die dritte Regel braucht eine Unterscheidung, sonst schlägt sie bei jedem farbigen
 Kopfband an: Ein Hintergrund umschließt seinen Text **ganz** (weiße Schrift auf grünem
 Band). Eine Form, die nur eine Ecke eines Wortes berührt, ist dagegen immer ein Unfall –
