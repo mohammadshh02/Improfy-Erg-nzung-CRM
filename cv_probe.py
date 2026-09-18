@@ -174,6 +174,10 @@ def pruefe(schluessel, fall_name, daten, speichern=True):
     #   Versalien – die Vorlagen setzen Überschriften groß (ZUVERLÄSSIGKEIT)
     #   Trennung  - ein langer Firmenname bricht mit Bindestrich um
     flach = " ".join(text.replace("-\n", "-").split()).casefold()
+    # Bei Silbentrennung steht im PDF „Kommunikations-\nfähigkeit". Wird nur der
+    # Zeilenumbruch entfernt, bleibt der Bindestrich stehen und das Wort gilt als
+    # verloren, obwohl es dasteht. Deshalb beide Lesarten prüfen.
+    ohne_trennung = " ".join(text.replace("-\n", "").split()).casefold()
 
     # Kommt alles wieder heraus, was hineinging?
     erwartet = []
@@ -190,7 +194,8 @@ def pruefe(schluessel, fall_name, daten, speichern=True):
     for e in daten.get("edv_kenntnisse") or []:
         erwartet.append(("EDV", e["programm"].split()[0]))
     fehlt = [f"{art} {wort}" for art, wort in erwartet
-             if wort and wort.casefold() not in flach]
+             if wort and wort.casefold() not in flach
+             and wort.casefold() not in ohne_trennung]
 
     if speichern:
         os.makedirs(AUSGABE, exist_ok=True)

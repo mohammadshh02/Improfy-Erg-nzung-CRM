@@ -68,7 +68,14 @@ table.seite > thead td { padding-bottom: {{ '13mm' if skin.kopfform == 'band' el
 .blatt { padding: 0 16mm 4mm 44mm; }
 
 {% elif skin.kopfform == 'ecke' %}
-.kopf { padding: 15mm 16mm 10mm; overflow: hidden; }
+/* `clip-path` statt `overflow: hidden`. Beides beschneidet die ueberstehenden Kreise -
+   aber `overflow: hidden` im Tabellenkopf bringt Chrome dazu, den Kopf **nicht mehr zu
+   wiederholen**. Ab Seite 2 stand dann gar kein Kopf mehr da, und die erste Ueberschrift
+   klebte bei 0,6 pt an der Blattkante. (18.09.2026, gefunden von seitenpruefung.py.) */
+/* Der Kopf wiederholt sich auf **jeder** Seite - jeder Millimeter hier kostet vier
+   Seiten lang Platz. Bei viel Inhalt blieben dadurch 120 Zeichen auf einem vierten
+   Blatt uebrig. Deshalb knapper als die uebrigen Kopfformen. */
+.kopf { padding: 11mm 16mm 7mm; clip-path: inset(0); }
 .kopf::before { content: ""; position: absolute; right: -18mm; top: -28mm;
                 width: 72mm; height: 72mm; border-radius: 50%; background: var(--farbe2); }
 .kopf::after { content: ""; position: absolute; left: -14mm; top: -20mm;
@@ -186,8 +193,7 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
 .paar .was { font-size: 10pt; }
 /* Bewertungen stehen rechtsbuendig untereinander - eine ruhige Kante statt einer
    Treppe, die der Laenge der Woerter folgt. */
-.paare { display: grid; grid-template-columns: 1fr auto; gap: 1.6mm 5mm;
-         align-items: center; }
+.paare { display: grid; grid-template-columns: 1fr auto; gap: 1.6mm 5mm; }
 .paar.zeile { display: contents; }
 .sprachzeile { display: flex; align-items: baseline; gap: 3mm; margin-bottom: 1.4mm; }
 .sprachzeile .sp { text-transform: uppercase; color: var(--farbe); font-weight: 600;
@@ -218,12 +224,24 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
 .quali-raster > .spalte { min-width: 0; }
 .quali-raster .spalte > h3:first-child { margin-top: 0; }
 .spalte { break-inside: avoid; }
-.paare > *, .paar .was { min-width: 0; overflow-wrap: anywhere; }
+.quali-raster ul.knapp { margin: 0 0 0 4.5mm; }
+/* `anywhere` bricht mitten im Wort - "Kommunikationsfaehig / keit" - und die Bewertung
+   der Zeile blieb auf halber Hoehe stehen, also auf der zweiten Zeile des Wortes.
+   `break-word` bricht erst, wenn es wirklich nicht anders geht, `align-items: start`
+   haelt die Bewertung auf der ersten Zeile. */
+.paare { align-items: start; }
+.paare > * { min-width: 0; }
+/* Echte Silbentrennung statt hartem Umbruch. `break-word` schnitt mitten in die Silbe
+   ("Verantwortungsbewus / stsein") - das liest sich wie ein Druckfehler. `hyphens: auto`
+   trennt nach den deutschen Regeln und setzt einen Bindestrich; passt ein Wort trotzdem
+   nicht, faellt das der Seitenpruefung auf statt dem Arbeitgeber. */
+.paar .was { min-width: 0; overflow-wrap: normal; hyphens: auto;
+             -webkit-hyphens: auto; }
 .sprachzeile { min-width: 0; }
 .sprachzeile .sp { min-width: 0; overflow-wrap: anywhere; }
 .sprachzeile .grad { white-space: nowrap; }
 
-.kapitel { margin-bottom: 8.5mm; }
+.kapitel { margin-bottom: 7mm; }
 /* Der Abstand **hinter** dem letzten Kapitel hat nichts mehr zu trennen - er schob den
    Satzspiegel aber ueber die Seitenkante und erzwang eine dritte Seite, auf der nur
    noch der wiederholte Kopf und die Seitenzahl standen. Eine leere Seite in einem
@@ -381,20 +399,26 @@ li { margin-bottom: 1.4mm; }
           {% endfor %}
         </div>
         {% endif %}
+        {# Zusatzqualifikationen und Hobbys gehoeren ins selbe Raster. Darunter gestapelt
+           fanden sie am Seitenende keinen Platz mehr und schoben zwei Zeilen auf ein
+           viertes Blatt. Im Raster fuellen sie eine freie Spalte. #}
+        {% if d.zusatzqualifikationen or fs.vorhanden %}
+        <div class="spalte">
+          <h3>Zusatzqualifikationen</h3>
+          <ul class="knapp">
+            {% if fs.vorhanden %}<li>Führerschein{% if fs.klasse %} Klasse {{ fs.klasse }}{% endif %}</li>{% endif %}
+            {% for z in d.zusatzqualifikationen or [] %}<li>{{ z }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        {% if d.hobbys %}
+        <div class="spalte">
+          <h3>Hobbys</h3>
+          <p style="margin:0">{{ d.hobbys }}</p>
+        </div>
+        {% endif %}
       </div>
-
-      {% if d.zusatzqualifikationen or fs.vorhanden %}
-      <h3>Zusatzqualifikationen</h3>
-      <div class="eintrag"><ul>
-        {% if fs.vorhanden %}<li>Führerschein{% if fs.klasse %} Klasse {{ fs.klasse }}{% endif %}</li>{% endif %}
-        {% for z in d.zusatzqualifikationen or [] %}<li>{{ z }}</li>{% endfor %}
-      </ul></div>
-      {% endif %}
-
-      {% if d.hobbys %}
-      <h3>Hobbys</h3>
-      <p>{{ d.hobbys }}</p>
-      {% endif %}
     </section>
     {% endif %}
 </div>
