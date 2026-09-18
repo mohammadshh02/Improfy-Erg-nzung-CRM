@@ -375,32 +375,33 @@ def main():
            _r.status_code == 200 and "Eingang" in _r.get_data(as_text=True),
            _r.status_code)
 
-    print("\n12. Durchgehende linke Kante")
+    print("\n12. Ein Blatt, eine Kante")
     _skin = offen(os.path.join("templates", "cv_designs", "cv_skin.html"))
-    # Eine leere Tabellenzelle schrumpft beim automatischen Layout - dann rueckt das
-    # naechste Kapitel nach links und die Kante wandert von Seite zu Seite. Nur
-    # `table-layout: fixed` haelt die angegebene Breite auch bei leerer Zelle.
-    pruefe("Beide Spaltentabellen rechnen mit fester Breite",
-           _skin.count("table-layout: fixed") >= 2,
-           _skin.count("table-layout: fixed"))
-    # Die Fotospalte muss in jedem Kapitel stehen, auch ohne Bild - sonst hat eine Seite
-    # zwei verschiedene Textkanten.
-    pruefe("Jedes Kapitel steht in einer Spaltenreihe",
-           _skin.count('<table class="fotoreihe">') == 3,
-           _skin.count('<table class="fotoreihe">'))
-    # Entscheidend ist, was **vor** der Reihe steht: Ein `{% if weitere.x %}` davor
-    # wuerde die ganze Spalte wegfallen lassen, sobald kein Foto da ist. Innerhalb der
-    # Zelle ist dieselbe Bedingung richtig - dort schuetzt sie nur das Bild.
-    _davor = [teil[-140:] for teil in _skin.split('<table class="fotoreihe">')[:-1]]
-    pruefe("Die Spaltenreihe haengt nicht am Vorhandensein eines Fotos",
-           all("{% if weitere." not in t for t in _davor),
-           [t.strip()[-46:] for t in _davor if "{% if weitere." in t])
-    # Kopf- und Kapitelspalte muessen dieselbe Breite haben, sonst stimmt die Kante nicht.
-    import re as _re2
-    _breiten = set(_re2.findall(r"width: \{\{ '(\d+mm)' if skin\.kopfform == 'links'"
-                                r" else '(\d+mm)' \}\}", _skin))
-    pruefe("Fotospalte und Foto sind ueberall gleich breit",
-           len(_breiten) == 1, sorted(_breiten))
+    # Alle Fotos stehen im Kopfteil, an einem festen Platz. Vorher hingen die
+    # Zusatzfotos an Kapiteln - und wo ein Kapitel anfaengt, entscheidet der Inhalt.
+    # Dieselbe Vorlage sah dadurch bei jedem Kunden anders aus.
+    pruefe("Kein Foto haengt mehr an einem Kapitel",
+           "fotoreihe" not in _skin and "seitenfoto" not in _skin)
+    # Verglichen wird die Stelle im Rumpf, nicht im Stilblock - der steht immer oben.
+    _rumpf = _skin.split("</style>")[-1]
+    pruefe("Die Zusatzfotos stehen in der Kopfspalte",
+           '<div class="nebenfotos">' in _rumpf and
+           _rumpf.index('<div class="nebenfotos">') > _rumpf.index('<td class="links">')
+           and _rumpf.index('<div class="nebenfotos">')
+               < _rumpf.index("</td>", _rumpf.index('<td class="links">')))
+    # Eine leere Tabellenzelle schrumpft beim automatischen Layout - dann wandert die
+    # Textkante. Nur `table-layout: fixed` haelt die angegebene Breite.
+    pruefe("Die Kopfreihe rechnet mit fester Breite",
+           "table-layout: fixed" in _skin)
+    # Spalte und Rinne muessen zwei Zahlen sein. Standen sie in einer, ragte das Foto
+    # 9 mm ueber seine Zelle hinaus - bis auf 2 pt an den Text.
+    pruefe("Alles im Kopf richtet sich nach der Spaltenbreite",
+           ".foto, .nebenfotos { width: 100%; }" in _skin)
+    # Der hervorgehobene Improfy-Block muss Rahmen **und** Polsterung ausgleichen,
+    # sonst steht seine Zeile 2,2 pt weiter rechts als jede andere Station.
+    pruefe("Der hervorgehobene Block steht auf der Kante der uebrigen",
+           "margin-left: -4.8mm" in _skin and
+           "padding: 2.5mm 3mm 2.5mm 4mm" in _skin)
 
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

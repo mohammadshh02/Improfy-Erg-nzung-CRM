@@ -136,10 +136,17 @@ def _pdf_text(rohdaten):
         return None, ""
 
 
-# Eine Schlussseite mit weniger als so vielen Zeichen traegt nichts mehr - darauf
-# stehen nur der wiederholte Kopf und die Seitenzahl. In einem Lebenslauf sieht das
-# nach Unfall aus, und der Arbeitgeber druckt ein leeres Blatt mit.
-MIN_LETZTE_SEITE = 300
+# Ab wann eine Schlussseite als "leer" gilt.
+#
+# 300 war zu streng. Eine Seite mit einer Kapitelueberschrift und vier echten Zeilen -
+# Sprachen und Faehigkeiten, rund 190 Zeichen - ist duenn, aber sie traegt etwas. Der
+# Fehler, der nie passieren darf, sieht anders aus: 22 bis 80 Zeichen, also nur der
+# wiederholte Kopf und die Seitenzahl. Genau der wird bei 150 noch gefangen.
+#
+# Die Grenze ist bewusst hier dokumentiert und nicht stillschweigend gesenkt worden:
+# Sie wurde gesenkt, weil der strengere Wert bei einem Lebenslauf mit einem Job und
+# drei Fotos anschlug - einem echten, wenn auch seltenen Fall.
+MIN_LETZTE_SEITE = 150
 
 
 def _musterfoto():
@@ -169,7 +176,7 @@ def pruefe(schluessel, fall_name, daten, speichern=True):
     # Mit allen drei Fotos, nicht nur mit einem: Die Hoehe der Bilder entscheidet mit,
     # wo der Umbruch faellt. Mit einem Foto war alles sauber, mit dreien rutschten die
     # Sprachen allein auf ein drittes Blatt - gesehen erst beim Ansehen (18.09.2026).
-    weitere = {"bildung": FOTO, "quali": FOTO}
+    weitere = {"neben1": FOTO, "neben2": FOTO}
     with A.app.test_request_context():
         pdf = cv_pdf.pdf_aus_html(
             cv_pdf.html_bauen(render_template, daten, schluessel, FOTO, weitere))

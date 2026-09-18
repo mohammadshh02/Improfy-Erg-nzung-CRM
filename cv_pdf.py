@@ -174,29 +174,8 @@ def _ohne_doppelte_massnahme(beruf):
     return ergebnis
 
 
-# Wie viel Text ein Kapitel tragen muss, damit ein Foto daneben passt. Darunter steht
-# das Bild allein und schiebt sich - samt wiederholtem Kopf - auf ein eigenes Blatt.
-# Genau so gesehen am 18.09.2026: Seite 2 enthielt nur den Kopf und ein Foto.
-MINDESTENS = {"bildung": 2, "beruf": 3, "quali": 6}
-
-
-def _fotos_die_tragen(daten, weitere):
-    """Von den Zusatzfotos nur die behalten, deren Kapitel gross genug ist.
-
-    Ein Lebenslauf mit einem Job und zwei Sprachen braucht kein drittes Foto - er hat
-    keine Stelle, an der es stehen koennte, ohne allein dazustehen. Weniger Bilder sind
-    hier besser als ein Blatt, auf dem sonst nichts steht."""
-    if not weitere:
-        return {}
-    umfang = {
-        "bildung": len(daten.get("bildung") or []),
-        "beruf": len(daten.get("berufserfahrung") or []),
-        "quali": sum(len(daten.get(f) or []) for f in
-                     ("soft_skills", "edv_kenntnisse", "sprachen",
-                      "zusatzqualifikationen")),
-    }
-    return {platz: bild for platz, bild in weitere.items()
-            if umfang.get(platz, 0) >= MINDESTENS.get(platz, 0)}
+# Die Zusatzfotos stehen im Kopf, nicht an Kapiteln - sie brauchen deshalb kein Kapitel
+# mehr, das gross genug waere. Die frueheren Mindestgroessen sind damit hinfaellig.
 
 
 def html_bauen(render, daten, design="nr25", foto=None, weitere=None):
@@ -215,7 +194,7 @@ def html_bauen(render, daten, design="nr25", foto=None, weitere=None):
     return render(DESIGN_DATEI.get(design, "cv_designs/cv_skin.html"),
                   d=daten, beruf=beruf, foto=foto or PLATZHALTER_FOTO,
                   zeige_foto=bool(foto), niveau=_niveau_txt, logo="",
-                  weitere=_fotos_die_tragen(daten, weitere),
+                  weitere=weitere or {},
                   skin=cv_sammlung.skin(design))
 
 

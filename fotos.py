@@ -38,16 +38,17 @@ import datenbank as db
 # der Umbruch - bei viel Berufserfahrung faengt die Qualifikation auf Seite 3 an, bei
 # wenig schon auf Seite 2. Eine feste Seitenzahl waere deshalb ein Versprechen, das die
 # Vorlage nicht halten kann. Ein Platz im Aufbau haelt immer.
-# Die Reihenfolge ist zugleich die Vergabereihenfolge: Das zweite Foto bekommt von
-# selbst den zweiten Platz. Sie ist danach gewaehlt, wie weit die Stellen im Satz
-# auseinanderliegen - „Berufserfahrung" faengt fast immer noch auf Seite 1 an, dort
-# stuenden zwei Fotos nebeneinander. „Schulbildung" liegt dahinter und traegt deshalb
-# das zweite Bild. (Gemessen am fertigen PDF, 18.09.2026.)
+# Die Reihenfolge ist zugleich die Vergabereihenfolge: Das zweite hochgeladene Foto
+# bekommt von selbst den zweiten Platz.
+#
+# **Warum alle drei im Kopf stehen und nicht ueber die Seiten verteilt.** Vorher hingen
+# sie an Kapiteln ("bei der Schulbildung"). Wo ein Kapitel anfaengt, entscheidet aber der
+# Inhalt - bei viel Berufserfahrung auf Seite 3, bei wenig auf Seite 1. Dieselbe Vorlage
+# sah damit bei jedem Kunden anders aus. Ein fester Platz im Kopf haengt an nichts.
 PLAETZE = [
-    ("kopf",    "Seitenkopf – neben „Über mich“"),
-    ("bildung", "bei der Schulbildung"),
-    ("quali",   "bei der persönlichen Qualifikation"),
-    ("beruf",   "bei der Berufserfahrung"),
+    ("kopf",   "Hauptfoto – groß, oben links"),
+    ("neben1", "kleines Foto links, erste Stelle"),
+    ("neben2", "kleines Foto links, zweite Stelle"),
 ]
 PLATZ_SCHLUESSEL = [k for k, _ in PLAETZE]
 
@@ -110,6 +111,10 @@ def init():
             con.execute("ALTER TABLE kunde_foto_neu RENAME TO kunde_foto")
         con.executescript(SCHEMA)
         con.executescript(SCHEMA_EINGANG)
+        # Die Plaetze hiessen frueher nach Kapiteln. Vorhandene Fotos umschreiben,
+        # damit niemand seine Bilder verliert.
+        con.execute("UPDATE kunde_foto SET platz='neben1' WHERE platz IN ('bildung','beruf')")
+        con.execute("UPDATE kunde_foto SET platz='neben2' WHERE platz='quali'")
 
 
 def jetzt():

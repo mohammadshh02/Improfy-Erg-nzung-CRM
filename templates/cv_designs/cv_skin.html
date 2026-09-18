@@ -145,13 +145,20 @@ body { background: var(--farbe2); }
 table.kopfreihe { width: 100%; border-collapse: collapse; table-layout: fixed;
                   margin-bottom: 2mm; }
 table.kopfreihe > tbody > tr > td { padding: 0; vertical-align: top; }
-/* Eine Zahl fuer **alle** Spalten: Kopf und jedes Kapitel haben dieselbe Kante, auch
-   wenn kein Foto darin steht. Zwei wandernde Textkanten auf einer Seite lesen sich als
-   "nicht gesetzt"; ein breiter ruhiger Rand ist im Druck normal.
-   Bei der Kopfform mit Randspalte frisst die Spalte schon 44 mm vom Blatt - dort bleibt
-   fuer den Text sonst zu wenig, und der Satz wird hoch. Deshalb dort schmaler. */
-td.links { width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
+/* **Spalte und Rinne sind zwei Zahlen, nicht eine.** Vorher stand in der Breite der
+   Zelle die Rinne schon drin (52 mm einschliesslich 9 mm Polsterung = 43 mm Inhalt),
+   das Foto war aber 52 mm breit. Es ragte damit 9 mm ueber seine Zelle hinaus, bis auf
+   2 pt an den Text - und die kleinen Fotos, die sich brav nach der Zelle richteten,
+   endeten 9 mm vor seiner rechten Kante. Drei Pruefagenten haben das am 18.09.2026 in
+   allen 23 Vorlagen gemessen.
+   Jetzt traegt die Zelle Spalte **plus** Rinne, und alles darin richtet sich nach der
+   Spalte. Damit ist jede Kante im Kopf dieselbe.
+   Bei der Kopfform mit Randspalte frisst diese schon 44 mm vom Blatt - dort ist die
+   Fotospalte schmaler, sonst bleibt fuer den Text zu wenig. */
+td.links { width: {{ '49mm' if skin.kopfform == 'links' else '61mm' }};
            padding-right: {{ '7mm' if skin.kopfform == 'links' else '9mm' }} !important; }
+/* Alles im Kopf fuellt die Spalte ganz - keine eigenen Breiten mehr. */
+.foto, .nebenfotos { width: 100%; }
 /* Die Fotos der Folgekapitel stehen in **derselben** Spalte wie das erste - gleiche
    Breite, gleiche Kante. Vorher standen sie rechts und wechselten von Seite zu Seite die
    Seite; das sah aus, als haette jede Seite ein anderer gesetzt. Wieder eine Tabelle und
@@ -161,15 +168,22 @@ td.links { width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
    schrumpft dann, und der Text daneben rueckt nach links. Gemessen: Kapitel mit Foto
    begannen bei 218 pt, Kapitel ohne bei 193 pt. Genau die wandernde Kante, die weg
    sollte. Fest gerechnet gilt die angegebene Breite immer. */
-table.fotoreihe { width: 100%; border-collapse: collapse; table-layout: fixed; }
-table.fotoreihe > tbody > tr > td { padding: 0; vertical-align: top; }
-.seitenfoto { display: block; width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
-              aspect-ratio: 3 / 4; object-fit: cover;
-              object-position: center top; border-radius: 2mm;
-              {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
-              {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
-.foto { width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
-        height: {{ '53mm' if skin.kopfform == 'links' else '66mm' }}; border-radius: 2mm;
+/* Bis zu zwei kleinere Fotos unter dem Hauptfoto, nebeneinander. Sie teilen sich die
+   Breite der Spalte - dadurch bleibt die Kante rechts dieselbe, egal ob eines oder zwei
+   dastehen. Ein einzelnes zweites Foto nimmt die halbe Breite und bleibt links buendig;
+   es soll nicht so gross werden wie das Hauptfoto, sonst gibt es zwei Hauptfotos. */
+/* Quadratisch, nicht hochkant: Zwei hochkante Bilder unter einem hochkanten Hauptfoto
+   machen den Kopf um gut 35 mm hoeher - bei einem duennen Lebenslauf schiebt das die
+   Qualifikation auf ein zweites, fast leeres Blatt. Quadratisch bleibt der Ausschnitt
+   brauchbar (Gesicht sitzt oben) und der Kopf bleibt flach. */
+.nebenfotos { display: flex; gap: 2.5mm; margin-top: 2.5mm; }
+.nebenfotos img { flex: 1 1 0; min-width: 0; aspect-ratio: 1 / 1;
+                  object-fit: cover; object-position: center top; border-radius: 1.6mm;
+                  /* Dieselbe Rahmenstaerke wie das Hauptfoto - sonst sitzen die
+                     Kanten 0,7 pt daneben, weil der Rahmen zur Breite zaehlt. */
+                  {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
+                  {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
+.foto { aspect-ratio: 3 / 4; height: auto; border-radius: 2mm;
         {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
         {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
 .kontakt svg { width: 3.3mm; height: 3.3mm; flex: none; margin-top: .3mm;
@@ -182,9 +196,14 @@ table.fotoreihe > tbody > tr > td { padding: 0; vertical-align: top; }
    waechst er, schiebt er bei duennen Lebenslaeufen eine Zeile auf ein neues Blatt. */
 .kontakt { margin-top: 5mm; font-size: 8.8pt; line-height: 1.35; color: var(--grau);
            display: flex; flex-direction: column; gap: 1.3mm;
-           {% if skin.kopfform in ('flaeche', 'rahmen') %}align-items: center;{% endif %} }
-/* Ohne Notbremse reisst eine sehr lange Adresse aus der Spalte; mit ihr bricht sie
-   an den unsichtbaren Trennstellen hinter @ und Punkt, nicht mitten im Wort. */
+           /* Bewusst **nicht** zentriert: `align-items: center` richtet jede Zeile
+              einzeln aus, also steht das Symbol jeder Zeile woanders - je nachdem, wie
+              lang ihr Text ist. Eine Kante ist ruhiger als vier. */
+           align-items: flex-start; }
+/* Die Trennstelle sitzt **vor** dem @, nicht hinter jedem Punkt. Hinter dem Punkt
+   getrennt blieb "com" allein in der naechsten Zeile stehen und sah aus wie ein
+   Tippfehler. Vor dem @ getrennt bleibt der Name oben und die Domain unten - so liest
+   man eine Adresse ohnehin. */
 .kontakt div { overflow-wrap: break-word; }
 .kontakt .mail { overflow-wrap: anywhere; }
 
@@ -259,8 +278,11 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
 .eintrag .wann, .sprachzeile, .paar { font-variant-numeric: tabular-nums; }
 /* Die laufende Massnahme ist die juengste Station und die einzige, die noch andauert.
    Ein feiner Rahmen hebt sie heraus, ohne sie anzuschreien. */
+/* Der Einzug muss Rahmen **und** Polsterung ausgleichen, sonst steht der Text dieses
+   einen Blocks weiter rechts als jeder andere. Genau 0,8 mm Versatz - unauffaellig
+   genug, um nicht benannt zu werden, und deutlich genug, um unruhig zu wirken. */
 .eintrag.laufend { background: rgba(0, 0, 0, .028); border-radius: 0 2mm 2mm 0;
-                   padding: 2.5mm 3mm 2.5mm 4mm; margin-left: -4mm;
+                   padding: 2.5mm 3mm 2.5mm 4mm; margin-left: -4.8mm;
                    border-left: .8mm solid var(--farbe); }
 .eintrag.laufend .wann::before { display: none; }
 .eintrag .dazu  { font-size: 9.5pt; color: var(--grau); margin-top: .4mm; }
@@ -394,7 +416,18 @@ li { margin-bottom: 1.4mm; }
    die volle Breite. #}
 <table class="kopfreihe"><tr>
   <td class="links">
+    {# Alle Fotos stehen hier, in fester Anordnung: das Hauptfoto gross, darunter bis zu
+       zwei kleinere nebeneinander. Fest heisst: unabhaengig davon, wie lang der
+       Lebenslauf ist. Vorher hingen die Zusatzfotos an Kapiteln - und wo ein Kapitel
+       anfaengt, entscheidet der Inhalt. Dieselbe Vorlage sah dadurch bei jedem Kunden
+       anders aus. #}
     {% if zeige_foto %}<img class="foto" src="{{ foto }}" alt="">{% endif %}
+    {% if weitere.neben1 or weitere.neben2 %}
+    <div class="nebenfotos">
+      {% if weitere.neben1 %}<img src="{{ weitere.neben1 }}" alt="">{% endif %}
+      {% if weitere.neben2 %}<img src="{{ weitere.neben2 }}" alt="">{% endif %}
+    </div>
+    {% endif %}
     {# Zeichen statt einer grauen Liste. Sie sind als SVG im Blatt, nicht als Schrift:
        ein Symbolfont waere eine weitere Abhaengigkeit, und fehlt er, stehen Kaestchen
        im Lebenslauf. Die Zeichen sind bewusst Strichzeichnungen in der Hausfarbe -
@@ -407,7 +440,7 @@ li { margin-bottom: 1.4mm; }
       {% if d.mobil %}
       <div><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.1 2.6h3l1.2 3-1.6 1.2a8.4 8.4 0 0 0 3.5 3.5l1.2-1.6 3 1.2v3a1 1 0 0 1-1.1 1C6.6 13.4 2.6 9.4 2.1 3.7a1 1 0 0 1 1-1.1Z"/></svg><span class="nummer">{{ d.mobil }}</span></div>{% endif %}
       {% if d.email %}
-      <div><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="3.4" width="12.4" height="9.2" rx="1.4"/><path d="m2.2 4.4 5.8 4.3 5.8-4.3"/></svg><span class="mail">{{ d.email | replace('@', '@' ~ '​') | replace('.', '.' ~ '​') }}</span></div>{% endif %}
+      <div><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="3.4" width="12.4" height="9.2" rx="1.4"/><path d="m2.2 4.4 5.8 4.3 5.8-4.3"/></svg><span class="mail">{{ d.email | replace('@', '​@') }}</span></div>{% endif %}
     </div>
   </td>
   <td>
@@ -423,9 +456,6 @@ li { margin-bottom: 1.4mm; }
 </tr></table>
 
     {% if beruf %}
-    <table class="fotoreihe"><tr>
-      <td class="links">{% if weitere.beruf %}<img class="seitenfoto" src="{{ weitere.beruf }}" alt="">{% endif %}</td>
-      <td>
     <section class="kapitel">
       <h2>Berufserfahrung</h2>
       {% for b in beruf %}
@@ -440,13 +470,9 @@ li { margin-bottom: 1.4mm; }
       </div>
       {% endfor %}
     </section>
-    </td></tr></table>
     {% endif %}
 
     {% if d.bildung %}
-    <table class="fotoreihe"><tr>
-      <td class="links">{% if weitere.bildung %}<img class="seitenfoto" src="{{ weitere.bildung }}" alt="">{% endif %}</td>
-      <td>
     <section class="kapitel">
       <h2>Schulbildung</h2>
       {% for b in d.bildung %}
@@ -458,14 +484,10 @@ li { margin-bottom: 1.4mm; }
       </div>
       {% endfor %}
     </section>
-    </td></tr></table>
     {% endif %}
 
     {% set fs = d.fuehrerschein or {} %}
     {% if d.soft_skills or d.edv_kenntnisse or d.sprachen or d.zusatzqualifikationen or fs.vorhanden %}
-    <table class="fotoreihe"><tr>
-      <td class="links">{% if weitere.quali %}<img class="seitenfoto" src="{{ weitere.quali }}" alt="">{% endif %}</td>
-      <td>
     <section class="kapitel">
       <h2>Persönliche Qualifikation</h2>
 
@@ -526,7 +548,6 @@ li { margin-bottom: 1.4mm; }
         {% endif %}
       </div>
     </section>
-    </td></tr></table>
     {% endif %}
 </div>
 </td></tr></tbody>
