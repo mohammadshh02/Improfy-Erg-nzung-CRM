@@ -31,7 +31,11 @@ import datenbank as db              # noqa: E402
 ergebnis = []
 
 # Routen, die nach außen greifen oder etwas verändern – hier nicht aufrufen.
-AUSGELASSEN = {"static", "abmelden", "anmelden"}
+# `kunde_foto_bild` braucht die Nummer eines wirklich vorhandenen Bildes. Im Bestand
+# liegt heute keines, und eine erfundene Nummer muss 404 geben - das ist richtig so und
+# kein Fehler der Seite.
+AUSGELASSEN = {"static", "abmelden", "anmelden", "kunde_foto_bild",
+               "lebenslauf_eingang_bild"}
 NACH_AUSSEN = re.compile(r"lauf|probe|pruef|import|export|abruf|holen|senden|mail", re.I)
 
 

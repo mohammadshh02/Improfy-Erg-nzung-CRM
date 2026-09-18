@@ -280,3 +280,12 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
 .fotoeingang .eingangskarte img { display: block; width: 100%; aspect-ratio: 3 / 4;
                                   object-fit: cover; object-position: center top;
                                   border-radius: 8px; background: var(--surface-2); }
+
+/* --------------------------------------------- Fotos eines Kunden im Formular */
+.kundenfotos { display: grid; gap: 12px;
+               grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.kundenfotos .fotokarte { border: 1px solid var(--line); border-radius: 10px;
+                          padding: 10px; background: var(--surface); }
+.kundenfotos .fotokarte img { display: block; width: 100%; aspect-ratio: 3 / 4;
+                              object-fit: cover; object-position: center top;
+                              border-radius: 7px; background: var(--surface-2); }

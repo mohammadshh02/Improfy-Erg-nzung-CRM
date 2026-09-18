@@ -583,6 +583,7 @@ def _cv_seite(kid, daten=None, fehler=None, gelesen=None, rohtext="", hinweise=N
         "lebenslauf_bauen.html", v=v, d=d, fehler=fehler, gelesen=gelesen, rohtext=rohtext,
         hinweise=hinweise or [], lesbar=dokument_lesen.ENDUNGEN, meldung=meldung,
         foto=fotos.foto(kid) if kid else None,
+        kundenfotos=fotos.alle_fotos(kid) if kid else [], plaetze=fotos.PLAETZE,
         kundenwahl=LB.uebersicht(),
         designs=cv_pdf.DESIGNS, chrome=cv_pdf.bereit(), galerie=cv_pdf.galerie(),
         vorlagen=cv_sammlung.alle(), gesucht=gesucht,
@@ -709,13 +710,21 @@ def lebenslauf_pdf(kid):
             notieren("Bewerbungsfoto hinterlegt", "lebenslauf", kid, hochgeladen.filename)
         except Exception:
             pass
-    roh, mime = fotos.rohdaten(kid)
-    foto_uri = cv_pdf.foto_uri(roh, mime) if roh else None
+    # Alle Fotos des Kunden, nach Platz sortiert: das erste in den Kopf, die weiteren an
+    # ihre Kapitel. Mehr als drei gibt es nicht - so viele Plaetze hat der Aufbau.
+    bilder = {}
+    for f in fotos.alle_fotos(kid):
+        rohbild, bildtyp = fotos.bild(f["id"])
+        if rohbild:
+            bilder[f["platz"]] = cv_pdf.foto_uri(rohbild, bildtyp)
+    foto_uri = bilder.get("kopf")
+    weitere = {k: v for k, v in bilder.items() if k != "kopf"}
     v = LB.vorbelegung(kid)
     name = LB.blattname(v["interne_id"], daten.get("vorname") or "", daten.get("nachname") or "")
     dateiname = f"{name}_{design}_{datetime.date.today():%Y-%m-%d}.pdf"
     try:
-        pdf, dateiname, _pfad = cv_pdf.bauen(_render, daten, design, foto_uri, dateiname)
+        pdf, dateiname, _pfad = cv_pdf.bauen(_render, daten, design, foto_uri, dateiname,
+                                             weitere=weitere)
     except Exception as e:
         return _cv_seite(kid, daten, fehler=f"PDF nicht erzeugt: {e}")
     LB.merken(kid, dateiname)
@@ -811,6 +820,30 @@ def lebenslauf_fotos():
                                " WHERE k.standort=? AND k.status_code IN ('H','I')"
                                "   AND NOT EXISTS (SELECT 1 FROM kunde_foto f WHERE f.kunde_id=k.id)"
                                " ORDER BY k.name", (db.STANDORT_STANDARD,)))
+
+
+@app.route("/kunde/<int:kid>/foto/<int:fid>.jpg")
+def kunde_foto_bild(kid, fid):
+    roh, mime = fotos.bild(fid)
+    if not roh:
+        abort(404)
+    return app.response_class(roh, mimetype=mime or "image/jpeg")
+
+
+@app.route("/kunde/<int:kid>/foto/<int:fid>", methods=["POST"])
+def kunde_foto_aendern(kid, fid):
+    """Platz wechseln oder das Foto entfernen."""
+    try:
+        if request.form.get("was") == "loeschen":
+            fotos.foto_loeschen(fid)
+            notieren("Bewerbungsfoto entfernt", "lebenslauf", kid, str(fid))
+        else:
+            fotos.platz_setzen(fid, request.form.get("platz") or "")
+            notieren("Foto auf anderen Platz gelegt", "lebenslauf", kid,
+                     request.form.get("platz"))
+    except Exception as e:
+        return _cv_seite(kid, fehler=str(e))
+    return redirect(url_for("lebenslauf_uebersicht", kunde=kid))
 
 
 @app.route("/lebenslauf/eingang/<int:eid>.jpg")

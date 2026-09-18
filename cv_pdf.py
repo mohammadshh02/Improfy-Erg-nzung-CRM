@@ -174,7 +174,7 @@ def _ohne_doppelte_massnahme(beruf):
     return ergebnis
 
 
-def html_bauen(render, daten, design="nr25", foto=None):
+def html_bauen(render, daten, design="nr25", foto=None, weitere=None):
     """Design-Vorlage mit den Daten füllen. `render` ist Flasks render_template."""
     daten = _sprachen_lesbar(dict(daten))
     beruf = _ohne_doppelte_massnahme(
@@ -183,9 +183,14 @@ def html_bauen(render, daten, design="nr25", foto=None):
     # rechts sagt dem Recruiter „Maßnahme" statt „Kandidat" – genau die Schublade, in
     # die niemand will. `zeige_foto` sagt der Vorlage, ob überhaupt eines da ist; ein
     # grauer Platzhalter sieht schlechter aus als gar kein Foto.
+    # `weitere` sind die Fotos der uebrigen Plaetze, als {platz: datenuri}. Sie stehen
+    # weiter unten im Aufbau und landen damit auf den Folgeseiten - ein zweites und
+    # drittes Bild aus derselben Aufnahme lockert den Lebenslauf auf, ohne dass ein
+    # Blatt nur aus Text besteht.
     return render(DESIGN_DATEI.get(design, "cv_designs/cv_skin.html"),
                   d=daten, beruf=beruf, foto=foto or PLATZHALTER_FOTO,
                   zeige_foto=bool(foto), niveau=_niveau_txt, logo="",
+                  weitere=weitere or {},
                   skin=cv_sammlung.skin(design))
 
 
@@ -213,9 +218,9 @@ def pdf_aus_html(html, zeit=90):
         shutil.rmtree(ordner, ignore_errors=True)
 
 
-def bauen(render, daten, design="nr25", foto=None, dateiname=None):
+def bauen(render, daten, design="nr25", foto=None, dateiname=None, weitere=None):
     """Designtes PDF erzeugen und in ausgabe/lebenslaeufe/ ablegen."""
-    pdf = pdf_aus_html(html_bauen(render, daten, design, foto))
+    pdf = pdf_aus_html(html_bauen(render, daten, design, foto, weitere))
     os.makedirs(AUSGABE, exist_ok=True)
     name = dateiname or "Lebenslauf.pdf"
     pfad = os.path.join(AUSGABE, name)

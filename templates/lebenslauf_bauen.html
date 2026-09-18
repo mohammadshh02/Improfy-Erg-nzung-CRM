@@ -367,21 +367,45 @@
     filtern();
   })();
   </script>
-  <div class="filter" style="margin:14px 0 0;align-items:center">
-    {% if foto %}
-    <img src="{{ url_for('lebenslauf_foto_zeigen', kid=v.kunde_id) }}?v={{ foto.geaendert }}"
-         alt="Bewerbungsfoto" style="width:66px;height:84px;object-fit:cover;object-position:center top;
-         border-radius:8px;border:2px solid var(--accent)">
-    <span class="marke">Foto hinterlegt{% if foto.breite %} · {{ foto.breite }}×{{ foto.hoehe }} Pixel{% endif %}
-      · {{ (foto.bytes / 1024)|round|int }} kB · {{ foto.quelle }}<br>
-      jeder Lebenslauf nimmt es von selbst</span>
-    {% else %}
-    <span class="marke" style="color:var(--gelb)">Noch kein Foto hinterlegt – der Lebenslauf
-      bekommt eine graue Fläche.</span>
-    {% endif %}
-    <label class="marke">{{ 'Foto austauschen' if foto else 'Bewerbungsfoto wählen' }}
+  <h3 style="margin:18px 0 8px">Bewerbungsfotos</h3>
+  {% if kundenfotos %}
+  <p class="marke" style="margin:0 0 10px">Bis zu drei Fotos, jedes an seinem Platz im
+    Lebenslauf. Sie stehen an verschiedenen Stellen im Aufbau und landen damit auf
+    verschiedenen Seiten – <strong>auf welcher genau, entscheidet der Umbruch</strong>,
+    nicht die Einstellung: Bei viel Berufserfahrung fängt die Qualifikation auf Seite 3
+    an, bei wenig schon auf Seite 2.</p>
+  <div class="kundenfotos">
+    {% for f in kundenfotos %}
+    <div class="fotokarte">
+      <img src="{{ url_for('kunde_foto_bild', kid=v.kunde_id, fid=f.id) }}?v={{ f.geaendert }}"
+           alt="Bewerbungsfoto">
+      <div class="marke" style="margin:6px 0 5px">{{ f.breite }}×{{ f.hoehe }} ·
+        {{ (f.bytes / 1024)|round|int }} kB · {{ f.quelle }}</div>
+      {# `form="..."` verweist auf ein Formular weiter unten. In ein <form> darf kein
+         zweites hinein - HTML kennt das nicht -, und das ganze Blatt steckt schon in
+         einem. Das Attribut ist der vorgesehene Weg heraus. #}
+      <select name="platz" form="platz{{ f.id }}"
+              onchange="this.form.submit()" style="width:100%">
+        {% for k, text in plaetze %}
+        <option value="{{ k }}" {{ 'selected' if k == f.platz }}>{{ text }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" form="loesch{{ f.id }}" class="btn btn-sm"
+              style="margin-top:6px">entfernen</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="marke" style="margin:0 0 10px;color:var(--gelb)">Noch kein Foto hinterlegt –
+    der Lebenslauf bekommt an dieser Stelle nichts. Das Foto ist das Erste, was ein
+    Arbeitgeber ansieht.</p>
+  {% endif %}
+
+  <div class="filter" style="margin:10px 0 0;align-items:center">
+    <label class="marke">{{ 'Weiteres Foto hinzufügen' if kundenfotos else 'Bewerbungsfoto wählen' }}
       <input type="file" name="foto" accept="image/*" style="margin-left:8px"></label>
-    <span class="marke">wird verkleinert und am Kunden gemerkt ·
+    <span class="marke">wird verkleinert und am Kunden gemerkt – der nächste freie Platz
+      wird von selbst genommen ·
       <a href="{{ url_for('lebenslauf_fotos') }}">Fotos aus der Chat-Gruppe zuordnen</a></span>
   </div>
   {% else %}
@@ -397,6 +421,15 @@
   <a class="btn btn-sm" href="{{ url_for('kunde_detail', kid=v.kunde_id) }}" style="margin-left:8px">zurück zur Akte</a>
 </p>
 </form>
+
+{% for f in kundenfotos %}
+<form method="post" id="platz{{ f.id }}" hidden
+      action="{{ url_for('kunde_foto_aendern', kid=v.kunde_id, fid=f.id) }}"></form>
+<form method="post" id="loesch{{ f.id }}" hidden
+      action="{{ url_for('kunde_foto_aendern', kid=v.kunde_id, fid=f.id) }}">
+  <input type="hidden" name="was" value="loeschen">
+</form>
+{% endfor %}
 
 {% if galerie %}
 <h2>Weitere Vorlagen in der CV-App</h2>

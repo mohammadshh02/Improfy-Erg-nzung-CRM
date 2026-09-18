@@ -239,8 +239,14 @@ def main():
                f"{len(gross)//1024} kB → {f['bytes']//1024} kB, {f['breite']}×{f['hoehe']}")
         pruefe("Foto lässt sich wieder ausliefern",
                c.get(f"/kunde/{kid}/foto.jpg").status_code == 200)
+        # Seit mehreren Fotos je Kunde steht nicht mehr „Foto hinterlegt" da, sondern
+        # eine Karte je Bild. Geprueft wird deshalb, dass die Bildadresse des Kunden
+        # im Formular steht - das ist die Aussage, auf die es ankommt.
+        _f = fotos.alle_fotos(kid)
+        _seite = c.get(f"/kunde/{kid}/lebenslauf").get_data(as_text=True)
         pruefe("Formular zeigt das hinterlegte Foto",
-               "Foto hinterlegt" in c.get(f"/kunde/{kid}/lebenslauf").get_data(as_text=True))
+               bool(_f) and f"/kunde/{kid}/foto/{_f[0]['id']}.jpg" in _seite,
+               [x["platz"] for x in _f])
     except ImportError:
         pruefe("Pillow fehlt – Fototest übersprungen", True)
     kunden = [{"id": 1, "name": "Farnam Foroutan"}, {"id": 2, "name": "Hakan Tan"}]
