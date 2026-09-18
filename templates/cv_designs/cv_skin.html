@@ -29,6 +29,10 @@ body { font-family: var(--textschrift); }
 @page { margin: 0 0 12mm; }
 body { color: var(--text); }
 
+/* `.blatt` hat bewusst **kein** Fusspolster: Den Abstand zur Blattkante liefert schon
+   der Seitenrand (@page). Vier zusaetzliche Millimeter reichten, um den Satzspiegel
+   ueber die Kante zu schieben und eine Seite zu erzwingen, auf der nur der
+   wiederholte Kopf stand. (18.09.2026)  */
 table.seite { width: 100%; border-collapse: collapse; }
 table.seite > thead { display: table-header-group; }
 table.seite > tbody { display: table-row-group; }
@@ -66,7 +70,7 @@ table.seite > thead td { padding-bottom: {{ '10mm' if skin.kopfform == 'band' el
    begann der Text sofort - dort lag die Spitze auf dem Wort „SCHULBILDUNG" und
    verdeckte den ersten Buchstaben. Der Abstand muss deshalb groesser sein als der
    Zipfel hoch ist, und zwar auf **jeder** Seite. (Gesehen am 18.09.2026.) */
-.blatt { padding: 0 16mm 4mm; }
+.blatt { padding: 0 16mm 0; }
 
 {% elif skin.kopfform == 'links' %}
 /* Die farbige Randspalte läuft über die **ganze** Seite, nicht nur durch den Kopf.
@@ -81,7 +85,7 @@ table.seite > thead td { padding-bottom: {{ '10mm' if skin.kopfform == 'band' el
 .kopf { background: var(--farbe2); padding: 15mm 16mm 11mm 44mm; }
 .kopf .name { color: #fff; font-size: 23pt; }
 .kopf .rolle { color: #ffffffcc; margin-bottom: 2.5mm; }
-.blatt { padding: 0 16mm 4mm 44mm; }
+.blatt { padding: 0 16mm 0 44mm; }
 
 {% elif skin.kopfform == 'ecke' %}
 /* `clip-path` statt `overflow: hidden`. Beides beschneidet die ueberstehenden Kreise -
@@ -104,7 +108,7 @@ table.seite > thead td { padding-bottom: {{ '10mm' if skin.kopfform == 'band' el
                 padding-right: 46mm; }
 .kopf .name { color: var(--text); font-size: 25pt; }
 .kopf .rolle { color: var(--farbe); margin-bottom: 2.5mm; }
-.blatt { padding: 0 16mm 4mm; }
+.blatt { padding: 0 16mm 0; }
 
 {% elif skin.kopfform == 'flaeche' %}
 body { background: var(--farbe2); }
@@ -114,7 +118,7 @@ body { background: var(--farbe2); }
 .kopf .name b { font-weight: 700; }
 .kopf .strich { width: 26mm; height: .5mm; background: var(--farbe); margin: 4mm auto 3mm; }
 .kopf .rolle { color: var(--farbe); }
-.blatt { padding: 0 16mm 4mm; }
+.blatt { padding: 0 16mm 0; }
 
 {% elif skin.kopfform == 'rahmen' %}
 .kopf { padding: 14mm 16mm 9mm; text-align: center; }
@@ -122,7 +126,7 @@ body { background: var(--farbe2); }
                height: .5mm; background: var(--farbe); }
 .kopf .name { color: var(--text); font-size: 24pt; letter-spacing: .04em; }
 .kopf .rolle { color: var(--farbe); margin-top: 3mm; }
-.blatt { padding: 0 16mm 4mm; }
+.blatt { padding: 0 16mm 0; }
 .blatt::before { content: ""; position: fixed; left: 8mm; top: 8mm; right: 8mm; bottom: 8mm;
                  border: .4mm solid var(--farbe2); pointer-events: none; }
 
@@ -133,25 +137,31 @@ body { background: var(--farbe2); }
 .kopf .rolle { color: var(--farbe); margin-top: 3mm; }
 .kopf .marke { display: inline-block; height: 1.4mm; width: 18mm; background: var(--farbe);
                margin-bottom: 4mm; }
-.blatt { padding: 0 16mm 4mm; }
+.blatt { padding: 0 16mm 0; }
 {% endif %}
 
 /* ---------------------------------------------------- Foto, Kontakt, Inhalt */
 /* Zwei echte Spalten statt Float und Textumfluss - siehe Kopf dieser Datei. */
 table.kopfreihe { width: 100%; border-collapse: collapse; margin-bottom: 2mm; }
 table.kopfreihe > tbody > tr > td { padding: 0; vertical-align: top; }
-td.links { width: 52mm; padding-right: 9mm !important; }
-/* Die Fotos der Folgekapitel stehen rechts im Satz, der Text laeuft darum. Hier ist ein
-   Float richtig: Es geht um Text um ein Bild, nicht um zwei Spalten - und er laesst
-   keinen Rand leer, wenn das Bild kuerzer ist als das Kapitel. */
-.nebenfoto { float: right; width: 34mm; aspect-ratio: 3 / 4; object-fit: cover;
-             object-position: center top; border-radius: 2mm;
-             margin: 0 0 4mm 7mm; shape-outside: inset(0 round 2mm);
-             {% if skin.kopfform == 'band' %}border: 1mm solid var(--farbe2);{% endif %}
-             {% if skin.kopfform == 'links' %}border: 1mm solid #fff;{% endif %} }
-/* Ein Kapitel mit Bild darf nicht mitten durch das Bild umbrechen. */
-.kapitel:has(> .nebenfoto) > h2 { break-after: avoid; }
-.foto { width: 52mm; height: 66mm; border-radius: 2mm;
+/* Eine Zahl fuer beide Fotospalten: Kopf und Folgekapitel muessen dieselbe Kante haben.
+   Bei der Kopfform mit Randspalte frisst die Spalte schon 44 mm vom Blatt - dort bleibt
+   fuer den Text sonst zu wenig, und der Satz wird hoch. Deshalb dort schmaler. */
+td.links { width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
+           padding-right: {{ '7mm' if skin.kopfform == 'links' else '9mm' }} !important; }
+/* Die Fotos der Folgekapitel stehen in **derselben** Spalte wie das erste - gleiche
+   Breite, gleiche Kante. Vorher standen sie rechts und wechselten von Seite zu Seite die
+   Seite; das sah aus, als haette jede Seite ein anderer gesetzt. Wieder eine Tabelle und
+   kein Float: Ein Float laesst nur den Text ausweichen, nicht den Kasten. */
+table.fotoreihe { width: 100%; border-collapse: collapse; }
+table.fotoreihe > tbody > tr > td { padding: 0; vertical-align: top; }
+.seitenfoto { display: block; width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
+              aspect-ratio: 3 / 4; object-fit: cover;
+              object-position: center top; border-radius: 2mm;
+              {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
+              {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
+.foto { width: {{ '42mm' if skin.kopfform == 'links' else '52mm' }};
+        height: {{ '53mm' if skin.kopfform == 'links' else '66mm' }}; border-radius: 2mm;
         {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
         {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
 .kontakt svg { width: 3.3mm; height: 3.3mm; flex: none; margin-top: .3mm;
@@ -405,12 +415,13 @@ li { margin-bottom: 1.4mm; }
 </tr></table>
 
     {% if beruf %}
+    {% if weitere.beruf %}
+    <table class="fotoreihe"><tr>
+      <td class="links"><img class="seitenfoto" src="{{ weitere.beruf }}" alt=""></td>
+      <td>
+    {% endif %}
     <section class="kapitel">
       <h2>Berufserfahrung</h2>
-      {# Zweites Foto. Es steht am Anfang eines Kapitels, nicht auf einer festen Seite:
-         wo eine Seite endet, entscheidet erst der Umbruch. Der Text laeuft daneben
-         weiter, damit kein halbes Blatt leer bleibt. #}
-      {% if weitere.beruf %}<img class="nebenfoto" src="{{ weitere.beruf }}" alt="">{% endif %}
       {% for b in beruf %}
       <div class="eintrag{{ ' laufend' if loop.first and b.firma and 'Improfy' in b.firma }}">
         {# Zeitraum oben und leise, darunter die Stelle. Steht nur eines von Titel und
@@ -423,12 +434,17 @@ li { margin-bottom: 1.4mm; }
       </div>
       {% endfor %}
     </section>
+    {% if weitere.beruf %}</td></tr></table>{% endif %}
     {% endif %}
 
     {% if d.bildung %}
+    {% if weitere.bildung %}
+    <table class="fotoreihe"><tr>
+      <td class="links"><img class="seitenfoto" src="{{ weitere.bildung }}" alt=""></td>
+      <td>
+    {% endif %}
     <section class="kapitel">
       <h2>Schulbildung</h2>
-      {% if weitere.bildung %}<img class="nebenfoto" src="{{ weitere.bildung }}" alt="">{% endif %}
       {% for b in d.bildung %}
       <div class="eintrag">
         {% if b.zeitraum %}<div class="wann">{{ b.zeitraum }}</div>{% endif %}
@@ -438,13 +454,18 @@ li { margin-bottom: 1.4mm; }
       </div>
       {% endfor %}
     </section>
+    {% if weitere.bildung %}</td></tr></table>{% endif %}
     {% endif %}
 
     {% set fs = d.fuehrerschein or {} %}
     {% if d.soft_skills or d.edv_kenntnisse or d.sprachen or d.zusatzqualifikationen or fs.vorhanden %}
+    {% if weitere.quali %}
+    <table class="fotoreihe"><tr>
+      <td class="links"><img class="seitenfoto" src="{{ weitere.quali }}" alt=""></td>
+      <td>
+    {% endif %}
     <section class="kapitel">
       <h2>Persönliche Qualifikation</h2>
-      {% if weitere.quali %}<img class="nebenfoto" src="{{ weitere.quali }}" alt="">{% endif %}
 
       {# Drei kurze Listen, die gestapelt eine halbe Seite fuellten und die letzte davon
          auf ein fast leeres Blatt schoben (bei duenner Datenlage standen auf Seite 2 genau
@@ -503,6 +524,7 @@ li { margin-bottom: 1.4mm; }
         {% endif %}
       </div>
     </section>
+    {% if weitere.quali %}</td></tr></table>{% endif %}
     {% endif %}
 </div>
 </td></tr></tbody>
