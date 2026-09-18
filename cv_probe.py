@@ -136,10 +136,39 @@ def _pdf_text(rohdaten):
         return None, ""
 
 
+# Eine Schlussseite mit weniger als so vielen Zeichen traegt nichts mehr - darauf
+# stehen nur der wiederholte Kopf und die Seitenzahl. In einem Lebenslauf sieht das
+# nach Unfall aus, und der Arbeitgeber druckt ein leeres Blatt mit.
+MIN_LETZTE_SEITE = 300
+
+
+def _musterfoto():
+    """Eine gezeichnete Silhouette - nur fuer die Probe, sie wird nirgends gespeichert.
+
+    Ohne Foto faellt der Umbruch anders als im Echtbetrieb: die Fotospalte ist das
+    hoechste Einzelstueck auf Seite 1. Wer ohne sie prueft, prueft den falschen Fall."""
+    import io
+    from PIL import Image, ImageDraw
+    b = Image.new("RGB", (900, 1150), (233, 235, 237))
+    z = ImageDraw.Draw(b)
+    z.ellipse((310, 200, 590, 480), fill=(203, 176, 148))
+    z.rounded_rectangle((240, 495, 660, 1150), 46, fill=(44, 60, 82))
+    puffer = io.BytesIO()
+    b.save(puffer, "JPEG", quality=88)
+    return cv_pdf.foto_uri(puffer.getvalue(), "image/jpeg")
+
+
+FOTO = None
+
+
 def pruefe(schluessel, fall_name, daten, speichern=True):
     """Eine Vorlage mit einem Fall bauen und nachsehen, was herauskam."""
+    global FOTO
+    if FOTO is None:
+        FOTO = _musterfoto()
     with A.app.test_request_context():
-        pdf = cv_pdf.pdf_aus_html(cv_pdf.html_bauen(render_template, daten, schluessel))
+        pdf = cv_pdf.pdf_aus_html(
+            cv_pdf.html_bauen(render_template, daten, schluessel, FOTO))
     seiten, text = _pdf_text(pdf)
     # Zwei Dinge sind gewollt und dürfen nicht als Verlust gelten:
     #   Versalien – die Vorlagen setzen Überschriften groß (ZUVERLÄSSIGKEIT)
@@ -167,6 +196,12 @@ def pruefe(schluessel, fall_name, daten, speichern=True):
         os.makedirs(AUSGABE, exist_ok=True)
         with open(os.path.join(AUSGABE, f"{schluessel}_{fall_name}.pdf"), "wb") as f:
             f.write(pdf)
+    if seiten > 1:
+        import pymupdf
+        with pymupdf.open(stream=pdf, filetype="pdf") as doc:
+            letzte = len(" ".join(doc[-1].get_text("text").split()))
+        if letzte < MIN_LETZTE_SEITE:
+            fehlt.append(f"Schlussseite fast leer ({letzte} Zeichen)")
     return {"vorlage": schluessel, "fall": fall_name, "seiten": seiten,
             "kb": len(pdf) // 1024, "zeichen": len(flach), "fehlt": fehlt}
 
@@ -196,7 +231,7 @@ def main(nur=None):
     if schlecht:
         print(f"{schlecht} Durchgänge mit Verlust oder Fehler – das muss auf null.")
     else:
-        print("Kein Inhalt ist verloren gegangen.")
+        print("Kein Inhalt verloren, keine fast leere Schlussseite.")
     return 0 if not schlecht else 1
 
 

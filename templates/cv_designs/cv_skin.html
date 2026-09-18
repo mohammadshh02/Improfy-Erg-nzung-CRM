@@ -26,6 +26,13 @@ table.seite { width: 100%; border-collapse: collapse; }
 table.seite > thead { display: table-header-group; }
 table.seite > tbody { display: table-row-group; }
 table.seite td { padding: 0; vertical-align: top; }
+/* Der Abstand unter dem Kopf gehoert **hierhin**, nicht an den Inhalt. Eine Polsterung
+   am Inhaltsblock wirkt nur einmal - an seinem Anfang, also auf Seite 1. Ab Seite 2
+   begann der Text direkt unter dem Farbband, und bei der Kopfform `band` lag die
+   Zipfelspitze auf dem ersten Wort ("SCHULBILDUNG" ohne S, gesehen am 18.09.2026).
+   Der Tabellenkopf dagegen wird von Chrome auf jeder Seite neu gesetzt - seine
+   Polsterung damit auch. Bei `band` muss sie groesser sein als der Zipfel hoch ist. */
+table.seite > thead td { padding-bottom: {{ '13mm' if skin.kopfform == 'band' else '9mm' }}; }
 
 /* ------------------------------------------------------------------ Kopfformen */
 .kopf { position: relative; }
@@ -37,9 +44,13 @@ table.seite td { padding: 0; vertical-align: top; }
 .kopf { background: var(--farbe); padding: 16mm 16mm 12mm; }
 .kopf .name { color: #fff; font-size: 25pt; }
 .kopf .rolle { color: #ffffffd0; margin-bottom: 2.5mm; }
-.zipfel { position: absolute; left: 18mm; bottom: -10mm; width: 0; height: 0;
-          border-left: 10mm solid var(--farbe); border-bottom: 10mm solid transparent; }
-.blatt { padding: 14mm 16mm 14mm; }
+.zipfel { position: absolute; left: 18mm; bottom: -9mm; width: 0; height: 0;
+          border-left: 9mm solid var(--farbe); border-bottom: 9mm solid transparent; }
+/* Der Zipfel ragt unter den Kopf hinaus. Auf Seite 1 war darunter Platz, auf Seite 2
+   begann der Text sofort - dort lag die Spitze auf dem Wort „SCHULBILDUNG" und
+   verdeckte den ersten Buchstaben. Der Abstand muss deshalb groesser sein als der
+   Zipfel hoch ist, und zwar auf **jeder** Seite. (Gesehen am 18.09.2026.) */
+.blatt { padding: 0 16mm 4mm; }
 
 {% elif skin.kopfform == 'links' %}
 /* Die farbige Randspalte läuft über die **ganze** Seite, nicht nur durch den Kopf.
@@ -54,7 +65,7 @@ table.seite td { padding: 0; vertical-align: top; }
 .kopf { background: var(--farbe2); padding: 15mm 16mm 11mm 44mm; }
 .kopf .name { color: #fff; font-size: 23pt; }
 .kopf .rolle { color: #ffffffcc; margin-bottom: 2.5mm; }
-.blatt { padding: 12mm 16mm 14mm 44mm; }
+.blatt { padding: 0 16mm 4mm 44mm; }
 
 {% elif skin.kopfform == 'ecke' %}
 .kopf { padding: 15mm 16mm 10mm; overflow: hidden; }
@@ -65,7 +76,7 @@ table.seite td { padding: 0; vertical-align: top; }
 .kopf .inhalt { position: relative; z-index: 2; padding-left: 26mm; }
 .kopf .name { color: var(--text); font-size: 25pt; }
 .kopf .rolle { color: var(--farbe); margin-bottom: 2.5mm; }
-.blatt { padding: 8mm 16mm 14mm; }
+.blatt { padding: 0 16mm 4mm; }
 
 {% elif skin.kopfform == 'flaeche' %}
 body { background: var(--farbe2); }
@@ -75,7 +86,7 @@ body { background: var(--farbe2); }
 .kopf .name b { font-weight: 700; }
 .kopf .strich { width: 26mm; height: .5mm; background: var(--farbe); margin: 4mm auto 3mm; }
 .kopf .rolle { color: var(--farbe); }
-.blatt { padding: 10mm 16mm 14mm; }
+.blatt { padding: 0 16mm 4mm; }
 
 {% elif skin.kopfform == 'rahmen' %}
 .kopf { padding: 14mm 16mm 9mm; text-align: center; }
@@ -83,7 +94,7 @@ body { background: var(--farbe2); }
                height: .5mm; background: var(--farbe); }
 .kopf .name { color: var(--text); font-size: 24pt; letter-spacing: .04em; }
 .kopf .rolle { color: var(--farbe); margin-top: 3mm; }
-.blatt { padding: 10mm 16mm 14mm; }
+.blatt { padding: 0 16mm 4mm; }
 .blatt::before { content: ""; position: fixed; left: 8mm; top: 8mm; right: 8mm; bottom: 8mm;
                  border: .4mm solid var(--farbe2); pointer-events: none; }
 
@@ -94,7 +105,7 @@ body { background: var(--farbe2); }
 .kopf .rolle { color: var(--farbe); margin-top: 3mm; }
 .kopf .marke { display: inline-block; height: 1.4mm; width: 18mm; background: var(--farbe);
                margin-bottom: 4mm; }
-.blatt { padding: 6mm 16mm 14mm; }
+.blatt { padding: 0 16mm 4mm; }
 {% endif %}
 
 /* ---------------------------------------------------- Foto, Kontakt, Inhalt */
@@ -107,19 +118,106 @@ body { background: var(--farbe2); }
            {% if skin.kopfform in ('flaeche', 'rahmen') %}text-align: center;{% endif %} }
 .kontakt div { overflow-wrap: anywhere; }
 
-h2 { color: var(--farbe); font-size: 13.5pt; font-weight: 700; letter-spacing: .13em;
-     text-transform: uppercase; }
-{% if skin.kopfform in ('band', 'links') %}
-h2 { padding-bottom: 1.5mm; border-bottom: .5mm solid var(--farbe); }
-{% elif skin.kopfform == 'flaeche' %}
-h2::after { content: ""; display: block; width: 14mm; height: .4mm;
-            background: var(--farbe); margin-top: 2mm; }
-{% endif %}
-h3 { color: var(--farbe); font-size: 11pt; font-weight: 700; letter-spacing: .1em;
-     text-transform: uppercase; margin-top: 6mm; }
-.eintrag .titel { font-weight: 700; font-size: 11pt; }
+/* ------------------------------------------------------------------ Satzbild
+
+   Die Vorlagen sahen zwar verschieden aus, lasen sich aber alle gleich flach: eine
+   fette Zeile "(Zeitraum) Titel | Firma", darunter Stichpunkte, und das siebenmal
+   untereinander. Ein Recruiter ueberfliegt so etwas nicht, er arbeitet es ab.
+
+   Drei Aenderungen, die daraus ein gesetztes Blatt machen:
+
+     Der Zeitraum steht **ueber** dem Titel, klein und ruhig. Er ist die Orientierung,
+     nicht die Aussage - also darf er nicht so laut sein wie die Stelle.
+
+     Titel und Firma sind verschieden gewichtet statt durch einen Strich getrennt.
+     Der Strich war eine Krücke der Tabellenvorlage.
+
+     Eine feine Linie mit einem farbigen Punkt fuehrt an den Eintraegen entlang. Das
+     gibt dem Auge eine Kante und macht aus einer Liste einen Verlauf. */
+
+h2 { color: var(--farbe); font-size: 12pt; font-weight: 600; letter-spacing: .2em;
+     text-transform: uppercase; position: relative; padding-bottom: 2.4mm; }
+/* Haarlinie ueber die Breite, darauf ein kurzes kraeftiges Stueck in der Hausfarbe -
+   der Unterschied zwischen "unterstrichen" und "gesetzt". */
+h2::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+             height: .25mm; background: var(--linie); }
+h2::after  { content: ""; position: absolute; left: 0; bottom: 0;
+             width: 16mm; height: .8mm; background: var(--farbe); }
+h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16em;
+     text-transform: uppercase; margin-top: 7mm; opacity: .78; }
+
+/* `flow-root` ist hier der entscheidende Punkt: Ohne ihn laeuft der Kasten eines
+   Eintrags **unter** der Fotospalte durch und nur der Text weicht aus. Die Linie und
+   der Punkt sitzen am Kastenrand - und landeten damit mitten auf der Telefonnummer.
+   Mit `flow-root` stellt sich jeder Eintrag neben die Fotospalte, solange sie reicht,
+   und nimmt darunter die volle Breite. Kein Ueberlappen, kein verschenkter Rand. */
+/* `flow-root` ist hier der entscheidende Punkt: Ohne ihn laeuft der Kasten eines
+   Eintrags **unter** der Fotospalte durch und nur der Text weicht aus - Linie und Punkt
+   sassen dann mitten auf der Telefonnummer. Mit `flow-root` stellt sich jeder Eintrag
+   neben die Fotospalte, solange sie reicht, und nimmt darunter die volle Breite. */
+.eintrag { display: flow-root; }
+/* Die Marke sitzt **am Text**, nicht am Kastenrand. Am Kasten sprang sie: der erste
+   Eintrag steht neben dem Foto, die folgenden am linken Rand - eine durchgehende Linie
+   haette dort einen Absatz gemacht und ausgesehen wie ein Fehler, nicht wie Absicht. */
+.eintrag .wann { font-size: 8pt; font-weight: 600; letter-spacing: .1em;
+                 color: var(--grau); text-transform: uppercase;
+                 font-variant-numeric: tabular-nums; margin-bottom: 1mm;
+                 display: flex; align-items: center; gap: 2.4mm; }
+.eintrag .wann::before { content: ""; flex: none; width: 2.2mm; height: 2.2mm;
+                         border-radius: 50%; background: var(--farbe); }
+/* Ohne Zeitraum fehlt die Marke - dann traegt sie der Titel, damit kein Eintrag
+   ohne Anfang dasteht. */
+.eintrag .titel:first-child { border-left: .8mm solid var(--farbe); padding-left: 3mm; }
+.eintrag .titel { font-weight: 700; font-size: 11.5pt; line-height: 1.25; }
+.eintrag .firma { display: block; font-size: 10pt; font-weight: 600;
+                  color: var(--farbe); margin-top: .4mm; }
+.eintrag .dazu  { font-size: 9.5pt; color: var(--grau); margin-top: .4mm; }
+
+/* „Über mich" ist das Erste, was gelesen wird - es bekommt eine eigene Flaeche statt
+   im Fliesstext unterzugehen. Die Toenung liegt auf dem Untergrund, damit sie auch auf
+   den eingefaerbten Vorlagen passt. */
+.ueber { background: rgba(0, 0, 0, .035); border-left: 1.2mm solid var(--farbe);
+         padding: 4.5mm 6mm 3mm; border-radius: 0 1.5mm 1.5mm 0; }
+.ueber p:last-child { margin-bottom: 0; }
+
 .paar .was { font-size: 10pt; }
-.sprachzeile .sp { text-transform: uppercase; color: var(--farbe); }
+/* Bewertungen stehen rechtsbuendig untereinander - eine ruhige Kante statt einer
+   Treppe, die der Laenge der Woerter folgt. */
+.paare { display: grid; grid-template-columns: 1fr auto; gap: 1.6mm 5mm;
+         align-items: center; }
+.paar.zeile { display: contents; }
+.sprachzeile { display: flex; align-items: baseline; gap: 3mm; margin-bottom: 1.4mm; }
+.sprachzeile .sp { text-transform: uppercase; color: var(--farbe); font-weight: 600;
+                   letter-spacing: .08em; font-size: 9.5pt; }
+/* Feine Linie zwischen Sprache und Niveau: fuehrt das Auge ueber die Luecke, ohne eine
+   weitere Farbe einzufuehren. **Nur**, wenn rechts auch etwas steht - sonst zeigt sie
+   ins Leere und sieht aus wie ein Fehler (am 18.09.2026 genau so im PDF gesehen). */
+.sprachzeile.mit-grad::before { content: ""; flex: 1; order: 1; height: .25mm;
+                                background: var(--linie); }
+.sprachzeile .grad { order: 2; }
+/* `display: contents` nimmt der Zeile ihren Kasten - der Umbruchschutz aus dem Rahmen
+   greift dann nicht mehr. Deshalb hier an den Kindern. */
+.paare > * { break-inside: avoid; }
+
+/* Mehr Luft zwischen den Kapiteln. Der enge Satz war der zweite Grund, warum das Blatt
+   gedraengt wirkte: sieben Stationen und vier Kapitel ohne Atempause dazwischen. */
+.zweispaltig { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10mm;
+               break-inside: avoid; }
+.zweispaltig .spalte > h3:first-child { margin-top: 0; }
+.spalte { break-inside: avoid; }
+
+.kapitel { margin-bottom: 8.5mm; }
+/* Der Abstand **hinter** dem letzten Kapitel hat nichts mehr zu trennen - er schob den
+   Satzspiegel aber ueber die Seitenkante und erzwang eine dritte Seite, auf der nur
+   noch der wiederholte Kopf und die Seitenzahl standen. Eine leere Seite in einem
+   Lebenslauf sieht nach Unfall aus. (18.09.2026) */
+.kapitel:last-child { margin-bottom: 0; }
+.blatt > .reihe > .rechts > .kapitel:last-child { margin-bottom: 0; }
+.kapitel > h2 { margin-bottom: 4.5mm; }
+h3 + .paare, h3 + .eintrag { margin-top: 3mm; }
+.eintrag { margin-bottom: 5.5mm; }
+ul { margin-top: 2mm; }
+li { margin-bottom: 1.4mm; }
 
 /* ------------------------------------------------------------- Bewertungen */
 .sterne { color: var(--farbe); font-size: 12pt; }
@@ -184,7 +282,9 @@ h3 { color: var(--farbe); font-size: 11pt; font-weight: 700; letter-spacing: .1e
     {% if d.ueber_mich %}
     <section class="kapitel">
       <h2>Über mich</h2>
+      <div class="ueber">
       {% for absatz in d.ueber_mich.split('\n') %}{% if absatz.strip() %}<p>{{ absatz.strip() }}</p>{% endif %}{% endfor %}
+      </div>
     </section>
     {% endif %}
 
@@ -193,9 +293,12 @@ h3 { color: var(--farbe); font-size: 11pt; font-weight: 700; letter-spacing: .1e
       <h2>Berufserfahrung</h2>
       {% for b in beruf %}
       <div class="eintrag">
-        {# Der Trennstrich gehoert zwischen Titel und Firma. Steht nur eines von beiden da,
-           haengt er sonst im Nichts: "(seit 03.2026) | arbeitsuchend". #}
-        <div class="titel">({{ b.zeitraum }}){% if b.jobtitel %} {{ b.jobtitel }}{% endif %}{% if b.firma %}{{ " |" if b.jobtitel }} {{ b.firma }}{% endif %}</div>
+        {# Zeitraum oben und leise, darunter die Stelle. Steht nur eines von Titel und
+           Firma da, rueckt es schlicht in die Titelzeile - kein leeres Feld, kein
+           Trennstrich, der im Nichts haengt. #}
+        {% if b.zeitraum %}<div class="wann">{{ b.zeitraum }}</div>{% endif %}
+        <div class="titel">{{ b.jobtitel or b.firma }}
+          {%- if b.jobtitel and b.firma %}<span class="firma">{{ b.firma }}</span>{% endif %}</div>
         {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
       </div>
       {% endfor %}
@@ -207,8 +310,10 @@ h3 { color: var(--farbe); font-size: 11pt; font-weight: 700; letter-spacing: .1e
       <h2>Schulbildung</h2>
       {% for b in d.bildung %}
       <div class="eintrag">
-        <div class="titel">({{ b.zeitraum }}) {{ b.abschluss }}</div>
-        {% if b.institution %}<div>{{ b.institution }}{% if b.note %} · Note {{ b.note }}{% endif %}</div>{% endif %}
+        {% if b.zeitraum %}<div class="wann">{{ b.zeitraum }}</div>{% endif %}
+        <div class="titel">{{ b.abschluss }}
+          {%- if b.institution %}<span class="firma">{{ b.institution }}</span>{% endif %}</div>
+        {% if b.note %}<div class="dazu">Note {{ b.note }}</div>{% endif %}
       </div>
       {% endfor %}
     </section>
@@ -219,23 +324,34 @@ h3 { color: var(--farbe); font-size: 11pt; font-weight: 700; letter-spacing: .1e
     <section class="kapitel">
       <h2>Persönliche Qualifikation</h2>
 
-      {% if d.soft_skills %}
-      <h3>Soft Skills</h3>
-      <div class="paare">
-        {% for s in d.soft_skills %}
-        <div class="paar zeile"><div class="was">{{ s.eigenschaft }}</div>{{ bewertung(s.sterne, 5) }}</div>
-        {% endfor %}
-      </div>
-      {% endif %}
+      {# Beides sind kurze Listen mit einer Bewertung rechts. Untereinander fuellten sie
+         eine halbe Seite und schoben die Sprachen auf ein fast leeres Blatt. Nebeneinander
+         passen sie in denselben Raum - und der Block wirkt gesetzt statt gestapelt.
+         Ist nur eine der beiden Listen da, bleibt sie ueber die volle Breite. #}
+      {% set zwei = d.soft_skills and d.edv_kenntnisse %}
+      <div class="{{ 'zweispaltig' if zwei else '' }}">
+        {% if d.soft_skills %}
+        <div class="spalte">
+          <h3>Soft Skills</h3>
+          <div class="paare">
+            {% for s in d.soft_skills %}
+            <div class="paar zeile"><div class="was">{{ s.eigenschaft }}</div>{{ bewertung(s.sterne, 5) }}</div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
 
-      {% if d.edv_kenntnisse %}
-      <h3>EDV-Kenntnisse</h3>
-      <div class="paare">
-        {% for e in d.edv_kenntnisse %}
-        <div class="paar zeile"><div class="was">{{ e.programm }}</div>{{ bewertung(e.sterne, 4) }}</div>
-        {% endfor %}
+        {% if d.edv_kenntnisse %}
+        <div class="spalte">
+          <h3>EDV-Kenntnisse</h3>
+          <div class="paare">
+            {% for e in d.edv_kenntnisse %}
+            <div class="paar zeile"><div class="was">{{ e.programm }}</div>{{ bewertung(e.sterne, 4) }}</div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
       </div>
-      {% endif %}
 
       {% if d.zusatzqualifikationen or fs.vorhanden %}
       <h3>Zusatzqualifikationen</h3>
@@ -248,7 +364,7 @@ h3 { color: var(--farbe); font-size: 11pt; font-weight: 700; letter-spacing: .1e
       {% if d.sprachen %}
       <h3>Sprachkenntnisse</h3>
       {% for s in d.sprachen %}
-      <div class="sprachzeile"><span class="sp">{{ s.sprache }}</span>{% if s.niveau %}<span class="grad">{{ s.niveau }}</span>{% endif %}</div>
+      <div class="sprachzeile{{ ' mit-grad' if s.niveau }}"><span class="sp">{{ s.sprache }}</span>{% if s.niveau %}<span class="grad">{{ s.niveau }}</span>{% endif %}</div>
       {% endfor %}
       {% endif %}
 
