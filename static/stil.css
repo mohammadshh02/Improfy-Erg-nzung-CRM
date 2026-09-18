@@ -345,3 +345,7 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
    sonst umgebrochen da. Sie haengt rechtsbuendig, damit sie nicht aus dem Fenster laeuft. */
 .kopfsuche .ksuche{min-width:0}
 .kopfsuche .ksuche-liste{left:auto;right:0;min-width:340px}
+/* Der Sprung in die Direktsuche steht neben den Modi, gehoert aber nicht zu ihnen:
+   er waehlt nichts aus, er fuehrt woandershin. Darum gestrichelt statt gefuellt. */
+.modus-suchen{border-style:dashed;margin-left:auto}
+.modus-suchen strong{color:var(--pine)}

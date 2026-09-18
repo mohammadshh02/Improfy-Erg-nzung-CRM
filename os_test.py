@@ -15,14 +15,28 @@ Schnittstelle), werden bewusst nicht ausgelöst.
 """
 import os
 import re
-import shutil
+import atexit
+import sqlite3
 import sys
 import tempfile
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
-kopie = os.path.join(tempfile.gettempdir(), "improfy_os_gesamt_test.db")
-shutil.copy(os.path.join(HIER, "improfy_os.db"), kopie)
+# Prozessnummer im Namen: zwei Laeufe duerfen sich nie dieselbe Datei teilen.
+kopie = os.path.join(tempfile.gettempdir(), "improfy_os_gesamt_test_%d.db" % os.getpid())
+atexit.register(lambda: os.path.exists(kopie) and os.remove(kopie))
+
+# Kopie über SQLite statt über das Dateisystem: eine Datei, die gerade geschrieben wird
+# (Entwicklungsserver nebenher), kopiert sich sonst in einem Zwischenzustand, und der Test
+# schlägt bei jedem Lauf woanders fehl. Siehe dieselbe Stelle in taskforce_test.py.
+if os.path.exists(kopie):
+    os.remove(kopie)
+_quelle = sqlite3.connect(os.path.join(HIER, "improfy_os.db"))
+_ziel = sqlite3.connect(kopie)
+with _ziel:
+    _quelle.backup(_ziel)
+_ziel.close()
+_quelle.close()
 os.environ["IMPROFY_OS_DB"] = kopie
 
 import app as A                     # noqa: E402

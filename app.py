@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import sys
+import time
 import urllib.parse
 
 from flask import (Flask, abort, redirect, render_template, request, send_file,
@@ -908,6 +909,104 @@ def taskforce_wohnung():
 
 
 TF_SEITE = {"job": "taskforce_arbeit", "wohnung": "taskforce_wohnung"}
+
+
+def _suchform():
+    """Die Eingaben der Direktsuche aus der Adresse lesen – und zurueck in die Adresse.
+
+    Jede Suche steht damit vollstaendig im Link: sie laesst sich weiterschicken, als
+    Lesezeichen ablegen und vom CRM genauso aufrufen."""
+    z = lambda n, typ=int: request.args.get(n, type=typ)
+    f = {"was": (request.args.get("was") or "").strip(),
+         "wo": (request.args.get("wo") or "").strip(),
+         "km": z("km") or 25,
+         "arbeitszeit": request.args.get("arbeitszeit") or None,
+         "gehalt": z("gehalt"), "miete": z("miete"),
+         "zimmer": z("zimmer", float), "flaeche": z("flaeche"),
+         "quereinstieg": bool(request.args.get("quereinstieg")),
+         "wbs": bool(request.args.get("wbs")),
+         "quellen": request.args.getlist("quelle") or None}
+    f["fein"] = len([s for s in ("arbeitszeit", "gehalt", "miete", "zimmer", "flaeche",
+                                 "quereinstieg", "wbs") if f.get(s)])
+    return f
+
+
+def _suchprofil(art, f):
+    """Aus den Eingaben ein Profil bauen, wie es die Adapter erwarten."""
+    kriterien = {}
+    if f.get("gehalt"):
+        kriterien["min_gehalt"] = f["gehalt"]
+    if f.get("quereinstieg"):
+        kriterien["quereinstieg"] = True
+    if f.get("wbs"):
+        kriterien["wbs"] = True
+    if f.get("arbeitszeit"):
+        kriterien["arbeitszeiten"] = [f["arbeitszeit"]]
+    return tf.suchspalte(art=art, begriffe=f["was"], ort=f["wo"], umkreis_km=f["km"],
+                         arbeitszeit=f.get("arbeitszeit"), max_miete=f.get("miete"),
+                         min_zimmer=f.get("zimmer"), min_flaeche=f.get("flaeche"),
+                         kriterien=kriterien)
+
+
+@app.route("/taskforce/suchen")
+def taskforce_suchen():
+    """Beruf, Ort, Umkreis – Treffer. Ohne Kunde, ohne angelegtes Profil.
+
+    Der Weg ueber Kunde → Suchprofil → Agentenlauf bleibt: er ist der taegliche Betrieb.
+    Diese Seite ist das Gegenstueck dafuer, dass jemand einfach nachsehen will."""
+    art = request.args.get("art") if request.args.get("art") in ("job", "wohnung") else "job"
+    f = _suchform()
+    gesucht = bool(request.args.get("was") or request.args.get("wo"))
+    treffer, meldungen, dauer = [], [], 0.0
+    if gesucht:
+        begonnen = time.time()
+        treffer, meldungen = tf.direktsuche(_suchprofil(art, f), quellen=f["quellen"])
+        dauer = time.time() - begonnen
+        session["tf_suche"] = [{k: t.get(k) for k in
+                                ("quelle", "extern_id", "titel", "anbieter", "ort",
+                                 "entfernung_km", "url", "veroeffentlicht", "beschreibung",
+                                 "zusatz", "score")} for t in treffer]
+        notieren(f"Direktsuche: {f['was'] or '—'} in {f['wo'] or 'Köln'}", "taskforce", None,
+                 f"{len(treffer)} Treffer")
+    return render_template("taskforce_suchen.html", art=art, f=f, gesucht=gesucht,
+                           treffer=treffer, meldungen=meldungen, dauer=dauer,
+                           arbeitszeiten=tf.ARBEITSZEITEN, quellen=tf.quellen_stand(art),
+                           profile=tf.uebersicht(art=art))
+
+
+@app.route("/taskforce/suchen/uebernehmen", methods=["POST"])
+def taskforce_suche_uebernehmen():
+    """Ausgewaehlte Treffer auf die Tafel eines Suchprofils legen.
+
+    Die Naht zum CRM: heute waehlt ein Mensch das Profil, spaeter liefert das CRM den
+    Kunden. Was uebergeben wird, ist in beiden Faellen dieselbe Liste."""
+    pid = request.form.get("profil", type=int)
+    zurueck = request.form.get("zurueck") or url_for("taskforce_suchen")
+    gemerkt = session.get("tf_suche") or []
+    gewaehlt = [gemerkt[i] for i in request.form.getlist("treffer", type=int)
+                if 0 <= i < len(gemerkt)]
+    if not pid or not gewaehlt:
+        return redirect(zurueck + ("&" if "?" in zurueck else "?")
+                        + "meldung=" + urllib.parse.quote("Nichts angehakt oder kein Profil gewählt."))
+    neu = tf._ablegen(pid, gewaehlt)
+    notieren(f"{neu} Treffer aus der Direktsuche übernommen", "taskforce", None, str(pid))
+    return redirect(url_for("taskforce_profil", pid=pid,
+                            meldung=f"{neu} von {len(gewaehlt)} Treffern übernommen."
+                                    f" Der Rest lag schon auf der Tafel."))
+
+
+@app.route("/taskforce/api/suche")
+def taskforce_api_suche():
+    """Die Direktsuche als Schnittstelle – die Naht, an der das CRM andockt.
+
+    Kein Kunde, keine Ablage: Frage rein, Treffer raus. Das CRM schickt Beruf, Ort und
+    Umkreis und bekommt Quelle, Fremd-ID, Titel, Anbieter, Ort und Relevanz zurueck."""
+    from flask import jsonify
+    art = request.args.get("art") if request.args.get("art") in ("job", "wohnung") else "job"
+    f = _suchform()
+    treffer, meldungen = tf.direktsuche(_suchprofil(art, f), quellen=f["quellen"])
+    return jsonify(art=art, suche={k: f[k] for k in ("was", "wo", "km")},
+                   anzahl=len(treffer), meldungen=meldungen, treffer=treffer)
 
 
 

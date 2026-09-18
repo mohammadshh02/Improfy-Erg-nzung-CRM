@@ -16,16 +16,39 @@ Was geprüft wird:
  8. Jobregler: Art, Befristung, Arbeitszeit, Entfernung, Gehalt, Wörter, Arbeitgeber
  9. Tafel: jeder Filter greift und liefert eine gültige Seite
 """
+import atexit
 import os
-import shutil
+import sqlite3
 import sys
 import tempfile
 import time
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
-kopie = os.path.join(tempfile.gettempdir(), "improfy_os_test.db")
-shutil.copy(os.path.join(HIER, "improfy_os.db"), kopie)
+# Die Prozessnummer im Namen: zwei gleichzeitige Läufe – oder einer, der hängengeblieben
+# ist und weiterschreibt – teilten sich sonst eine Datei. Das Ergebnis waren Fehler, die
+# bei jedem Lauf woanders auftraten und nichts mit dem Geprüften zu tun hatten.
+kopie = os.path.join(tempfile.gettempdir(), "improfy_os_test_%d.db" % os.getpid())
+atexit.register(lambda: os.path.exists(kopie) and os.remove(kopie))
+
+# Die Kopie über SQLite ziehen, nicht über das Dateisystem.
+#
+# Vorher stand hier shutil.copy. Das ging gut, solange niemand sonst an der Datenbank war –
+# und ging schief, sobald der Entwicklungsserver nebenher lief: eine Datei, die gerade
+# geschrieben wird, kopiert sich in einem Zwischenzustand. Der Test schlug dann an Stellen
+# fehl, die mit seiner eigentlichen Frage nichts zu tun hatten (falsche Profil-Nummern,
+# doppelt gezählte KPIs), und zwar bei jedem Lauf woanders. Ein Test, der mal so und mal
+# so ausgeht, ist schlimmer als ein roter: man hört auf, ihm zu glauben.
+#
+# `backup` nimmt die Datenbank im Ganzen, sauber auch bei laufenden Schreibzugriffen.
+if os.path.exists(kopie):
+    os.remove(kopie)
+_quelle = sqlite3.connect(os.path.join(HIER, "improfy_os.db"))
+_ziel = sqlite3.connect(kopie)
+with _ziel:
+    _quelle.backup(_ziel)
+_ziel.close()
+_quelle.close()
 os.environ["IMPROFY_OS_DB"] = kopie
 
 import app as A                    # noqa: E402
@@ -253,12 +276,44 @@ def main():
     pruefe("Die Aufspaltung hat eigene Adressen",
            zeilen("/taskforce/arbeit") == zeilen("/taskforce?art=job")
            and zeilen("/taskforce/wohnung") == zeilen("/taskforce?art=wohnung"))
-    pruefe("Beide Halften stehen auf jeder der drei Ansichten zur Wahl",
-           all(c.get(u).text.count("modus-knopf") == 3
+    pruefe("Beide Halften und die Direktsuche stehen auf jeder Ansicht zur Wahl",
+           all(all(w in c.get(u).text for w in ("/taskforce/arbeit", "/taskforce/wohnung",
+                                               "/taskforce/suchen"))
                for u in ("/taskforce", "/taskforce/arbeit", "/taskforce/wohnung")))
     pruefe("In der Wohnungssuche stehen keine Stellenregler",
            "GEHALT AB" not in c.get("/taskforce/wohnung").text.upper()
            and "GEHALT AB" in c.get("/taskforce/arbeit").text.upper())
+    print("\n9b. Direktsuche und Kontaktdaten")
+    # Die Seite selbst darf ohne Eingabe nichts abfragen – sonst fragt jeder Aufruf zehn
+    # Portale. Darum wird hier nur die leere Seite geprueft, nicht die Suche selbst.
+    leer = c.get("/taskforce/suchen?art=job")
+    pruefe("Die Direktsuche steht ohne Kunde und ohne Profil bereit",
+           leer.status_code == 200 and "Beruf oder Stichworte" in leer.text)
+    pruefe("Ohne Eingabe wird kein Portal gefragt",
+           'id="uebernahme"' not in leer.text and "Beruf und Ort eintragen" in leer.text)
+    pruefe("Die Wohnungssuche zeigt Wohnungsregler",
+           "Miete bis" in c.get("/taskforce/suchen?art=wohnung").text)
+    pruefe("Die Suche laesst sich als Profil bauen",
+           tf.suchspalte(art="job", begriffe="Lagerhelfer", ort="Köln", umkreis_km=25)["ort"] == "Köln"
+           and tf.ba_parameter(tf.suchspalte(begriffe="Lagerhelfer"))["wo"] == "Köln")
+    pruefe("Tauschwohnungen sind keine Angebote", bool(tf.TAUSCH.search("TAUSCHWOHNUNG 2 Zimmer")))
+
+    probe = ("Ansprechpartnerin ist Frau Jansen. Wir freuen uns auf Ihre Bewerbung an "
+             "bewerbung@baeckerei-schollin.de oder telefonisch unter 02064/477223.")
+    k = tf.kontakt_aus_text(probe, "Bäckerei Schollin GmbH")
+    pruefe("Der Empfaenger wird aus dem Text gelesen",
+           k["kontakt_mail"] == "bewerbung@baeckerei-schollin.de"
+           and k["kontakt_tel"] == "02064/477223" and k["kontakt_name"] == "Frau Jansen", k)
+    pruefe("Kennungen gelten nicht als Rufnummer",
+           tf.kontakt_aus_text("Anbieter-ID: 01.206064.2.4")["kontakt_tel"] is None)
+    pruefe("Das naechste Satzwort gehoert nicht zum Namen",
+           tf.kontakt_aus_text("Fragen an Herr Bürgi Wir melden uns")["kontakt_name"] == "Herr Bürgi")
+    pruefe("Sammelpostfaecher der Portale zaehlen nicht als Kontakt",
+           tf.kontakt_aus_text("Kontakt: no-reply@arbeitsagentur.de")["kontakt_mail"] is None)
+    pruefe("Steht nichts da, wird nichts erfunden",
+           not any(tf.kontakt_aus_text("Eine Stelle ohne jede Kontaktangabe.").values()))
+
+    print("\n9c. Tafel: jeder Filter greift")
     pruefe("Relevanzschwelle blendet aus", zeilen("/taskforce?score=8") <= alle)
     pruefe("Abgleichschwelle blendet aus", zeilen("/taskforce?match=67") <= alle)
     pruefe("Zeitraum wirkt", zeilen("/taskforce?tage=1") <= zeilen("/taskforce?tage=30"))

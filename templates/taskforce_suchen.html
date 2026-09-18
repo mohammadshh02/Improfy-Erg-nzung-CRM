@@ -1,0 +1,147 @@
+{% extends "basis.html" %}
+{% block titel %}Suchen – Taskforce{% endblock %}
+{% block inhalt %}
+
+{# Die Direktsuche. Bis hierher führte der einzige Weg zu Treffern über Kunde → Suchprofil
+   → Agentenlauf. Wer am Telefon wissen will, was es in Leverkusen für Lagerhelfer gibt,
+   braucht kein Profil, sondern ein Feld. Gesucht wird live bei allen Portalen der Art;
+   gespeichert wird nichts, solange niemand „übernehmen" drückt. #}
+
+<h1>Suchen</h1>
+
+<nav class="modus" aria-label="Was gesucht wird">
+  <a class="modus-knopf{{ ' an' if art=='job' }}" href="{{ url_for('taskforce_suchen', art='job') }}">
+    <strong>Arbeitssuche</strong><span>Stellen bei acht Portalen</span></a>
+  <a class="modus-knopf{{ ' an' if art=='wohnung' }}" href="{{ url_for('taskforce_suchen', art='wohnung') }}">
+    <strong>Wohnungssuche</strong><span>Wohnungen bei Kleinanzeigen</span></a>
+  <a class="modus-knopf" href="{{ url_for('taskforce_seite') }}">
+    <strong>zur Tafel</strong><span>was die Agenten gefunden haben</span></a>
+</nav>
+
+<form class="reglerbank" method="get" id="suchform">
+  <input type="hidden" name="art" value="{{ art }}">
+  <div class="reglerreihe">
+    {% if art == 'job' %}
+    <label style="flex:2;min-width:240px">Beruf oder Stichworte
+      <input type="text" name="was" value="{{ f.was or '' }}" autofocus
+             placeholder="Reinigungskraft, Lagerhelfer, Sicherheitsmitarbeiter"></label>
+    {% else %}
+    <label style="flex:2;min-width:240px">Stichworte <span class="marke">(freilassen = alle)</span>
+      <input type="text" name="was" value="{{ f.was or '' }}" placeholder="WBS, Altbau, möbliert"></label>
+    {% endif %}
+    <label style="flex:1;min-width:150px">Ort
+      <input type="text" name="wo" value="{{ f.wo or '' }}" placeholder="Köln"></label>
+    <label>Umkreis
+      <select name="km">
+        {% for v in [5, 10, 15, 25, 50, 100] %}<option value="{{ v }}" {{ 'selected' if f.km==v }}>{{ v }} km</option>{% endfor %}</select></label>
+    <button type="submit" class="btn btn-primary">suchen</button>
+  </div>
+
+  <details class="tf-mehr" {{ 'open' if f.fein }}>
+    <summary>Feinere Regler{% if f.fein %} <span class="plakette p-teal">{{ f.fein }} gesetzt</span>{% endif %}</summary>
+    <div class="reglerreihe">
+      {% if art == 'job' %}
+      <label>Arbeitszeit
+        <select name="arbeitszeit"><option value="">egal</option>
+          {% for code, name in arbeitszeiten %}<option value="{{ code }}" {{ 'selected' if f.arbeitszeit==code }}>{{ name }}</option>{% endfor %}</select></label>
+      <label>Gehalt ab
+        <select name="gehalt"><option value="">egal</option>
+          {% for v in [1800, 2200, 2600, 3000, 3500] %}<option value="{{ v }}" {{ 'selected' if f.gehalt==v }}>{{ v }} €</option>{% endfor %}</select></label>
+      <label class="reglerhaken"><input type="checkbox" name="quereinstieg" value="1" {{ 'checked' if f.quereinstieg }}> nur Quereinstieg</label>
+      {% else %}
+      <label>Miete bis
+        <select name="miete"><option value="">egal</option>
+          {% for v in [500, 700, 900, 1100, 1400] %}<option value="{{ v }}" {{ 'selected' if f.miete==v }}>{{ v }} €</option>{% endfor %}</select></label>
+      <label>Zimmer ab
+        <select name="zimmer"><option value="">egal</option>
+          {% for v in [1, 2, 3, 4, 5] %}<option value="{{ v }}" {{ 'selected' if f.zimmer==v }}>{{ v }}</option>{% endfor %}</select></label>
+      <label>Fläche ab
+        <select name="flaeche"><option value="">egal</option>
+          {% for v in [40, 55, 70, 85, 100] %}<option value="{{ v }}" {{ 'selected' if f.flaeche==v }}>{{ v }} m²</option>{% endfor %}</select></label>
+      <label class="reglerhaken"><input type="checkbox" name="wbs" value="1" {{ 'checked' if f.wbs }}> nur mit WBS</label>
+      {% endif %}
+    </div>
+    <div class="reglerreihe">
+      <span class="reglertitel">Quellen</span>
+      {% for q in quellen %}
+      <label class="reglerhaken" {{ 'style=opacity:.5' if not q.bereit }}>
+        <input type="checkbox" name="quelle" value="{{ q.schluessel }}"
+               {{ 'checked' if not f.quellen or q.schluessel in f.quellen }} {{ 'disabled' if not q.bereit }}>
+        {{ q.name }}{% if not q.bereit %} (nicht verbunden){% endif %}</label>
+      {% endfor %}
+    </div>
+  </details>
+</form>
+
+{% if not gesucht %}
+<p class="leer">Beruf und Ort eintragen, dann suchen. Gefragt werden alle verbundenen Portale
+  gleichzeitig; das dauert wenige Sekunden. Gespeichert wird nichts – eine Suche ist eine Frage.</p>
+
+{% else %}
+<section class="tf-abschnitt">
+  <h2>{{ treffer|length }} Treffer
+    <span class="marke">– {{ '%.1f'|format(dauer) }} Sekunden{% if meldungen %} · {{ meldungen|join(' · ') }}{% endif %}</span></h2>
+
+  {% if not treffer %}
+  <p class="leer">Nichts gefunden. Das liegt fast immer an den Stichworten: die Portale suchen
+    wörtlich. „Lagerhelfer" findet mehr als „Helfer im Lagerbereich", und ein einzelner Beruf
+    mehr als fünf. Mehrere Begriffe mit Komma trennen – jeder wird einzeln gesucht.</p>
+  {% else %}
+
+  {# Übernehmen ist die Naht zum CRM: heute sind es die Suchprofile im OS, später kommt der
+     Kunde aus crm.improfy.de. Was die Naht überquert, ist in beiden Fällen dasselbe – eine
+     Liste von Treffern mit Quelle und Fremd-ID. #}
+  <form method="post" action="{{ url_for('taskforce_suche_uebernehmen') }}" id="uebernahme">
+    <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+    <div class="tabellenkasten">
+    <table>
+      <tr><th>{% if profile %}<input type="checkbox" onclick="document.querySelectorAll('#uebernahme input[name=treffer]').forEach(c=>c.checked=this.checked)">{% endif %}</th>
+          <th>Rel.</th><th>Angebot</th><th>Anbieter · Ort</th><th>Quelle</th><th>online seit</th></tr>
+      {% for x in treffer %}
+      <tr>
+        <td>{% if profile %}<input type="checkbox" name="treffer" value="{{ loop.index0 }}">{% endif %}</td>
+        <td><span class="plakette {{ 'p-gruen' if (x.score or 0) >= 6 else ('p-gelb' if (x.score or 0) >= 3 else 'p-grau') }}" title="Relevanz 0–10">{{ (x.score or 0)|round(0)|int }}</span></td>
+        <td><a href="{{ x.url }}" target="_blank" rel="noopener"><strong>{{ x.titel }}</strong></a>
+          {% set z = x.zusatz or {} %}
+          <div class="marke">{{ [z.arbeitszeit, z.vertrag, z.gehalt, z.preis, z.zimmer and z.zimmer ~ ' Zi.', z.flaeche]|select|join(' · ') }}</div>
+          {% if x.beschreibung %}<div class="marke" style="max-width:520px">{{ x.beschreibung[:170] }}…</div>{% endif %}</td>
+        <td>{{ x.anbieter or '—' }}<div class="marke">{{ x.ort or '' }}{% if x.entfernung_km is not none %} · {{ x.entfernung_km }} km{% endif %}</div></td>
+        <td><span class="plakette p-grau">{{ x.quelle }}</span></td>
+        <td class="marke">{{ x.veroeffentlicht|datum if x.veroeffentlicht else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+
+    {% if profile %}
+    <div class="karte" style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <strong>Ausgewählte übernehmen für:</strong>
+      <select name="profil" required>
+        <option value="">Suchprofil wählen …</option>
+        {% for p in profile %}<option value="{{ p.id }}">{{ p.kunde }} · {{ p.titel }}</option>{% endfor %}
+      </select>
+      <button type="submit">übernehmen</button>
+      <span class="marke">Die Treffer landen auf der Tafel dieses Profils, als wären die Agenten
+        darüber gelaufen. Was dort schon liegt, kommt nicht doppelt.</span>
+    </div>
+    {% else %}
+    <p class="marke" style="margin-top:10px">Zum Übernehmen braucht es ein Suchprofil.
+      Solange keins angelegt ist, ist das hier eine reine Suche – zum Nachsehen und Weitergeben.</p>
+    {% endif %}
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
+<details class="tf-nach">
+  <summary>Dieselbe Suche als Schnittstelle <span class="marke">– für die Anbindung an crm.improfy.de</span></summary>
+  <div class="tf-nach-inhalt">
+    <p class="marke">Die Direktsuche liegt zusätzlich als JSON bereit. Sie braucht keinen Kunden und
+      keine Ablage – das CRM schickt die Suche und bekommt die Treffer zurück, mit Quelle,
+      Fremd-ID und Relevanz. Genau das ist die Naht, an der später der Kunde aus dem CRM kommt.</p>
+    <p class="marke"><code>GET {{ url_for('taskforce_api_suche') }}?art={{ art }}&amp;was=Lagerhelfer&amp;wo=K%C3%B6ln&amp;km=25</code></p>
+    <p><a href="{{ url_for('taskforce_api_suche', art=art, was=f.was or 'Lagerhelfer', wo=f.wo or 'Köln', km=f.km) }}"
+          target="_blank" rel="noopener">Antwort ansehen →</a></p>
+  </div>
+</details>
+{% endblock %}

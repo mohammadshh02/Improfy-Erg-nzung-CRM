@@ -33,6 +33,7 @@ Quellen (Adapter), Stand 15.09.2026:
   - wohnung.link          Von Hand eingetragene Exposé-Links (Fallback, Kontrolle)
 """
 import base64
+import concurrent.futures
 import datetime
 import email
 import email.header
@@ -119,7 +120,13 @@ NACHRUESTEN = [("tf_profil", "quellen", "TEXT"),          # kommagetrennt, leer 
                ("tf_angebot", "beschreibung_lang", "TEXT"),  # volle Stellen-/Exposébeschreibung, nachgeladen
                ("tf_angebot", "abgleich", "TEXT"),        # JSON: passt / fehlt / unklar / plus
                ("tf_angebot", "match", "REAL"),           # Anteil erfüllter Anforderungen in Prozent
-               ("tf_angebot", "abgleich_am", "TEXT")]
+               ("tf_angebot", "abgleich_am", "TEXT"),
+               # Der Empfaenger. Ohne ihn kann aus dem System heraus niemand schreiben.
+               ("tf_angebot", "kontakt_mail", "TEXT"),
+               ("tf_angebot", "kontakt_tel", "TEXT"),
+               ("tf_angebot", "kontakt_name", "TEXT"),
+               ("tf_angebot", "bewerbung", "TEXT"),      # der Text, der rausging
+               ("tf_angebot", "bewerbung_am", "TEXT")]
 
 STATUS = ("neu", "gesehen", "angeschrieben", "antwort", "erfolg", "verworfen", "doppelt")
 STATUS_TEXT = {"neu": "neu", "gesehen": "gesehen", "angeschrieben": "angeschrieben",
@@ -1058,6 +1065,10 @@ def jobs_kleinanzeigen(p):
 
 
 GESUCH = re.compile(r"\b(such(e|t|en)|gesucht|wir suchen|ich suche)\b", re.I)
+# Tauschwohnungen stellen auf Kleinanzeigen die Mehrheit der Kölner Treffer – und sind für
+# unsere Leute wertlos: wer tauscht, verlangt eine Wohnung im Gegenzug. Genau die haben die
+# Menschen nicht, für die wir suchen. Ungefiltert stehen sie vor den echten Angeboten.
+TAUSCH = re.compile(r"\btausch", re.I)
 
 
 def wohnung_kleinanzeigen(p):
@@ -1073,6 +1084,8 @@ def wohnung_kleinanzeigen(p):
     for a in _ka_liste(params, max_seiten=3):
         if GESUCH.search(a["titel"] or ""):
             continue                       # Mieter, die selbst suchen – nicht anschreiben
+        if TAUSCH.search(a["titel"] or ""):
+            continue                       # Tauschangebot: setzt eine eigene Wohnung voraus
         zimmer = re.search(r"(\d+(?:[.,]\d)?)\s*Zi", a["masse"] or "")
         flaeche = re.search(r"(\d+)\s*m²", a["masse"] or "")
         zi = float(zimmer.group(1).replace(",", ".")) if zimmer else None
@@ -1679,6 +1692,78 @@ def lauf(pid):
     return gesamt, neu_gesamt, meldungen
 
 
+# ------------------------------------------------------------------- Direktsuche
+
+def suchspalte(art="job", begriffe="", ort="Köln", umkreis_km=25, arbeitszeit=None,
+               max_miete=None, min_zimmer=None, min_flaeche=None, kriterien=None):
+    """Ein Suchprofil, das es nur für diesen Augenblick gibt.
+
+    Die Adapter erwarten ein Profil als einfaches Wörterbuch – sie lesen nie aus der
+    Datenbank. Genau darum kann man auch ohne angelegtes Profil suchen; das war nie
+    ausgeschlossen, es hat nur niemand angeboten."""
+    return {"art": art, "suchbegriffe": begriffe or "", "ort": (ort or "").strip() or "Köln",
+            "umkreis_km": _zahl(umkreis_km) or 25, "arbeitszeit": arbeitszeit or None,
+            "zeitarbeit": 0, "quellen": None, "notiz": None, "suchauftrag": None,
+            "max_miete": _zahl(max_miete), "min_zimmer": _zahl(min_zimmer, float),
+            "min_flaeche": _zahl(min_flaeche),
+            "kriterien": json.dumps(kriterien or {}, ensure_ascii=False)}
+
+
+def direktsuche(p, quellen=None, grenze=200):
+    """Alle Quellen der Art gleichzeitig fragen und die Treffer zusammenlegen.
+
+    **Warum es das gibt.** Bisher führte der einzige Weg zu Treffern über Kunde → Suchprofil
+    → Agentenlauf. Wer nur wissen wollte, was es in Köln für Reinigungskräfte gibt – am
+    Telefon, im Gespräch, zur Einschätzung –, hatte kein Feld dafür. Das ist die Grundlage
+    der Arbeitsvermittlung und darf nicht von einem angelegten Datensatz abhängen.
+
+    **Gleichzeitig, nicht nacheinander.** Der Agentenlauf fragt Quelle für Quelle; das ist
+    für den Nachtlauf gleichgültig, aber niemand wartet am Bildschirm zwanzig Sekunden.
+    Nebeneinander gefragt antworten alle in der Zeit der langsamsten.
+
+    Gibt (treffer, meldungen) zurück. Nichts wird gespeichert – eine Suche ist eine Frage,
+    keine Ablage. Übernommen wird ein Treffer erst mit einem Klick."""
+    schluessel = [s for s in quellen_fuer(p)
+                  if (not quellen or s in quellen) and QUELLEN[s][3]()]
+    treffer, meldungen = [], []
+
+    def fragen(s):
+        name, _, funktion, _ = QUELLEN[s]
+        try:
+            return s, funktion(p), None
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+            return s, [], f"{name}: nicht erreichbar ({e})"
+        except Exception as e:
+            return s, [], f"{name}: {e}"
+
+    if schluessel:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(schluessel)) as pool:
+            for _, gefunden, meldung in pool.map(fragen, schluessel):
+                treffer.extend(gefunden)
+                if meldung:
+                    meldungen.append(meldung)
+
+    treffer, weg = job_filter(p, treffer)
+    if weg:
+        meldungen.append(f"{weg} durch die Regler aussortiert")
+
+    # Dieselbe Stelle steht oft bei drei Portalen. Der erste Fund gilt, die anderen zaehlen
+    # wir nur – dieselbe Regel wie beim Agentenlauf, damit die Liste vergleichbar bleibt.
+    gesehen, einmalig, doppelt = set(), [], 0
+    for x in treffer:
+        s = _schluessel(x)
+        if s in gesehen:
+            doppelt += 1
+            continue
+        gesehen.add(s)
+        x["score"] = _score(p, x)
+        einmalig.append(x)
+    if doppelt:
+        meldungen.append(f"{doppelt} Dubletten aus anderen Portalen ausgeblendet")
+    einmalig.sort(key=lambda x: (-(x.get("score") or 0), x.get("titel") or ""))
+    return einmalig[:grenze], meldungen
+
+
 def alle_laufen(standort=db.STANDORT_STANDARD, alarm=True, art=None):
     """art='job' laesst nur die Arbeits-Agenten laufen, art='wohnung' nur die Wohnungs-Agenten.
 
@@ -1716,6 +1801,91 @@ def alarm_senden(ergebnisse):
     except Exception:
         return False
 
+
+
+# ------------------------------------------------------ Kontaktdaten im Angebot
+
+# Wer im Text steht, an den kann man schreiben. Gemessen an 56 vollstaendig geladenen
+# Angeboten (18.09.2026): 11 % nennen eine Mailadresse, 38 % eine Telefonnummer. Der Rest
+# laeuft ueber das Portalformular – darum ist die Bewerbung nie nur ein Mailversand.
+MAIL_MUSTER = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+TEL_MUSTER = re.compile(r"(?:\+49|0)\s?[\d()/\s.-]{7,24}\d")
+ANREDE = re.compile(r"\b(Herrn?|Frau)\s+((?:Dr\.|Prof\.)?\s*[A-ZÄÖÜ][\wäöüß-]+"
+                    r"(?:\s+[A-ZÄÖÜ][\wäöüß-]+){0,2})")
+# Deutsche Saetze fangen gross an. „Ansprechpartner ist Herr Bürgi Wir freuen uns …" haengt
+# das naechste Satzwort an den Namen, wenn man nur auf Grossschreibung achtet.
+NAME_STOPP = {"Wir", "Sie", "Ihre", "Ihr", "Ihnen", "Bitte", "Die", "Der", "Das", "Den",
+              "Unser", "Unsere", "Im", "In", "Am", "Und", "Oder", "Für", "Bei", "Gerne",
+              "Telefon", "Tel", "Mail", "E-Mail", "Rufen", "Melden", "Haben", "Senden"}
+# Sammelpostfaecher, die niemanden erreichen, und Adressen der Portale selbst.
+MAIL_WEG = re.compile(r"no-?reply|do-?not-?reply|datenschutz@|impressum@|webmaster@|"
+                      r"@(arbeitsagentur|stepstone|indeed|kleinanzeigen|meinestadt)\.", re.I)
+NAEHE = re.compile(r"(ansprechpartner|ansprechperson|kontakt|rückfrage|rueckfrage|bewerb|"
+                   r"fragen|telefon|tel\.|e-?mail)", re.I)
+
+
+def _naechster(text, muster, pruefen=None, fenster=140):
+    """Den Treffer nehmen, der am nächsten an einem Kontakt-Stichwort steht.
+
+    In einer Stellenbeschreibung stehen oft mehrere Nummern – die der Zentrale, die im
+    Impressum, die des Standorts. Gemeint ist die neben „Ansprechpartner" oder
+    „Rückfragen". Findet sich kein Stichwort in der Nähe, gilt der erste Treffer; das ist
+    seltener richtig, aber besser als nichts, und der Mensch sieht ihn vor dem Absenden."""
+    beste, erster = None, None
+    for m in muster.finditer(text or ""):
+        wert = m.group(0).strip(" .,;:")
+        if pruefen and not pruefen(wert):
+            continue
+        if erster is None:
+            erster = wert
+        umfeld = text[max(0, m.start() - fenster):m.start()]
+        if NAEHE.search(umfeld):
+            beste = beste or wert
+    return beste or erster
+
+
+def _telefon_sauber(roh):
+    """Ziffernfolgen, die keine Telefonnummer sind, aussortieren: Referenznummern,
+    Zeiträume, Beträge. Eine deutsche Rufnummer hat mit Vorwahl 9 bis 15 Ziffern.
+
+    Die Punktregel kommt aus dem Bestand: Kleinanzeigen-Beschreibungen enthalten Kennungen
+    wie „01.206064.2.4", die jedes Rufnummernmuster erfüllen. Zwei Punkte hat keine
+    Rufnummer, eine Kennung fast immer."""
+    roh = (roh or "").strip(" .,;:-/")
+    if roh.count(".") >= 2:
+        return None
+    ziffern = re.sub(r"\D", "", roh)
+    if not 9 <= len(ziffern) <= 15:
+        return None
+    return re.sub(r"\s{2,}", " ", roh)
+
+
+def kontakt_aus_text(text, anbieter=None):
+    """Mailadresse, Telefonnummer und Ansprechpartner aus einer Beschreibung lesen.
+
+    Nichts davon wird erfunden: steht es nicht da, bleibt das Feld leer, und die Bewerbung
+    laeuft ueber den Portallink. Ein falscher Empfaenger waere schlimmer als keiner."""
+    text = text or ""
+    mail = _naechster(text, MAIL_MUSTER, lambda w: not MAIL_WEG.search(w))
+    # Eine Adresse, deren Domain zum Arbeitgeber passt, ist die richtige – auch wenn weiter
+    # oben im Text eine allgemeinere steht.
+    if anbieter:
+        kern = re.sub(r"[^a-z]", "", vergleichbar(anbieter).split(" ")[0] or "")
+        if len(kern) >= 4:
+            for m in MAIL_MUSTER.finditer(text):
+                w = m.group(0).strip(" .,;:")
+                if kern in w.lower() and not MAIL_WEG.search(w):
+                    mail = w
+                    break
+    tel = _telefon_sauber(_naechster(text, TEL_MUSTER, lambda w: _telefon_sauber(w)))
+    name = None
+    m = ANREDE.search(text)
+    if m:
+        worte = re.sub(r"\s+", " ", m.group(0)).strip().split(" ")
+        while len(worte) > 2 and worte[-1] in NAME_STOPP:
+            worte.pop()                    # das nächste Satzwort gehört nicht zum Namen
+        name = " ".join(worte) if worte[-1] not in NAME_STOPP else None
+    return {"kontakt_mail": mail, "kontakt_tel": tel, "kontakt_name": name}
 
 
 # ------------------------------------------- Stellen-/Exposébeschreibung nachladen
@@ -1960,11 +2130,17 @@ def abgleich(aid, laden=True):
     n = len(passt) + len(fehlt)
     match = round(100 * len(passt) / n) if n else None
     ergebnis = {"passt": passt, "fehlt": fehlt, "unklar": unklar, "plus": plus}
+    # Der Kontakt faellt beim Abgleich mit ab – die Beschreibung ist dafuer ohnehin geladen.
+    # COALESCE: was ein Mensch von Hand eingetragen hat, ueberschreibt der Automat nicht.
+    k = kontakt_aus_text(text, a.get("anbieter"))
     with db.offen() as con:
         con.execute("UPDATE tf_angebot SET beschreibung_lang=?, abgleich=?, match=?, abgleich_am=?, zusatz=?,"
-                    " beschreibung=COALESCE(beschreibung, ?) WHERE id=?",
+                    " beschreibung=COALESCE(beschreibung, ?),"
+                    " kontakt_mail=COALESCE(kontakt_mail, ?), kontakt_tel=COALESCE(kontakt_tel, ?),"
+                    " kontakt_name=COALESCE(kontakt_name, ?) WHERE id=?",
                     (text[:6000] or None, json.dumps(ergebnis, ensure_ascii=False), match, jetzt(),
-                     json.dumps(z, ensure_ascii=False), text[:400] or None, aid))
+                     json.dumps(z, ensure_ascii=False), text[:400] or None,
+                     k["kontakt_mail"], k["kontakt_tel"], k["kontakt_name"], aid))
     return ergebnis, match
 
 

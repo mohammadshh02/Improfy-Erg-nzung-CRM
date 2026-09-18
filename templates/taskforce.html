@@ -36,6 +36,11 @@
   <a class="modus-knopf{{ ' an' if not modus }}" href="{{ url_for('taskforce_seite') }}">
     <strong>beides</strong>
     <span>Gesamtbild</span></a>
+  {# Die Tafel zeigt, was die Agenten gebracht haben. Wer jetzt sofort etwas wissen will,
+     geht hier hinueber – ohne Kunde, ohne Profil. #}
+  <a class="modus-knopf modus-suchen" href="{{ url_for('taskforce_suchen', art=modus or 'job') }}">
+    <strong>selbst suchen →</strong>
+    <span>Beruf, Ort, Umkreis – sofort</span></a>
 </nav>
 
 <p class="unterzeile">
