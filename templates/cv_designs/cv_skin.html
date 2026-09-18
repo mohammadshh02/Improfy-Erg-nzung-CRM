@@ -193,7 +193,9 @@ h3 { color: var(--farbe); font-size: 11pt; font-weight: 700; letter-spacing: .1e
       <h2>Berufserfahrung</h2>
       {% for b in beruf %}
       <div class="eintrag">
-        <div class="titel">({{ b.zeitraum }}){% if b.jobtitel %} {{ b.jobtitel }}{% endif %}{% if b.firma %} | {{ b.firma }}{% endif %}</div>
+        {# Der Trennstrich gehoert zwischen Titel und Firma. Steht nur eines von beiden da,
+           haengt er sonst im Nichts: "(seit 03.2026) | arbeitsuchend". #}
+        <div class="titel">({{ b.zeitraum }}){% if b.jobtitel %} {{ b.jobtitel }}{% endif %}{% if b.firma %}{{ " |" if b.jobtitel }} {{ b.firma }}{% endif %}</div>
         {% if b.taetigkeiten %}<ul>{% for t in b.taetigkeiten %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
       </div>
       {% endfor %}

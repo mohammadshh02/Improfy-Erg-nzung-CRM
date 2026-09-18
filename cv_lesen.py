@@ -35,8 +35,9 @@ ABSCHNITTE = [
     ("beruf", r"BERUFSERFAHRUNG|BERUFLICHE\s*LAUFBAH\w*|BERUFLICHER\s*WERDEGANG|BERUFSPRAXIS"),
     ("bildung", r"SCHULBILDUNG|SCHULAUSBILDUNG|AUSBILDUNG\b|BILDUNG\b|STUDIUM\b"),
     ("sprachen", r"SPRACHKENNTNISS\w*|SPRACHEN\b"),
-    ("edv", r"EDV[\s-]*KENNTNISS\w*|IT[\s-]*KENNTNISS\w*|COMPUTERKENNTNISS\w*|PC[\s-]*KENNTNISS\w*"),
-    ("skills", r"SOFT\s*S?\s*KILLS|SOFT\s*SKILLS|KOMPETENZEN|PERSÖNLICHE\s*QUALIFIKATION"),
+    # Auch die Kurzform zaehlt: viele schreiben schlicht "EDV:" oder "Staerken:".
+    ("edv", r"EDV[\s-]*KENNTNISS\w*|IT[\s-]*KENNTNISS\w*|COMPUTERKENNTNISS\w*|PC[\s-]*KENNTNISS\w*|EDV\b|IT[\s-]*SKILLS"),
+    ("skills", r"SOFT\s*S?\s*KILLS|SOFT\s*SKILLS|KOMPETENZEN|PERSÖNLICHE\s*QUALIFIKATION|STÄRKEN\b|STAERKEN\b|PERSÖNLICHE\s*EIGENSCHAFTEN"),
     ("zusatz", r"ZUSATZQUALIFIKATION\w*|WEITERBILDUNG\w*|ZERTIFIKATE|QUALIFIKATIONEN\b"),
     ("hobbys", r"HOBBY\w*|INTERESSEN|FREIZEIT"),
 ]
@@ -48,8 +49,12 @@ EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]{2,}")
 PLZ_ORT = re.compile(r"([A-Za-zÄÖÜäöüß.\-]+(?:str\.?|straße|weg|allee|platz|gasse|ring)\s*\d*[a-z]?)"
                      r"\s*,?\s*(\d{5})\s+([A-ZÄÖÜ][\wäöüß.\- ]+)", re.I)
 # "(07.2025 - 08.2025) Firma | Jobtitel"  oder  "(seit 04.2024) Jobtitel | Firma"
+# Der Aufzaehlungsstrich davor ist ueblich, sobald jemand den Werdegang als Liste
+# schreibt ("- 07.2023-10.2023 Lagerhelfer, Amazon"). Ohne ihn zu ueberspringen, faellt
+# eine solche Liste komplett durch - am 18.09.2026 an einem echten Kundentext gesehen,
+# acht Stationen, keine einzige erkannt.
 STATION = re.compile(
-    r"^\(?\s*((?:seit\s+)?\d{1,2}\.\d{1,2}\.\d{4}|(?:seit\s+)?\d{1,2}[./]\d{4}|(?:seit\s+)?\d{4})"
+    r"^[\s\-–—•*·]*\(?\s*((?:seit\s+)?\d{1,2}\.\d{1,2}\.\d{4}|(?:seit\s+)?\d{1,2}[./]\d{4}|(?:seit\s+)?\d{4})"
     r"\s*(?:[-–—]\s*(\d{1,2}\.\d{1,2}\.\d{4}|\d{1,2}[./]\d{4}|\d{4}|heute|jetzt))?\s*\)?\s*(.*)$", re.I)
 FIRMENWORT = re.compile(r"\b(GmbH|AG|KG|UG|e\.?V\.?|GbR|mbH|Ltd|Inc|Universität|Hochschule|Schule|"
                         r"Institut|Akademie|Berufskolleg|Berufsbildungswerk|Klinik|Apotheke|Praxis|"
@@ -107,14 +112,43 @@ def _kopfzeilen_entfernen(text):
     return "\n".join(sauber)
 
 
+def _ist_ueberschrift(text, m):
+    """Steht dieser Treffer an einer Stelle, an der eine Ueberschrift stehen kann?
+
+    Zwei Bedingungen, beide notwendig:
+
+    **Zeilenanfang.** Davor darf nur Leerraum oder ein Aufzaehlungszeichen stehen. Ohne
+    das zaehlt jedes Vorkommen im Fliesstext - "berufliche *Weiterbildung*, Vertiefung
+    der Deutschkenntnisse" hat so den Werdegang entzweigeschnitten und sechs Stationen
+    verschluckt (18.09.2026 an einem echten Kundentext gesehen).
+
+    **Abschluss.** Dahinter kommt das Zeilenende, ein Doppelpunkt oder ein Gedankenstrich.
+    Eine Zeile, die mit "Ausbildung zum Kaufmann bei Firma X" beginnt, ist eine Station,
+    keine Ueberschrift."""
+    davor = text.rfind("\n", 0, m.start()) + 1
+    if text[davor:m.start()].strip(" \t-–—•*·"):
+        return False
+    rest = text[m.end():]
+    zeilenrest = rest.split("\n", 1)[0]
+    return not zeilenrest.strip() or zeilenrest.lstrip()[:1] in (":", "-", "–", "—")
+
+
+def _ohne_doppelpunkt(text):
+    """Der Doppelpunkt hinter der Ueberschrift gehoert nicht zum Inhalt.
+
+    Ohne das stand im Formular ": MS Word" statt "MS Word"."""
+    text = (text or "").lstrip()
+    return text[1:].lstrip() if text[:1] == ":" else text
+
+
 def _zerlege(text):
     """Text in die Abschnitte der Vorlage zerlegen. Alles vor dem ersten Titel ist der Kopf."""
-    treffer = list(UEBERSCHRIFT.finditer(text))
+    treffer = [m for m in UEBERSCHRIFT.finditer(text) if _ist_ueberschrift(text, m)]
     abschnitte = {"kopf": text[:treffer[0].start()] if treffer else text}
     for i, m in enumerate(treffer):
         name = m.lastgroup
         ende = treffer[i + 1].start() if i + 1 < len(treffer) else len(text)
-        inhalt = text[m.end():ende].strip()
+        inhalt = _ohne_doppelpunkt(text[m.end():ende].strip())
         # Kommt eine Überschrift mehrfach vor (die Vorlage wiederholt sie je Seite),
         # gewinnt der längere Block - der kurze ist meist nur eine Wiederholung der Kopfzeile.
         if len(inhalt) > len(abschnitte.get(name, "")):
@@ -176,9 +210,108 @@ def _seite_mit_firma(paare):
     return None
 
 
+def _komma_ausserhalb_klammern(text):
+    """Die Stelle des ersten Kommas, das nicht in einer Klammer steht - sonst None.
+
+    "M.A. Europaeische Studien (Erasmus, Europa-Universitaet Flensburg)" hat sein erstes
+    Komma **in** der Klammer. Dort getrennt, blieb der Abschluss als "M.A. Europaeische
+    Studien (Erasmus" stehen - eine offene Klammer mitten im Lebenslauf."""
+    tiefe = 0
+    for i, z in enumerate(text or ""):
+        if z in "([{":
+            tiefe += 1
+        elif z in ")]}":
+            tiefe = max(0, tiefe - 1)
+        elif z == "," and tiefe == 0:
+            return i
+    return None
+
+
+def _klammertiefe(text, stelle):
+    """Wie tief in Klammern steht diese Stelle? 0 heißt: frei im Satz."""
+    tiefe = 0
+    for z in text[:stelle]:
+        if z in "([{":
+            tiefe += 1
+        elif z in ")]}":
+            tiefe = max(0, tiefe - 1)
+    return tiefe
+
+
+def _sauber(text):
+    """Satzzeichen am Rand abschneiden. Eine Firma heisst nicht "Universitaet Nangarhar."."""
+    return (text or "").strip().strip(" ,;.-–—")
+
+
+def _frei_geschrieben(rest):
+    """"Titel, Firma: Taetigkeiten" in seine drei Teile zerlegen.
+
+    Greift nur, wenn kein senkrechter Strich dasteht - sonst hat die Vorlage schon
+    getrennt und jede Rateregel waere ein Rueckschritt.
+
+    Die Reihenfolge ist absichtlich so:
+      1. Der erste Doppelpunkt trennt die Taetigkeiten ab. Er steht in dieser
+         Schreibweise praktisch immer dort und nirgends sonst.
+      2. Danach das erste Komma: links der Titel, rechts die Firma. Weitere Kommas
+         bleiben bei der Firma ("Amazon Deutschland GmbH, Duisburg").
+      3. Steht kein Komma da, hilft das Firmenwort weiter ("Teilnehmer Improfy GmbH
+         Koeln" -> "Teilnehmer" und "Improfy GmbH Koeln").
+    Passt nichts davon, bleibt es beim ganzen Text als Firma - lieber ungetrennt als
+    an der falschen Stelle geschnitten."""
+    taetigkeit = ""
+    if ":" in rest:
+        kopf, schwanz = rest.split(":", 1)
+        # Nur trennen, wenn links wirklich eine Ueberschrift steht und nicht eine
+        # Uhrzeit oder ein Verhaeltnis ("Teilzeit 20:30").
+        if kopf.strip() and not kopf.strip()[-1].isdigit():
+            rest, taetigkeit = kopf.strip(), schwanz.strip()
+    komma = _komma_ausserhalb_klammern(rest)
+    if komma is not None:
+        titel = _sauber(rest[:komma])
+        firma = _sauber(rest[komma + 1:])
+        if titel and firma:
+            return titel, firma, taetigkeit
+    # Auch hier gilt der Klammerschutz: In "M.A. Europäische Studien (Erasmus,
+    # Europa-Universität Flensburg)" steht das Wort „Universität" **in** der Klammer.
+    # Dort getrennt, blieb eine offene Klammer im Lebenslauf stehen.
+    m = next((x for x in FIRMENWORT.finditer(rest)
+              if _klammertiefe(rest, x.start()) == 0), None)
+    if m and m.start() > 2:
+        titel, firma = _sauber(rest[:m.start()]), _sauber(rest[m.start():])
+        if titel and firma:
+            return titel, firma, taetigkeit
+    return "", _sauber(rest), taetigkeit
+
+
+def _fortsetzungen_anfuegen(text):
+    """Zeilen, die erkennbar die vorige fortsetzen, wieder an sie anhaengen.
+
+    Zwei Zeichen gelten als Fortsetzung, beide fuer sich schon eindeutig genug:
+
+      eingerueckt      Wer eine Liste schreibt, rueckt die Folgezeile ein.
+      klein begonnen   Ein Satz, der mit einem Kleinbuchstaben anfaengt, hat vorher
+                       angefangen.
+
+    Eine Zeile, die selbst eine Station ist, wird nie angehaengt - sonst verschwinden
+    Stationen im Text der vorigen."""
+    ergebnis = []
+    for roh in (text or "").splitlines():
+        zeile = roh.strip()
+        if not zeile:
+            continue
+        eingerueckt = roh[:1] in (" ", "\t") and roh.lstrip() != roh
+        setzt_fort = ergebnis and not STATION.match(zeile) and (
+            eingerueckt or zeile[:1].islower())
+        if setzt_fort:
+            ergebnis[-1] = ergebnis[-1].rstrip() + " " + zeile
+        else:
+            ergebnis.append(zeile)
+    return "\n".join(ergebnis)
+
+
 def _stationen(text, art):
     """Berufserfahrung oder Bildung: je Eintrag Zeitraum, Firma/Institution, Titel, Stichpunkte."""
-    zeilen = _zeilen(text)
+    zeilen = _zeilen(_fortsetzungen_anfuegen(text))
     # Die Firmenseite einmal für den ganzen Abschnitt bestimmen (siehe _seite_mit_firma).
     paare = []
     for z in zeilen:
@@ -209,7 +342,11 @@ def _stationen(text, art):
                 firma, titel = rechts, links
             else:
                 firma, titel = links, rechts
-            aktuell = {"zeitraum": zeitraum, "firma": firma, "jobtitel": titel, "taetigkeiten": []}
+            erste_taetigkeit = ""
+            if not rechts:
+                titel, firma, erste_taetigkeit = _frei_geschrieben(links)
+            aktuell = {"zeitraum": zeitraum, "firma": firma, "jobtitel": titel,
+                       "taetigkeiten": [erste_taetigkeit] if erste_taetigkeit else []}
             if art == "bildung":
                 aktuell = {"zeitraum": zeitraum, "abschluss": titel or firma,
                            "institution": firma if titel else "", "note": ""}
@@ -339,10 +476,29 @@ def _liste_mit_sternen(text, standard=4):
             teil = teil.strip(" -–—•·")
             teil = re.sub(r"\s*-\s*(gute\s*kenntnisse|grundkenntnisse|sehr\s*gut)\s*$", "", teil, flags=re.I)
             teil = STERN.sub("", teil).strip()
+            teil = teil.strip(" .;")
             if 2 < len(teil) <= 40 and not teil.isupper() or (teil.isupper() and len(teil) <= 20):
                 if teil and teil.lower() not in [e["name"].lower() for e in eintraege]:
                     eintraege.append({"name": teil, "sterne": standard})
-    return eintraege[:8]
+    return _ohne_nachsatz(eintraege)[:8]
+
+
+# "MS Word, Excel, PowerPoint, Outlook, jeweils gute Kenntnisse" - das Letzte ist keine
+# Faehigkeit, sondern die Bewertung der vorigen. Ungefiltert stand "jeweils gute
+# Kenntnisse" als eigenes Programm im Lebenslauf.
+NACHSATZ = re.compile(r"^(jeweils\s+|alle\s+|durchweg\s+|je\s+)?"
+                      r"(sehr\s+gute?|gute?|grund)\s*kenntnisse$", re.I)
+
+
+def _ohne_nachsatz(eintraege):
+    """Ein abschliessendes Niveau-Wort entfernen und auf die Eintraege davor anwenden."""
+    if not eintraege or not NACHSATZ.match(eintraege[-1]["name"].strip()):
+        return eintraege
+    niveau = eintraege[-1]["name"].lower()
+    sterne = 5 if "sehr" in niveau else 3 if "grund" in niveau else 4
+    for e in eintraege[:-1]:
+        e["sterne"] = sterne
+    return eintraege[:-1]
 
 
 def lese_lebenslauf(text):

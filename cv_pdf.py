@@ -148,10 +148,37 @@ def improfy_block(daten):
                              "Aktive Kontaktaufnahme mit Unternehmen"]}
 
 
+def _ist_improfy(station):
+    """Beschreibt diese Station die Teilnahme bei Improfy?
+
+    Gesucht wird im Firmenfeld **und** im Jobtitel: mal steht „Teilnehmer | Improfy
+    GmbH, Köln", mal „Teilnehmer Improfy GmbH Köln" in einem Feld, je nachdem, wie der
+    Text ausgelesen wurde."""
+    zusammen = " ".join(str(station.get(f) or "") for f in ("firma", "jobtitel"))
+    return "improfy" in zusammen.lower()
+
+
+def _ohne_doppelte_massnahme(beruf):
+    """Die Improfy-Station genau einmal - die automatische gewinnt.
+
+    Sie trägt den echten Zeitraum aus der Gutscheinliste und die drei Stichpunkte der
+    Vorlage; die ausgelesene ist meist eine Zeile ohne Inhalt. Stünden beide da, läse
+    der Arbeitgeber dieselbe Maßnahme zweimal untereinander."""
+    ergebnis, gesehen = [], False
+    for station in beruf:
+        if _ist_improfy(station):
+            if gesehen:
+                continue
+            gesehen = True
+        ergebnis.append(station)
+    return ergebnis
+
+
 def html_bauen(render, daten, design="nr25", foto=None):
     """Design-Vorlage mit den Daten füllen. `render` ist Flasks render_template."""
     daten = _sprachen_lesbar(dict(daten))
-    beruf = [improfy_block(daten)] + list(daten.get("berufserfahrung") or [])
+    beruf = _ohne_doppelte_massnahme(
+        [improfy_block(daten)] + list(daten.get("berufserfahrung") or []))
     # Bewusst **ohne** Logo des Trägers: Das Papier gehört dem Bewerber. Ein Logo oben
     # rechts sagt dem Recruiter „Maßnahme" statt „Kandidat" – genau die Schublade, in
     # die niemand will. `zeige_foto` sagt der Vorlage, ob überhaupt eines da ist; ein
