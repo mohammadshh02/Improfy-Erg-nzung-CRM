@@ -270,3 +270,13 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
   opacity: 0; transition: opacity .12s; }
 .vorlagenwahl .vorlage:hover .vorlage-original,
 .vorlagenwahl .vorlage-original:focus-visible { opacity: 1; }
+
+/* ------------------------------------------------------------- Fotoeingang
+   Bilder, die noch niemandem gehoeren. Gross genug, um ein Gesicht zu erkennen -
+   darum geht es hier, und darum sind es keine Miniaturen. */
+.fotoeingang { display: grid; gap: 14px;
+               grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.fotoeingang .eingangskarte { margin: 0; padding: 12px; }
+.fotoeingang .eingangskarte img { display: block; width: 100%; aspect-ratio: 3 / 4;
+                                  object-fit: cover; object-position: center top;
+                                  border-radius: 8px; background: var(--surface-2); }

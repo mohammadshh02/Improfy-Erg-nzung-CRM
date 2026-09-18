@@ -755,24 +755,70 @@ def lebenslauf_foto_zeigen(kid):
 
 @app.route("/lebenslauf/fotos", methods=["GET", "POST"])
 def lebenslauf_fotos():
-    """Fotos aus einem Ordner zuordnen – für den Schwung aus der Chat-Gruppe."""
+    """Fotos annehmen und zuordnen.
+
+    Drei Wege in einer Seite: Bilder hochladen (auch viele auf einmal), einen Ordner
+    einlesen, und den Eingang von Hand zuordnen. Der Eingang ist der Weg, der in der
+    Praxis zaehlt: Aus einer Chat-Gruppe heissen die Bilder "IMG_1234.jpg", da greift
+    keine Namenszuordnung."""
     ergebnis = None
     if request.method == "POST":
-        pfad = (request.form.get("ordner") or "").strip()
+        was = request.form.get("was") or "ordner"
         try:
-            zugeordnet, offen = fotos.aus_ordner(pfad)
-            notieren(f"{len(zugeordnet)} Fotos zugeordnet", "lebenslauf", None, pfad)
-            ergebnis = {"zugeordnet": zugeordnet, "offen": offen, "ordner": pfad}
+            if was == "hochladen":
+                hoch = [(d.filename, d.read()) for d in request.files.getlist("bilder")
+                        if d and d.filename]
+                if not hoch:
+                    ergebnis = {"fehler": "Keine Datei gewählt."}
+                else:
+                    zugeordnet, offen, abgelehnt = fotos.aufnehmen(hoch)
+                    notieren(f"{len(hoch)} Fotos hochgeladen", "lebenslauf", None,
+                             f"{len(zugeordnet)} zugeordnet, {offen} in den Eingang")
+                    ergebnis = {"zugeordnet": zugeordnet, "eingang": offen,
+                                "abgelehnt": abgelehnt}
+            elif was == "zuordnen":
+                fotos.eingang_zuordnen(int(request.form.get("eingang_id") or 0),
+                                       int(request.form.get("kunde_id") or 0))
+                notieren("Foto aus dem Eingang zugeordnet", "lebenslauf",
+                         request.form.get("kunde_id"))
+                ergebnis = {"meldung": "Foto zugeordnet."}
+            elif was == "verwerfen":
+                fotos.eingang_verwerfen(int(request.form.get("eingang_id") or 0))
+                ergebnis = {"meldung": "Bild verworfen."}
+            else:
+                pfad = (request.form.get("ordner") or "").strip()
+                zugeordnet, offen = fotos.aus_ordner(pfad)
+                # Was der Name nicht hergibt, wandert in den Eingang statt verloren zu
+                # gehen - dort ist es sichtbar und in zwei Klicks zugeordnet.
+                for name in offen:
+                    voll = os.path.join(pfad, name)
+                    if os.path.isfile(voll):
+                        with open(voll, "rb") as f:
+                            fotos.eingang_ablegen(f.read(), name, quelle="ordner")
+                notieren(f"{len(zugeordnet)} Fotos zugeordnet", "lebenslauf", None, pfad)
+                ergebnis = {"zugeordnet": zugeordnet, "eingang": len(offen), "ordner": pfad}
         except Exception as e:
-            ergebnis = {"fehler": str(e), "ordner": pfad}
+            ergebnis = {"fehler": str(e), "ordner": request.form.get("ordner") or ""}
     return render_template("fotos.html", stand=fotos.stand(), ergebnis=ergebnis,
                            chat_bereit=fotos.chat_bereit(),
+                           eingang=fotos.eingang(),
+                           alle_kunden=db.hole(
+                               "SELECT id, name FROM kunde WHERE standort=? ORDER BY name",
+                               (db.STANDORT_STANDARD,)),
                            ohne=db.hole(
                                "SELECT k.id, k.name, m.name AS coach FROM kunde k"
                                "  LEFT JOIN mitarbeiter m ON m.id=k.coach_id"
                                " WHERE k.standort=? AND k.status_code IN ('H','I')"
                                "   AND NOT EXISTS (SELECT 1 FROM kunde_foto f WHERE f.kunde_id=k.id)"
                                " ORDER BY k.name", (db.STANDORT_STANDARD,)))
+
+
+@app.route("/lebenslauf/eingang/<int:eid>.jpg")
+def lebenslauf_eingang_bild(eid):
+    roh, mime = fotos.eingang_bild(eid)
+    if not roh:
+        abort(404)
+    return app.response_class(roh, mimetype=mime or "image/jpeg")
 
 
 @app.route("/lebenslauf/galerie/<path:bild>")

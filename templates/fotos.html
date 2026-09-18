@@ -1,53 +1,109 @@
 {% extends "basis.html" %}
 {% block titel %}Bewerbungsfotos – Improfy-Ergänzung{% endblock %}
 {% block inhalt %}
-<p class="marke"><a href="{{ url_for('lebenslauf_uebersicht') }}">← Lebensläufe</a></p>
+<p class="marke"><a href="{{ url_for('lebenslauf_uebersicht') }}">← Lebenslauf</a></p>
 <h1>Bewerbungsfotos</h1>
 <p class="unterzeile">Das Foto ist das Erste, was ein Arbeitgeber ansieht. Es gehört an den
-  Kunden – einmal hinterlegt, nimmt es jeder Lebenslauf von selbst.</p>
+  Kunden – einmal hinterlegt, nimmt es jeder Lebenslauf von selbst, in jeder der
+  23 Vorlagen.</p>
 
-<div class="gitter g2">
+<div class="kpi-grid">
   <div class="karte"><h3>Hinterlegt</h3><div class="zahl">{{ stand.mit }}</div>
     <div class="marke">Kunden mit Foto</div></div>
   <div class="karte"><h3>Fehlen</h3>
-    <div class="zahl" {% if stand.ohne_laufend %}style="color:var(--gelb)"{% endif %}>{{ stand.ohne_laufend }}</div>
+    <div class="zahl" {% if stand.ohne_laufend %}style="color:var(--red)"{% endif %}>{{ stand.ohne_laufend }}</div>
     <div class="marke">laufende Maßnahmen ohne Foto · im CRM ein Pflichtpunkt</div></div>
+  <div class="karte"><h3>Im Eingang</h3>
+    <div class="zahl" {% if stand.eingang %}style="color:var(--gelb)"{% endif %}>{{ stand.eingang }}</div>
+    <div class="marke">liegen da, gehören aber noch niemandem</div></div>
 </div>
 
-<h2>Einen Schwung aus der Chat-Gruppe zuordnen</h2>
-<div class="karte">
-  <p class="marke" style="margin:0 0 10px">Die Fotos liegen in der Google-Chat-Gruppe
-    „CVs Köln". Lade sie dort in einen Ordner herunter und gib den Pfad hier an – das OS
-    ordnet sie über den Dateinamen zu. <strong>Zugeordnet wird nur, was eindeutig ist:</strong>
-    Der Nachname muss im Dateinamen vorkommen, und entweder besteht der Name nur daraus oder
-    zwei Namensteile passen. Ein fremdes Gesicht im Lebenslauf wäre der peinlichste denkbare
-    Fehler – deshalb lieber offen lassen als raten.</p>
-  <form method="post" class="filter" style="margin:0">
-    <input type="text" name="ordner" placeholder="C:\Users\...\Downloads\CV-Fotos"
-           value="{{ ergebnis.ordner if ergebnis else '' }}" style="flex:1;min-width:320px">
-    <button type="submit" class="btn btn-primary">Ordner einlesen</button>
-  </form>
-
-  {% if ergebnis %}
-    {% if ergebnis.fehler %}
-    <div class="warnung" style="margin:12px 0 0"><p style="margin:0">{{ ergebnis.fehler }}</p></div>
-    {% else %}
-    <div class="hinweis" style="margin:12px 0 0">
-      <strong>{{ ergebnis.zugeordnet|length }} Fotos zugeordnet.</strong>
-      {% if ergebnis.offen %}<br>{{ ergebnis.offen|length }} nicht zugeordnet – diese Namen
-        passen zu niemandem eindeutig: {{ ergebnis.offen[:12]|join(', ') }}{% if ergebnis.offen|length > 12 %} …{% endif %}{% endif %}
-    </div>
-    {% endif %}
+{% if ergebnis %}
+  {% if ergebnis.fehler %}
+  <div class="warnung" style="margin:14px 0 0"><p style="margin:0">{{ ergebnis.fehler }}</p></div>
+  {% elif ergebnis.meldung %}
+  <div class="hinweis" style="margin:14px 0 0">{{ ergebnis.meldung }}</div>
+  {% else %}
+  <div class="hinweis" style="margin:14px 0 0">
+    <strong>{{ ergebnis.zugeordnet|length }} Fotos über den Dateinamen zugeordnet.</strong>
+    {% if ergebnis.eingang %}<br>{{ ergebnis.eingang }} liegen im Eingang – unten zuordnen.{% endif %}
+    {% if ergebnis.abgelehnt %}<br><span style="color:var(--red)">Nicht angenommen:</span>
+      {{ ergebnis.abgelehnt[:6]|join(' · ') }}{% endif %}
+  </div>
   {% endif %}
+{% endif %}
 
-  <p class="marke" style="margin:12px 0 0">
-    <strong>Direkt aus dem Chat</strong> geht erst mit der Google-Chat-Schnittstelle:
-    {% if chat_bereit %}<span class="plakette p-gruen">verbunden</span>
-    {% else %}<span class="plakette p-grau">nicht verbunden</span> – dafür braucht es ein
-    Dienstkonto, das ein Google-Administrator freischaltet (<code>GOOGLE_CHAT_TOKEN</code>).
-    Ohne diese Freigabe lässt sich ein Chatraum technisch nicht auslesen.{% endif %}
-  </p>
+<h2>Fotos hereinholen</h2>
+<div class="gitter g2">
+  <div class="karte">
+    <h3>Bilder hochladen</h3>
+    <p class="marke" style="margin:6px 0 10px">Der kürzeste Weg: die Bilder aus der
+      Chat-Gruppe „CVs Köln" auf dem Rechner speichern und hier alle auf einmal wählen.
+      Was der Dateiname eindeutig hergibt, wird sofort zugeordnet; alles andere landet im
+      Eingang und bekommt seinen Kunden mit einem Blick.</p>
+    <form method="post" enctype="multipart/form-data">
+      <input type="hidden" name="was" value="hochladen">
+      <label class="ablage" for="bilder" style="display:block">
+        <strong>Bilder hierher ziehen oder auswählen</strong>
+        <div class="marke" style="margin-top:4px">JPG · PNG · WEBP · HEIC · mehrere auf einmal</div>
+        <input type="file" id="bilder" name="bilder" accept="image/*" multiple>
+      </label>
+      <button type="submit" class="btn btn-primary" style="margin-top:10px">Fotos annehmen</button>
+    </form>
+  </div>
+
+  <div class="karte">
+    <h3>Einen ganzen Ordner einlesen</h3>
+    <p class="marke" style="margin:6px 0 10px">Für einen größeren Schwung. Zugeordnet wird
+      nur, was <strong>eindeutig</strong> ist: Der Nachname muss im Dateinamen vorkommen, und
+      entweder besteht der Name nur daraus oder zwei Namensteile passen. Ein fremdes Gesicht
+      im Lebenslauf wäre der peinlichste denkbare Fehler – deshalb lieber in den Eingang
+      legen als raten.</p>
+    <form method="post" class="filter" style="margin:0">
+      <input type="hidden" name="was" value="ordner">
+      <input type="text" name="ordner" placeholder="C:\Users\...\Downloads\CV-Fotos"
+             value="{{ ergebnis.ordner if ergebnis else '' }}" style="flex:1;min-width:240px">
+      <button type="submit" class="btn">Ordner einlesen</button>
+    </form>
+    <p class="marke" style="margin:12px 0 0">
+      <strong>Direkt aus dem Chat</strong> geht erst mit der Google-Chat-Schnittstelle:
+      {% if chat_bereit %}<span class="plakette p-gruen">verbunden</span>
+      {% else %}<span class="plakette p-grau">nicht verbunden</span> – dafür braucht es ein
+      Dienstkonto, das ein Google-Administrator freischaltet (<code>GOOGLE_CHAT_TOKEN</code>).
+      Ohne diese Freigabe lässt sich ein Chatraum technisch nicht auslesen.{% endif %}
+    </p>
+  </div>
 </div>
+
+{% if eingang %}
+<h2>Eingang – wer ist das?</h2>
+<p class="unterzeile">Diese Bilder ließen sich über den Dateinamen niemandem eindeutig
+  zuordnen. Ein Gesicht erkennt ein Mensch in einer Sekunde – eine Maschine nie sicher
+  genug, um es zu raten.</p>
+<div class="fotoeingang">
+  {% for e in eingang %}
+  <div class="karte eingangskarte">
+    <img src="{{ url_for('lebenslauf_eingang_bild', eid=e.id) }}" alt="">
+    <div class="marke" style="margin:8px 0 6px;overflow-wrap:anywhere">
+      {{ e.dateiname or 'ohne Namen' }} · {{ (e.bytes / 1024)|round|int }} kB</div>
+    <form method="post" class="filter" style="margin:0;gap:6px">
+      <input type="hidden" name="was" value="zuordnen">
+      <input type="hidden" name="eingang_id" value="{{ e.id }}">
+      <select name="kunde_id" required style="flex:1;min-width:0">
+        <option value="">Kunde wählen …</option>
+        {% for k in alle_kunden %}<option value="{{ k.id }}">{{ k.name }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm btn-primary">zuordnen</button>
+    </form>
+    <form method="post" style="margin:6px 0 0">
+      <input type="hidden" name="was" value="verwerfen">
+      <input type="hidden" name="eingang_id" value="{{ e.id }}">
+      <button type="submit" class="btn btn-sm">verwerfen</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 {% if ohne %}
 <h2>Laufende Maßnahmen ohne Foto</h2>
@@ -57,8 +113,8 @@
   {% for k in ohne %}
   <tr><td><a href="{{ url_for('kunde_detail', kid=k.id) }}">{{ k.name }}</a></td>
       <td class="marke">{{ k.coach or '—' }}</td>
-      <td><a class="knopf leise" style="padding:6px 12px"
-             href="{{ url_for('lebenslauf_formular', kid=k.id) }}">Foto hinterlegen</a></td></tr>
+      <td><a class="btn btn-sm"
+             href="{{ url_for('lebenslauf_uebersicht', kunde=k.id) }}">Foto hinterlegen</a></td></tr>
   {% endfor %}
 </table>
 </div>

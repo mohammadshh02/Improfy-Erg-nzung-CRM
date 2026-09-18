@@ -311,6 +311,64 @@ def main():
            _a > 0 and len(_reiter) <= 7,
            len(_reiter) if _a > 0 else "nav_arbeit nicht gefunden")
 
+    print("\n11. Fotoeingang")
+    import io as _io
+    from PIL import Image as _Image
+    import fotos as _F
+
+    def _bild(farbe=(200, 190, 180)):
+        b = _io.BytesIO()
+        _Image.new("RGB", (600, 800), farbe).save(b, "JPEG")
+        return b.getvalue()
+
+    _vorher = _F.stand()["mit"]
+    # Ein Name, der zu niemandem passt - genau der Fall aus der Chat-Gruppe.
+    _r = c.post("/lebenslauf/fotos", data={
+        "was": "hochladen",
+        "bilder": (_io.BytesIO(_bild()), "IMG_1234.jpg")},
+        content_type="multipart/form-data")
+    pruefe("Ein Foto ohne passenden Namen landet im Eingang statt im Nichts",
+           _r.status_code == 200 and _F.stand()["eingang"] >= 1, _F.stand())
+    _liste = _F.eingang()
+    pruefe("Der Eingang zeigt das Bild mit seinem Dateinamen",
+           any(x["dateiname"] == "IMG_1234.jpg" for x in _liste),
+           [x["dateiname"] for x in _liste])
+    _eid = [x["id"] for x in _liste if x["dateiname"] == "IMG_1234.jpg"][0]
+    _b = c.get(f"/lebenslauf/eingang/{_eid}.jpg")
+    pruefe("Das Bild im Eingang laesst sich ansehen",
+           _b.status_code == 200 and len(_b.data) > 500, _b.status_code)
+
+    _kid2 = LB.uebersicht()[0]["id"]
+    _r = c.post("/lebenslauf/fotos", data={"was": "zuordnen", "eingang_id": _eid,
+                                           "kunde_id": _kid2})
+    pruefe("Zuordnen macht daraus das Foto des Kunden",
+           _r.status_code == 200 and _F.foto(_kid2) is not None
+           and _F.stand()["mit"] == _vorher + 1, _F.stand())
+    pruefe("Nach dem Zuordnen ist das Bild aus dem Eingang verschwunden",
+           not any(x["id"] == _eid for x in _F.eingang()))
+
+    # Verwerfen muss auch gehen - sonst staut sich der Eingang mit Unbrauchbarem.
+    c.post("/lebenslauf/fotos", data={"was": "hochladen",
+                                      "bilder": (_io.BytesIO(_bild()), "IMG_9999.jpg")},
+           content_type="multipart/form-data")
+    _eid2 = _F.eingang()[-1]["id"]
+    c.post("/lebenslauf/fotos", data={"was": "verwerfen", "eingang_id": _eid2})
+    pruefe("Verwerfen raeumt den Eingang",
+           not any(x["id"] == _eid2 for x in _F.eingang()))
+
+    # Was kein Bild ist, darf gar nicht erst hereinkommen.
+    _r = c.post("/lebenslauf/fotos", data={
+        "was": "hochladen", "bilder": (_io.BytesIO(b"kein bild"), "notiz.txt")},
+        content_type="multipart/form-data")
+    pruefe("Eine Datei, die kein Bild ist, wird abgelehnt statt abgelegt",
+           _r.status_code == 200 and "Nicht angenommen" in _r.get_data(as_text=True))
+
+    _r = c.post("/lebenslauf/fotos", data={"was": "zuordnen", "eingang_id": 999999,
+                                           "kunde_id": _kid2})
+    pruefe("Ein Bild, das es nicht mehr gibt, meldet das statt abzustuerzen",
+           _r.status_code == 200 and "Eingang" in _r.get_data(as_text=True),
+           _r.status_code)
+
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")
     if fehl:

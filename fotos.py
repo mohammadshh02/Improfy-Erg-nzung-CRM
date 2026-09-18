@@ -43,6 +43,23 @@ CREATE TABLE IF NOT EXISTS kunde_foto (
     geaendert TEXT
 );
 """
+
+# Der Eingang: Bilder, die noch keinem Kunden gehoeren. Bewusst eine eigene Tabelle und
+# keine Ablage im Dateisystem - was in der Datenbank liegt, ist von der Sicherung mit
+# erfasst und verschwindet nicht beim Aufraeumen des Downloads-Ordners.
+SCHEMA_EINGANG = """
+CREATE TABLE IF NOT EXISTS foto_eingang (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    daten     BLOB NOT NULL,
+    mime      TEXT,
+    breite    INTEGER,
+    hoehe     INTEGER,
+    bytes     INTEGER,
+    dateiname TEXT,
+    quelle    TEXT,
+    erstellt  TEXT
+);
+"""
 BILDENDUNGEN = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".bmp", ".tif", ".tiff")
 KANTE = 1200            # lange Kante nach dem Verkleinern
 
@@ -50,6 +67,7 @@ KANTE = 1200            # lange Kante nach dem Verkleinern
 def init():
     with db.offen() as con:
         con.executescript(SCHEMA)
+        con.executescript(SCHEMA_EINGANG)
 
 
 def jetzt():
@@ -104,10 +122,82 @@ def loeschen(kunde_id):
         con.execute("DELETE FROM kunde_foto WHERE kunde_id=?", (kunde_id,))
 
 
+# ------------------------------------------------------------------- Der Eingang
+def eingang_ablegen(rohdaten, dateiname=None, quelle="hochgeladen"):
+    """Ein Bild in den Eingang legen - verkleinert, wie alles andere auch."""
+    daten, mime, breite, hoehe = verkleinern(rohdaten)
+    with db.offen() as con:
+        con.execute(
+            "INSERT INTO foto_eingang (daten, mime, breite, hoehe, bytes, dateiname,"
+            " quelle, erstellt) VALUES (?,?,?,?,?,?,?,?)",
+            (daten, mime, breite, hoehe, len(daten), dateiname, quelle, jetzt()))
+
+
+def eingang(grenze=200):
+    """Was im Eingang liegt - ohne die Bilddaten, die holt die Seite einzeln."""
+    return db.hole(
+        "SELECT id, mime, breite, hoehe, bytes, dateiname, quelle, erstellt"
+        "  FROM foto_eingang ORDER BY id LIMIT ?", (grenze,))
+
+
+def eingang_bild(eingang_id):
+    z = db.eine("SELECT daten, mime FROM foto_eingang WHERE id=?", (eingang_id,))
+    return (z["daten"], z["mime"]) if z else (None, None)
+
+
+def eingang_zuordnen(eingang_id, kunde_id):
+    """Ein Bild aus dem Eingang einem Kunden geben. Danach ist es aus dem Eingang weg."""
+    z = db.eine("SELECT daten, mime, breite, hoehe, dateiname FROM foto_eingang WHERE id=?",
+                (eingang_id,))
+    if not z:
+        raise ValueError("Dieses Bild liegt nicht mehr im Eingang.")
+    with db.offen() as con:
+        con.execute(
+            "INSERT INTO kunde_foto (kunde_id, daten, mime, breite, hoehe, bytes, quelle,"
+            " dateiname, geaendert) VALUES (?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(kunde_id) DO UPDATE SET daten=excluded.daten, mime=excluded.mime,"
+            " breite=excluded.breite, hoehe=excluded.hoehe, bytes=excluded.bytes,"
+            " quelle=excluded.quelle, dateiname=excluded.dateiname, geaendert=excluded.geaendert",
+            (kunde_id, z["daten"], z["mime"], z["breite"], z["hoehe"], len(z["daten"]),
+             "eingang", z["dateiname"], jetzt()))
+        con.execute("DELETE FROM foto_eingang WHERE id=?", (eingang_id,))
+
+
+def eingang_verwerfen(eingang_id):
+    with db.offen() as con:
+        con.execute("DELETE FROM foto_eingang WHERE id=?", (eingang_id,))
+
+
+def aufnehmen(dateien, standort=db.STANDORT_STANDARD):
+    """Hochgeladene Bilder annehmen: eindeutige sofort zuordnen, den Rest in den Eingang.
+
+    `dateien` ist eine Folge von (dateiname, rohdaten). Gibt zurueck, was wohin ging."""
+    kunden = db.hole("SELECT id, name FROM kunde WHERE standort=?", (standort,))
+    zugeordnet, offen, abgelehnt = [], 0, []
+    for name, roh in dateien:
+        if not roh:
+            continue
+        if os.path.splitext(name or "")[1].lower() not in BILDENDUNGEN:
+            abgelehnt.append(f"{name}: keine Bilddatei")
+            continue
+        try:
+            kunde_id = zuordnen(name, kunden)
+            if kunde_id:
+                speichern(kunde_id, roh, name, quelle="hochgeladen")
+                zugeordnet.append((kunde_id, name))
+            else:
+                eingang_ablegen(roh, name)
+                offen += 1
+        except Exception as e:
+            abgelehnt.append(f"{name}: {e}")
+    return zugeordnet, offen, abgelehnt
+
+
 def stand():
     """Wie viele laufende Kunden ein Foto haben – im CRM ist es ein Pflichtpunkt."""
     return {
         "mit": db.wert("SELECT COUNT(*) FROM kunde_foto"),
+        "eingang": db.wert("SELECT COUNT(*) FROM foto_eingang"),
         "ohne_laufend": db.wert(
             "SELECT COUNT(*) FROM kunde k WHERE k.standort=? AND k.status_code IN ('H','I')"
             "  AND NOT EXISTS (SELECT 1 FROM kunde_foto f WHERE f.kunde_id=k.id)",
