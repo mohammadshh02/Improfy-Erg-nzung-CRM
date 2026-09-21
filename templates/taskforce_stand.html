@@ -10,8 +10,10 @@
    Arbeiten an einem Menschen taugt sie nicht: man filtert, scrollt, verliert den Faden.
    Hier steht alles zu einer Person auf einer Seite, mit den Knöpfen direkt daneben. #}
 
-{{ pfad([("Taskforce", url_for('taskforce_seite')),
-          (kunde.name, None), ("Stand und Angebote", None)]) }}
+{# Zwei Glieder, nicht drei. „Stand und Angebote" stand als drittes Glied ohne Ziel
+   hinter dem Namen, der ebenfalls keines hat – zwei tote Glieder hintereinander. Was die
+   Seite zeigt, sagt ohnehin die Überschrift mit der Knopfleiste darunter. #}
+{{ pfad([("Taskforce", url_for('taskforce_seite')), (kunde.name, None)]) }}
 
 <div class="tf-kopf">
   <div>

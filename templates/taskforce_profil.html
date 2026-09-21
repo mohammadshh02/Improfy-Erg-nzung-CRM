@@ -116,7 +116,9 @@
 </div>
 {% if seiten > 1 %}
 <p class="marke" style="margin-top:10px">Seite {{ seite }} von {{ seiten }} ({{ gesamt }} Angebote) ·
-  {% if seite > 1 %}<a href="?status={{ status or '' }}&seite={{ seite-1 }}">← zurück</a>{% endif %}
+  {# „vorige Seite", nicht „zurück": zurück führt in dieser Leiste eine Ebene höher,
+     hier blättert man nur in derselben Liste. #}
+  {% if seite > 1 %}<a href="?status={{ status or '' }}&seite={{ seite-1 }}">← vorige Seite</a>{% endif %}
   {% if seite < seiten %}<a href="?status={{ status or '' }}&seite={{ seite+1 }}">weiter →</a>{% endif %}</p>
 {% endif %}
 

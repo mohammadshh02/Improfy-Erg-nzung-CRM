@@ -27,6 +27,7 @@ Läuft gegen eine Kopie der Datenbank und braucht kein Internet.
 import atexit
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -42,6 +43,15 @@ with _ziel:
 _ziel.close()
 _quelle.close()
 os.environ["IMPROFY_OS_DB"] = kopie
+
+# Diese Probe drueckt jeden Knopf – auch „jetzt sichern". Ohne eigenen Sicherungsordner
+# landet der Schnappschuss der TESTdatenbank im echten `sicherungen/` und verdraengt dort
+# bei sieben Staenden eine echte Nachtsicherung. Gelesen wird die Variable beim Import
+# von `betrieb`, also muss sie vorher stehen.
+sicherungen = os.path.join(tempfile.gettempdir(),
+                           "improfy_bedienprobe_sicherungen_%d" % os.getpid())
+os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
+atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
 
 import app as A                    # noqa: E402
 import datenbank as db             # noqa: E402

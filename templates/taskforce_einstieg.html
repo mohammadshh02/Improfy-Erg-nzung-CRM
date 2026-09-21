@@ -5,20 +5,27 @@
 
 {#  Der Einstieg der Taskforce, von oben nach unten:
 
+    Direktsuche    Beruf, Ort, Umkreis – die häufigste Frage steht ganz oben, nicht unten.
     Leerlaufband   Fünf Stufen vom Menschen bis zur Antwort – wo bleibt es stehen?
-    ①  Was ist jetzt zu tun – und für wen?   Ein Handgriff je Mensch, mit Knopf.
-    ②  Wie komme ich zu einem Menschen?      Name tippen, Stand öffnen.
-    ③  Wie lege ich eine Suche an?           Für alle auf einmal oder für einen.
-    ④  Wo suche ich selbst?                  Beruf, Ort, Umkreis – sofort.
-    Zum Schluss  Was die Agenten gefunden haben – die Tafel, als Ziel, nicht als Anfang.
+    Jetzt zu tun   Eine Liste: ein Mensch, eine Zeile, mit dem was fehlt und einem Knopf.
+    Zum Schluss    Was die Agenten gefunden haben – die Tafel, als Ziel, nicht als Anfang.
 
-    **Warum diese Reihenfolge.** Die Tafel stand bisher hier und meldete 754 gefundene
-    Angebote. Was sie nicht meldete: dass keine der 19 laufenden Maßnahmen ein Suchprofil
-    hat und deshalb nichts davon bei einem Menschen ankommt. Fülle oben, Stillstand
-    unsichtbar. Die Tafel ist nicht weg – sie steht unter /taskforce/tafel und hinter
-    jedem Regler, der schon einmal in einem Lesezeichen gelandet ist. #}
+    **Warum diese Reihenfolge.** Die Tafel stand einmal hier und meldete 754 gefundene
+    Angebote, ohne zu melden, dass keine laufende Maßnahme ein Suchprofil hat. Das ist
+    behoben; geblieben war die zweite Unordnung: vier nummerierte Abschnitte, in denen
+    dieselben Menschen zweimal standen – einmal als Handgriff, einmal als laufende
+    Maßnahme. Jetzt ist es eine Menge und darum eine Liste. Die Direktsuche ist nach oben
+    gerückt, weil sie am Telefon gebraucht wird, während jemand wartet.
 
-{{ pfad([("Taskforce", None)]) }}
+    Entfernt ist nichts außer dem zweiten Suchfeld des alten Abschnitts ③: der Weg zu den
+    Suchprofilen eines Menschen führt jetzt über seinen Stand → „Suchprofile verwalten",
+    einen Klick länger. Zwei Suchfelder auf einer Seite waren zwei Antworten auf dieselbe
+    Frage. Die Tafel steht unter /taskforce/tafel und hinter jedem Regler, der schon einmal
+    in einem Lesezeichen gelandet ist. #}
+
+{# Oberste Ebene der Taskforce: die Leiste hat kein anklickbares Glied, also bekommt der
+   Pfeil sein Ziel von Hand – eine Ebene höher ist hier die Übersicht. #}
+{{ pfad([("Taskforce", None)], zurueck=url_for('uebersicht')) }}
 
 <h1>Taskforce</h1>
 <p class="unterzeile">Was heute an welchem Menschen hängt – und was die Agenten inzwischen
@@ -37,15 +44,43 @@
 <div class="warnung"><strong>Der Lauf ist gescheitert:</strong> {{ lauf.fehler }}</div>
 {% endif %}
 
-{# ------------------------------------------------------------- Leerlaufband
+{# ----------------------------------------------------- 1. Wo suche ich selbst?
+
+   Stand bisher als ④ ganz unten. Am Telefon ist es die erste Frage: „was gibt es
+   gerade?" – und wer sie beantworten will, soll nicht erst an drei Abschnitten
+   vorbeiscrollen. Gespeichert wird hier nichts, eine Suche ist eine Frage. #}
+<section class="tf-abschnitt" style="margin-top:0">
+  <h2>Direktsuche</h2>
+  <p class="unterzeile" style="margin-top:0">Ohne Kunde und ohne Profil: die Portale direkt fragen.</p>
+  <form class="karte reglerbank" method="get" action="{{ url_for('taskforce_suchen') }}">
+    <input type="hidden" name="art" value="job">
+    <div class="reglerreihe">
+      <label style="flex:2;min-width:240px">Beruf oder Stichworte
+        <input type="text" name="was" placeholder="Reinigungskraft, Lagerhelfer, Sicherheitsmitarbeiter"></label>
+      <label style="flex:1;min-width:150px">Ort
+        <input type="text" name="wo" placeholder="Köln"></label>
+      <label>Umkreis
+        <select name="km">
+          {% for v in [5, 10, 15, 25, 50, 100] %}<option value="{{ v }}" {{ 'selected' if v == 25 }}>{{ v }} km</option>{% endfor %}</select></label>
+      <button type="submit" class="btn btn-primary">jetzt suchen</button>
+      <a class="btn" href="{{ url_for('taskforce_suchen', art='wohnung') }}">stattdessen Wohnung suchen</a>
+    </div>
+  </form>
+</section>
+
+{# ------------------------------------------------------------- 2. Leerlaufband
 
    Alle fünf Stufen zählen dieselbe Menge Menschen: die laufenden Maßnahmen. Steht das
    nicht in der Überschrift, liest man das Band als Gesamtzahlen des Standorts – und
-   dann ergibt es keinen Trichter, sondern Widerspruch. Treffer von Menschen außerhalb
-   dieser Menge verschwinden nicht, sie stehen beschriftet darunter. #}
+   dann ergibt es keinen Trichter, sondern Widerspruch.
+
+   Zwei Zeilen je Stufe statt vier: Zahl oben, Plakette und Name nebeneinander darunter.
+   Der Link steht nur noch an der gebrochenen Stufe – vier Links „Treffer ansehen →" an
+   Stufen, die halten, sind vier Angebote, nichts zu ändern. Was zu tun ist, steht im
+   Bruchsatz darunter, und der bleibt vollständig. #}
 {% set brueche = kette|selectattr('zustand', 'equalto', 'p-rot')|list %}
 {% set niemand = kette[0].zahl == 0 %}
-<section class="tf-abschnitt" style="margin-top:0">
+<section class="tf-abschnitt">
   <h2>Wo bleibt die Arbeit stehen?
     <span class="marke">– gezählt werden durchgehend die {{ kette[0].zahl }} Menschen in einer
       laufenden Maßnahme, auf jeder Stufe dieselben</span></h2>
@@ -53,22 +88,22 @@
     {% for s in kette %}
     <div class="kette-stufe{{ ' bruch' if s.zustand == 'p-rot' }}">
       <div class="kette-zahl">{{ s.zahl }}</div>
-      <div class="kette-name">{{ s.name }}</div>
-      <div class="marke"><span class="plakette {{ s.zustand }}">{{ 'bricht hier ab' if s.zustand == 'p-rot'
-        else ('wartet' if s.zustand == 'p-gelb' else 'läuft') }}</span></div>
+      <div class="kette-zeile">
+        <span class="plakette {{ s.zustand }}">{{ 'bricht hier ab' if s.zustand == 'p-rot'
+          else ('wartet' if s.zustand == 'p-gelb' else 'läuft') }}</span>
+        <span class="kette-name">{{ s.name }}</span>
+      </div>
+      {# Ein Link überall dort, wo es etwas zu tun gibt: an der gebrochenen Stufe und an
+         jeder, hinter der etwas liegt. Weg ist er nur bei einer Null, die nicht rot ist –
+         dort gibt es nichts anzusehen und nichts anzuschreiben. So bleibt das Band flach,
+         ohne dass ein Weg von der Seite verschwindet. #}
+      {% if s.zustand == 'p-rot' or s.zahl %}
       <div class="marke"><a href="{{ s.ziel }}">{{ s.knopf }} →</a></div>
+      {% endif %}
     </div>
     {% if not loop.last %}<span class="kette-pfeil" aria-hidden="true">›</span>{% endif %}
     {% endfor %}
   </div>
-  {% if aussen.treffer %}
-  <p class="marke" style="margin:0 0 10px">
-    Nicht im Band: <strong>{{ aussen.treffer }} neue Treffer</strong> gehören
-    {# „gehören 1 Menschen" ist Dativ Singular und damit richtig – wie der Plural. #}
-    {{ aussen.leute }} Menschen ohne laufende Maßnahme – das Suchprofil läuft dort
-    weiter, die Maßnahme nicht mehr.
-    <a href="{{ url_for('taskforce_tafel') }}">auf der Tafel ansehen →</a></p>
-  {% endif %}
   <p class="unterzeile">
     {% if niemand %}
       Gerade ist niemand in einer laufenden Maßnahme. Das Band steht deshalb auf null –
@@ -86,28 +121,139 @@
   </p>
 </section>
 
-{# ----------------------------------- ① Was ist jetzt zu tun – und für wen? #}
-<section class="tf-abschnitt">
-  <h2>① Was ist jetzt zu tun – und für wen?</h2>
-  <p class="unterzeile" style="margin-top:0">Ein Handgriff je Mensch, der dringendste zuerst.
-    Wer fünf Lücken hat, steht hier trotzdem einmal – sonst verdrängt ein Mensch vier andere.</p>
-  {% if handgriffe %}
+{# ------------------------------------------- 3. Was außerhalb des Bandes wartet
+
+   Stand bisher klein unter dem Band und war damit kleiner gesetzt als die Arbeit, die
+   dahintersteckt: Angebote für Menschen, deren Maßnahme beendet ist, deren Suchprofil
+   aber weiterläuft. Sie verschwinden nicht und sie sind nicht falsch – sie gehören nur
+   nicht in den Trichter. Normale Schriftgröße, weil es eine Aufgabe ist und keine
+   Fußnote. Gut Passendes zuerst: Relevanz ab 6, dieselbe Schwelle wie in der
+   Aufgabenliste.
+
+   Menschen und Angebote kommen aus **derselben** Menge: `gut_leute` zählt, für wie viele
+   ein gut passendes Angebot liegt – nicht, wie viele überhaupt einen neuen Treffer haben.
+   Sonst stünde da „für 20 Menschen warten 3 gut passende Angebote", und 19 davon wären
+   als versorgt ausgewiesen, ohne dass für sie etwas daliegt.
+
+   Die Tafel kennt keinen Regler „außerhalb laufender Maßnahmen"; der Link zeigt darum
+   mehr, als der Satz nennt. Einen Regler dafür zu bauen lohnt nicht – aber die Aufschrift
+   darf keine Deckungsgleichheit behaupten.
+
+   Die Gesamtzahl steht daneben, weil derselbe Mensch acht Zeilen tiefer die Plakette
+   „… neu" trägt und die alle Treffer zählt. Zwei Zahlen zu einem Menschen auf einem
+   Bildschirm sind erst dann keine Unordnung, wenn dasteht, dass die eine in der anderen
+   steckt. Die Plakette bleibt, wie sie ist: sie zählt in jeder Zeile dasselbe, und eine
+   zweite Zahl in jeder Zeile wäre teurer als der eine Satz hier. #}
+{% if aussen.gut %}
+<p style="margin:26px 0 0">Für {{ aussen.gut_leute }} Menschen außerhalb laufender Maßnahmen warten
+  <strong>{{ aussen.gut }} gut passende Angebote</strong> – ausgewählt aus {{ aussen.treffer }} neuen
+  Treffern für {{ aussen.leute }} Menschen.
+  <a href="{{ url_for('taskforce_tafel', score=6, status='neu') }}">alle gut passenden auf der Tafel →</a>
+  <span class="marke">die Plakette „neu" in der Liste zählt alle Treffer, nicht nur die gut
+    passenden · auf der Tafel stehen auch die aus laufenden Maßnahmen</span></p>
+{% elif aussen.treffer %}
+<p style="margin:26px 0 0">Für {{ aussen.leute }} Menschen außerhalb laufender Maßnahmen warten
+  <strong>{{ aussen.treffer }} neue Treffer</strong>.
+  <a href="{{ url_for('taskforce_tafel') }}">alle neuen Treffer auf der Tafel →</a>
+  <span class="marke">dort stehen auch die aus laufenden Maßnahmen</span></p>
+{% endif %}
+
+{# ------------------------------------------------------------- 4. Jetzt zu tun
+
+   Eine Liste statt zweier: „offener Handgriff" und „laufende Maßnahme" waren nie zwei
+   Mengen, sondern zwei Blicke auf dieselben Menschen. Wer beides hatte, stand doppelt.
+   Die Reihenfolge macht die Dringlichkeit: rot, gelb, grau, dann wer gerade nichts
+   Offenes hat.
+
+   Wer einen Handgriff hat, aber keine laufende Maßnahme mehr, steht trotzdem hier –
+   ohne die Plaketten zu Profil und Lebenslauf, weil die für ihn nicht gemessen sind. #}
+{% set offene = liste|selectattr('knopf')|list %}
+<section class="tf-abschnitt"{% if aussen.treffer %} style="margin-top:14px"{% endif %}>
+  <h2>Jetzt zu tun</h2>
   <div class="karte" style="padding:0">
-    {% for h in handgriffe %}
+    {# Die Kopfzeile steht immer da, auch wenn nichts fehlt: sonst verschwindet die
+       Sammelanlage von der Seite, sobald einmal alle ein Profil haben – und die zweite
+       Bandstufe verliert ihren Link im selben Moment, weil sie dann grün ist.
+
+       Sie spricht ausdrücklich von der **Arbeitssuche**, weil ihr Knopf dorthin führt:
+       `sammelanlage_seite(art='job')` listet laufende Maßnahmen ohne Jobprofil. „Kein
+       Suchprofil" zu schreiben und auf eine Liste zu zeigen, die nach etwas anderem
+       zählt, wäre dieselbe Zahl für zwei Mengen – wer ein Wohnprofil hat, hat ein Profil
+       und trotzdem niemanden, der Arbeit für ihn sucht. #}
+    <div class="listenkopf">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        {% if niemand %}
+        {# Ohne laufende Maßnahme wäre „alle haben ein Profil" eine Aussage über
+           niemanden – und damit die Art von Grün, die diese Seite abschaffen soll. #}
+        <span class="marke">Zurzeit läuft keine Maßnahme.</span>
+        <a class="btn" href="{{ url_for('sammelanlage_seite', art='job') }}">Profile anlegen →</a>
+        {% elif ohne_profil %}
+        {# Der Satz bleibt in einer Zeile: der Selbsttest misst ihn im Ganzen, und ein
+           Umbruch mitten im Satz macht aus ihm eine andere Zeichenkette. #}
+        <span><strong>{{ ohne_profil }} von {{ laufend_gesamt }} laufenden Maßnahmen haben kein Profil für die Arbeitssuche</strong> – der Agent sucht für sie keine Stelle.</span>
+        <a class="btn btn-primary" href="{{ url_for('sammelanlage_seite', art='job') }}">Profile in einem Schritt anlegen →</a>
+        {% else %}
+        <span class="marke">alle laufenden Maßnahmen haben ein Profil für die Arbeitssuche</span>
+        <a class="btn" href="{{ url_for('sammelanlage_seite', art='job') }}">Profile anlegen →</a>
+        {% endif %}
+      </div>
+      {# Ein Suchfeld, nicht zwei: das zweite führte auf die Profilseite, dieses auf den
+         Stand – und von dort ist die Profilseite verlinkt. Die Adresse endet nicht auf
+         die Kundennummer, sondern auf „/stand", darum der Platzhalter {id}. #}
+      <div class="ksuche ksuche-klein" data-ziel="seite" style="min-width:260px"
+           data-url="{{ url_for('taskforce_stand', kid=0)|replace('/kunde/0/', '/kunde/{id}/') }}"
+           data-api="{{ url_for('api_kunden_suche') }}">
+        <input type="search" class="ksuche-feld" autocomplete="off"
+               placeholder="Namen tippen – führt zum Stand dieses Menschen">
+        <div class="ksuche-liste" hidden></div>
+      </div>
+    </div>
+    {% for z in liste %}
     <div class="handgriff">
-      <span class="plakette {{ 'p-rot' if h.stufe == 'rot' else ('p-gelb' if h.stufe == 'gelb' else 'p-grau') }}">{{ h.stufe }}</span>
-      <span class="handgriff-name">{{ h.kunde }}</span>
-      <span class="marke" style="min-width:120px">{{ h.coach }}</span>
-      <span class="handgriff-fehlt">{{ h.fehlt }}</span>
-      <a class="btn btn-sm btn-primary" href="{{ h.link }}">{{ h.knopf }} →</a>
+      {% if z.stufe %}<span class="plakette {{ 'p-rot' if z.stufe == 'rot' else ('p-gelb' if z.stufe == 'gelb' else 'p-grau') }}">{{ z.stufe }}</span>{% endif %}
+      <a class="handgriff-name" href="{{ z.ziel }}">{{ z.kunde }}</a>
+      <span class="marke" style="min-width:110px">{{ z.coach }}</span>
+      {# Grün heißt: für diesen Menschen sucht der Agent Arbeit. Wer nur ein Wohnprofil
+         hat, hat zwar ein Profil, aber genau das nicht – er stand vorher mit „1 Profile"
+         grün da und wurde trotzdem in der Sammelanlage weiter aufgeführt. #}
+      <span class="handgriff-marken">
+        {%- if z.laufend %}
+          {%- if not z.profile %}<span class="plakette p-rot">kein Profil</span>
+          {%- elif not z.jobprofile %}<span class="plakette p-rot">kein Profil für die Arbeitssuche</span>
+          {%- else %}<span class="plakette p-gruen">{{ z.profile }} Profile</span>{% endif %}
+          {%- if not z.lebenslauf %}<span class="plakette p-gelb">kein Lebenslauf</span>{% endif %}
+        {%- endif %}
+        {%- if z.neu %}<span class="plakette p-teal">{{ z.neu }} neu</span>{% endif %}
+      </span>
+      {# Der Satz zum fehlenden Suchprofil steht schon in der Kopfzeile. Zehnmal
+         dasselbe darunter ist keine Information, sondern Rauschen. #}
+      <span class="handgriff-fehlt">{% if not z.sammel %}{{ z.fehlt or '' }}{% endif %}</span>
+      {% if z.knopf %}<a class="btn btn-sm btn-primary" href="{{ z.link }}">{{ z.knopf }} →</a>{% endif %}
     </div>
     {% endfor %}
   </div>
+  {% if liste %}
   {# Die Zahl zaehlt genau die Menge, aus der die Liste ihre Zeilen nimmt – Menschen,
-     nicht Regeltreffer, und einschliesslich der Nachfassen-Zeilen. #}
+     nicht Regeltreffer. Sie ist groesser als die erste Bandstufe, und das muss dastehen:
+     zwei Zahlen fuer scheinbar dieselbe Sache auf einem Bildschirm sind genau die
+     Unordnung, die diese Seite beseitigen soll. Die Aufteilung kommt aus derselben
+     Rechnung wie das Band – alles, was nicht laufende Maßnahme ist, ist ein Handgriff
+     ohne laufende Maßnahme.
+     Der Weg zu allen Aufgaben steht nur unter einer Liste, in der wirklich ein Handgriff
+     offen ist; eine Zeile ohne Knopf ist keine Aufgabe. Steht in den ersten Zeilen kein
+     Knopf, steht auch weiter unten keiner: sortiert wird nach Stufe, und die Zeilen ohne
+     Handgriff stehen hinten. #}
+  {% set weitere = liste_gesamt - laufend_gesamt %}
   <p class="marke" style="margin-top:8px">
-    {{ handgriffe|length }} von {{ offene_handgriffe }} Menschen mit offenem Handgriff ·
-    <a href="{{ url_for('aufgaben_seite', art='Taskforce') }}">alle Taskforce-Aufgaben →</a></p>
+    {# Eine Zeile, kein Umbruch mitten im Satz: der Selbsttest misst ihn im Ganzen. #}
+    {{ liste|length }} von {{ liste_gesamt }} Menschen · {{ laufend_gesamt }} in laufender Maßnahme{% if weitere > 0 %}, {{ weitere }} mit offenem Handgriff ohne laufende Maßnahme{% endif %} ·
+    {% if offene %}<a href="{{ url_for('aufgaben_seite', art='Taskforce') }}">alle Taskforce-Aufgaben →</a> ·
+    {% endif %}<a href="{{ url_for('kunden') }}">alle Kunden →</a></p>
+  {% if not offene %}
+  <p class="leer">Nichts offen: für jeden Menschen in einer laufenden Maßnahme ist gerade
+    alles getan, was die Taskforce tun kann. Der nächste Schritt kommt von den Agenten –
+    oder von einer Antwort.</p>
+  {% endif %}
   {% elif niemand %}
   <p class="leer">Gerade ist niemand in einer laufenden Maßnahme – darum steht hier nichts.
     Das ist kein erledigter Stapel, sondern kein Betrieb.</p>
@@ -118,112 +264,10 @@
   {% endif %}
 </section>
 
-{# ------------------------------- ② Wie komme ich zu einem Menschen? #}
-<section class="tf-abschnitt">
-  <h2>② Wie komme ich zu einem Menschen?</h2>
-  <div class="gitter" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
-    <div class="karte">
-      <h3>Namen tippen</h3>
-      {# Die Adresse endet nicht auf die Kundennummer, sondern auf „/stand". Darum der
-         Platzhalter {id} – die alte Regel „letzte Null ersetzen" griff hier nicht. #}
-      <div class="ksuche" data-ziel="seite" style="margin-top:8px"
-           data-url="{{ url_for('taskforce_stand', kid=0)|replace('/kunde/0/', '/kunde/{id}/') }}"
-           data-api="{{ url_for('api_kunden_suche') }}">
-        <input type="search" class="ksuche-feld" autocomplete="off"
-               placeholder="Name eintippen – führt zum Stand dieses Menschen">
-        <div class="ksuche-liste" hidden></div>
-      </div>
-      <div class="marke">Was für diesen Menschen gesucht, angeschrieben und beantwortet wurde,
-        steht auf einer Seite.</div>
-    </div>
-    <div class="karte">
-      {# Die echte Gesamtzahl steht in der Überschrift, nicht die abgeschnittene Länge:
-         sonst stehen zwei verschiedene Zahlen für dieselbe Menge auf einem Bildschirm
-         und ab der Grenze fehlt ein Mensch, ohne dass es jemand merkt. #}
-      <h3>Laufende Maßnahmen · {{ kette[0].zahl }}</h3>
-      <div style="margin-top:8px">
-        {% for l in laufende %}
-        <div class="handgriff" style="padding:6px 0;gap:8px">
-          <a class="handgriff-name" href="{{ l.ziel }}">{{ l.kunde }}</a>
-          <span class="marke" style="min-width:110px">{{ l.coach }}</span>
-          <span style="flex:1;min-width:150px">
-            {%- if not l.profile %}<span class="plakette p-rot">kein Profil</span>
-            {%- else %}<span class="plakette p-gruen">{{ l.profile }} Profile</span>{% endif %}
-            {% if not l.lebenslauf %}<span class="plakette p-gelb">kein Lebenslauf</span>{% endif %}
-            {%- if l.neu %} <span class="plakette p-teal">{{ l.neu }} neu</span>{% endif %}
-          </span>
-        </div>
-        {% else %}
-        <p class="leer">Zurzeit läuft keine Maßnahme.</p>
-        {% endfor %}
-      </div>
-      <div class="marke">
-        {%- if laufende|length < kette[0].zahl %}
-        hier stehen {{ laufende|length }} von {{ kette[0].zahl }} –
-        <a href="{{ url_for('kunden') }}">alle anzeigen →</a>
-        {%- else %}
-        <a href="{{ url_for('kunden') }}">alle Kunden →</a>
-        {%- endif %}
-      </div>
-    </div>
-  </div>
-</section>
-
-{# ----------------------------------- ③ Wie lege ich eine Suche an? #}
-<section class="tf-abschnitt">
-  <h2>③ Wie lege ich eine Suche an?</h2>
-  <p class="unterzeile" style="margin-top:0">Zwei Wege, beide dauerhaft sichtbar – vorher
-    fand man sie nur, wenn oben zufällig ein Hinweis stand.</p>
-  <div class="karte">
-    <div class="gitter" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
-      <div>
-        <h3>für alle laufenden auf einmal</h3>
-        <p class="marke">Eine Liste mit Berufsvorschlag und Ort je Mensch; anhaken, absenden,
-          fertig. Das ist der Schritt, der das Leerlaufband oben wieder schließt.</p>
-        <a class="btn btn-primary" href="{{ url_for('sammelanlage_seite', art='job') }}">Profile in einem Schritt anlegen →</a>
-      </div>
-      <div>
-        <h3>für einen bestimmten Menschen</h3>
-        <p class="marke">Wenn es um eine einzelne Person geht – mit eigenen Begriffen,
-          eigenem Ort, eigenen Reglern.</p>
-        <div class="ksuche ksuche-klein" data-ziel="seite"
-             data-url="{{ url_for('taskforce_kunde', kid=0)|replace('/kunde/0', '/kunde/{id}') }}"
-             data-api="{{ url_for('api_kunden_suche') }}">
-          <input type="search" class="ksuche-feld" autocomplete="off"
-                 placeholder="Für wen? Namen tippen …">
-          <div class="ksuche-liste" hidden></div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-{# --------------------------------------------- ④ Wo suche ich selbst? #}
-<section class="tf-abschnitt">
-  <h2>④ Wo suche ich selbst?</h2>
-  <p class="unterzeile" style="margin-top:0">Am Telefon, ohne Kunde und ohne Profil: die
-    Portale direkt fragen. Gespeichert wird nichts – eine Suche ist eine Frage.</p>
-  <form class="karte reglerbank" method="get" action="{{ url_for('taskforce_suchen') }}">
-    <input type="hidden" name="art" value="job">
-    <div class="reglerreihe">
-      <label style="flex:2;min-width:240px">Beruf oder Stichworte
-        <input type="text" name="was" placeholder="Reinigungskraft, Lagerhelfer, Sicherheitsmitarbeiter"></label>
-      <label style="flex:1;min-width:150px">Ort
-        <input type="text" name="wo" placeholder="Köln"></label>
-      <label>Umkreis
-        <select name="km">
-          {% for v in [5, 10, 15, 25, 50, 100] %}<option value="{{ v }}" {{ 'selected' if v == 25 }}>{{ v }} km</option>{% endfor %}</select></label>
-      <button type="submit" class="btn btn-primary">jetzt suchen</button>
-      <a class="btn" href="{{ url_for('taskforce_suchen', art='wohnung') }}">stattdessen Wohnung suchen</a>
-    </div>
-  </form>
-</section>
-
 {# ------------------------------- Zum Schluss: was die Agenten gefunden haben #}
 <section class="tf-abschnitt">
   <h2>Was die Agenten gefunden haben</h2>
-  <p class="unterzeile" style="margin-top:0">Die volle Tafel mit allen Reglern – sie ist das
-    Ziel der Arbeit, nicht ihr Anfang.</p>
+  <p class="unterzeile" style="margin-top:0">Die volle Tafel mit allen Reglern.</p>
 
   <nav class="modus" aria-label="Was gesucht wird">
     <a class="modus-knopf" href="{{ url_for('taskforce_arbeit') }}">
@@ -238,6 +282,9 @@
   </nav>
 
   {% if beste %}
+  {# Offen, nicht eingeklappt. Eingeklappt war sie eine Entfernung: ein Blick auf echte
+     Treffer, den man erst aufklappen muss, ist ein Blick, den niemand tut. Die Höhe, die
+     das kostet, ist der Preis dafür, dass die Seite belegt, was sie behauptet. #}
   <div class="tabellenkasten">
   <table>
     <tr><th>Rel.</th><th>Kunde</th><th>Angebot</th><th>Anbieter · Ort</th><th>gefunden</th></tr>
@@ -255,7 +302,7 @@
   <p class="marke" style="margin-top:8px"><a href="{{ url_for('taskforce_tafel') }}">alle {{ neu }} neuen Treffer auf der Tafel →</a></p>
   {% else %}
   <p class="leer">Noch kein Treffer liegt offen. Entweder ist alles abgearbeitet – oder es
-    sucht noch niemand: dann hilft ③ und nicht ein weiterer Lauf.</p>
+    sucht noch niemand: dann fehlen Suchprofile und nicht ein weiterer Lauf.</p>
   {% endif %}
 
   <div class="karte" style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -270,7 +317,7 @@
         {%- if lauf and lauf.laeuft %}läuft gerade …{% else %}alle Agenten jetzt laufen lassen{% endif %}</button>
     </form>
     <span class="marke">Fragt alle verbundenen Portale für alle aktiven Suchprofile.
-      Ohne Suchprofil fragt er nichts – dann zuerst ③.</span>
+      Ohne Suchprofil fragt er nichts – dann zuerst Profile anlegen.</span>
   </div>
 </section>
 

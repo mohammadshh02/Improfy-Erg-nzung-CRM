@@ -24,6 +24,14 @@ import datetime
 
 import datenbank as db
 
+try:                                       # Flask nur, wenn es da ist: dieses Modul läuft
+    from flask import g, has_app_context   # auch aus `taskforce.py --lauf`, ohne Anfrage
+except ImportError:                        # und ohne Webserver.
+    g = None
+
+    def has_app_context():
+        return False
+
 FRIST_WARNUNG = 14          # Tage vor Maßnahmeende, ab denen es eilt
 WIEDERVORLAGE = 7           # Tage ohne Antwort auf eine Bewerbung
 LAUFEND = ("H", "I")        # Statuscodes: Maßnahme läuft
@@ -49,23 +57,54 @@ def _aufgabe(stufe, art, titel, kunde=None, coach=None, frist=None, link=None, w
 
 
 # --------------------------------------------------------------------- Regeln
+def _merker():
+    """Der Zwischenspeicher dieser einen Anfrage – oder None, wenn gerade keine läuft.
+
+    Hängt an `flask.g` und stirbt mit der Anfrage. Ein Merker im Modul selbst würde in der
+    Kommandozeile und im nächtlichen Agentenlauf stundenlang alt werden und irgendwann
+    Aufgaben zu Menschen zeigen, die längst nicht mehr in Maßnahme sind."""
+    if g is None or not has_app_context():
+        return None
+    if not hasattr(g, "aufgaben_merker"):
+        g.aufgaben_merker = {}
+    return g.aufgaben_merker
+
+
 def laufende_massnahmen():
     """Wer gerade in einer Maßnahme steht, mit allem, was an ihm hängt.
 
     Öffentlich, weil der Einstieg dieselbe Liste braucht: eine zweite Abfrage dort würde
-    irgendwann anders zählen als die Regeln hier."""
-    return db.hole(
+    irgendwann anders zählen als die Regeln hier.
+
+    **Einmal je Anfrage.** Neun Regeln fragen dieselbe Liste; ein Aufruf von /taskforce
+    rechnete sie dadurch neunmal – gemessen 23 von 54 Millisekunden Seitenzeit. Am
+    Ergebnis ändert der Merker nichts: dieselbe Anfrage, dieselbe Sekunde, dieselbe
+    Antwort. Außerhalb einer Anfrage wird wie bisher jedes Mal frisch gerechnet."""
+    merker = _merker()
+    if merker is not None and "laufende" in merker:
+        return merker["laufende"]
+    zeilen = db.hole(
         "SELECT k.id, k.name, k.status_code, k.massnahme, m.name AS coach,"
         "       (SELECT MAX(g.bis) FROM gutschein_zeile g WHERE g.kunde_id=k.id) AS endet,"
         "       (SELECT COUNT(*) FROM termin t WHERE t.kunde_id=k.id) AS termine,"
         "       (SELECT COUNT(*) FROM lebenslauf l WHERE l.kunde_id=k.id) AS lebenslaeufe,"
         "       (SELECT COUNT(*) FROM tf_profil p WHERE p.kunde_id=k.id AND p.aktiv=1) AS profile,"
+        # Die Jobprofile zusätzlich einzeln: Arbeitssuche und Wohnungssuche sind zwei
+        # Arbeiten. Wer ein Wohnprofil hat, hat ein Profil – für seine Arbeitssuche sucht
+        # der Agent trotzdem nichts. Dieselbe Bedingung wie in `sammelanlage.vorschlaege()`,
+        # damit die Zahl auf dem Einstieg und die Liste hinter ihrem Knopf dieselbe Menge
+        # zählen.
+        "       (SELECT COUNT(*) FROM tf_profil p WHERE p.kunde_id=k.id AND p.aktiv=1"
+        "          AND p.art='job') AS jobprofile,"
         "       (SELECT COUNT(*) FROM kunde_profil p WHERE p.kunde_id=k.id"
         "          AND p.kurzprofil IS NOT NULL AND p.kurzprofil<>'') AS kurzprofil,"
         "       k.stadt"
         "  FROM kunde k LEFT JOIN mitarbeiter m ON m.id=k.coach_id"
         " WHERE k.standort=? AND k.status_code IN ('H','I') ORDER BY k.name",
         (db.STANDORT_STANDARD,))
+    if merker is not None:
+        merker["laufende"] = zeilen
+    return zeilen
 
 
 def massnahme_ohne_termine():

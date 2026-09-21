@@ -6,17 +6,45 @@
 Geprüft wird der Weg, den die Kollegin im Alltag geht: Kunde in der Akte öffnen,
 „Lebenslauf bauen", Formular ausfüllen, Excel herunterladen. Braucht kein Internet.
 """
+import atexit
 import os
 import re
 import shutil
+import sqlite3
 import sys
 import tempfile
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
-kopie = os.path.join(tempfile.gettempdir(), "improfy_os_cv_test.db")
-shutil.copy(os.path.join(HIER, "improfy_os.db"), kopie)
+# Prozessnummer im Namen und Aufraeumen zum Schluss: zwei Laeufe duerfen sich nie dieselbe
+# Datei teilen, und 2 MB echte Kundendaten haben im Papierkorb nichts dauerhaft zu suchen.
+kopie = os.path.join(tempfile.gettempdir(), "improfy_os_cv_test_%d.db" % os.getpid())
+atexit.register(lambda: os.path.exists(kopie) and os.remove(kopie))
+
+# Kopie ueber die SQLite-Sicherung statt ueber das Dateisystem. `shutil.copy` stand hier
+# bis zum 21.09.2026 und nahm nur die eine Datei: laeuft der Entwicklungsserver nebenher,
+# fehlt das WAL-Journal, und die Kopie ist ein Zwischenzustand. Der Test schlug dann an
+# Stellen fehl, die mit seiner Frage nichts zu tun hatten - dieselbe Begruendung steht in
+# taskforce_test.py und os_test.py, dort hat es einen halben Nachmittag gekostet.
+if os.path.exists(kopie):
+    os.remove(kopie)
+_quelle = sqlite3.connect(os.path.join(HIER, "improfy_os.db"))
+_ziel = sqlite3.connect(kopie)
+with _ziel:
+    _quelle.backup(_ziel)
+_ziel.close()
+_quelle.close()
 os.environ["IMPROFY_OS_DB"] = kopie
+
+# Auch der Sicherungsordner gehoert in den Papierkorb. `betrieb.py` leitet ihn sonst aus
+# seinem eigenen Verzeichnis ab: ein Testlauf, der sichert, legt einen Schnappschuss der
+# TESTdatenbank ins echte `sicherungen/` und wirft bei sieben Staenden je eine echte
+# Nachtsicherung heraus. Prozessnummer im Namen, damit zwei Laeufe sich nie einen Ordner
+# teilen; gelesen wird die Variable beim Import von `betrieb`.
+sicherungen = os.path.join(tempfile.gettempdir(),
+                           "improfy_os_cv_test_sicherungen_%d" % os.getpid())
+os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
+atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
 
 import openpyxl                     # noqa: E402
 from flask import render_template as flask_render   # noqa: E402

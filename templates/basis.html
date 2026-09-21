@@ -80,7 +80,8 @@
       <h1 class="page-title">{{ ns.titel }}</h1>
       <div class="topbar-right">
 {# Tippen und den Menschen bekommen. Die Vorschlaege vergleichen ohne Umlaute, Akzente
-           und Reihenfolge – „ammar moh" findet „Mohamed Ammar". Enter ohne Auswahl fuehrt
+           und Reihenfolge – „muester er" findet „Erika Müstermann" (erfundener Name, damit
+           er nie einem echten Kunden in die Quere kommt). Enter ohne Auswahl fuehrt
            weiter auf die Ergebnisseite, die auch Telefon, Firma und Angebote durchsucht. #}
         <form method="get" action="{{ url_for('suche_seite') }}" class="kopfsuche">
           <div class="ksuche" data-ziel="seite" data-url="{{ url_for('kunde_detail', kid=0) }}"

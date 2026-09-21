@@ -16,6 +16,7 @@ Schnittstelle), werden bewusst nicht ausgelöst.
 import os
 import re
 import atexit
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -38,6 +39,15 @@ with _ziel:
 _ziel.close()
 _quelle.close()
 os.environ["IMPROFY_OS_DB"] = kopie
+
+# Auch der Sicherungsordner gehoert in den Papierkorb. `betrieb.py` leitet ihn sonst aus
+# seinem eigenen Verzeichnis ab: ein Testlauf, der sichert, legt einen Schnappschuss der
+# TESTdatenbank ins echte `sicherungen/` und wirft bei sieben Staenden je eine echte
+# Nachtsicherung heraus. Gelesen wird die Variable beim Import von `betrieb`.
+sicherungen = os.path.join(tempfile.gettempdir(),
+                           "improfy_os_gesamt_test_sicherungen_%d" % os.getpid())
+os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
+atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
 
 import app as A                     # noqa: E402
 import datenbank as db              # noqa: E402
@@ -194,9 +204,21 @@ def main():
     print("\n7. Betrieb: Sicherung und Zeitsteuerung")
     import betrieb
     betrieb.init()
+    # Vor der ersten Sicherung festhalten, was im echten Ordner liegt. Ein Testlauf darf
+    # dort weder etwas hinlegen noch etwas herausdraengen: `betrieb.aufraeumen()` behaelt
+    # sieben Staende, jeder Test-Schnappschuss kostet also eine echte Nachtsicherung. Wer
+    # aus so einem Stand zurueckholt, hat die Testkonten im Echtbestand - und schon das
+    # erste Konto schaltet die persoenliche Anmeldung scharf.
+    _echter_ordner = os.path.join(HIER, "sicherungen")
+    _vorher = sorted(os.listdir(_echter_ordner)) if os.path.isdir(_echter_ordner) else []
     pruefe("Sicherung von Hand legt einen Stand an",
            c.post("/betrieb/sichern").status_code == 302 and len(betrieb.staende()) >= 1,
            [s["name"] for s in betrieb.staende()][:2])
+    _nachher = sorted(os.listdir(_echter_ordner)) if os.path.isdir(_echter_ordner) else []
+    pruefe("Der Testlauf sichert in den Papierkorb, nicht in den echten Ordner",
+           os.path.abspath(betrieb.SICHERUNGEN) != os.path.abspath(_echter_ordner)
+           and _vorher == _nachher and len(betrieb.staende()) >= 1,
+           f"{betrieb.SICHERUNGEN} · echter Ordner unveraendert: {_vorher == _nachher}")
     pruefe("Betriebsseite zeigt Uhrzeiten und Staende",
            all(x in c.get("/betrieb").get_data(as_text=True)
                for x in ("Sicherungsstände", "Letzte Sicherung", betrieb.UHRZEIT_LAUF)))

@@ -13,8 +13,10 @@ die Lücke sichtbar wird:
   `kette()`           die fünf Stufen von der laufenden Maßnahme bis zur Antwort in einer
                       Reihe, mit jeder Stelle markiert, an der nichts weiterfließt.
   `aussenstehend()`   die Treffer, die *nicht* zu dieser Menge gehören – sie verschwinden nicht.
-  `alle_handgriffe()` dasselbe als Arbeit: eine Zeile je Mensch – Name, Coach, was fehlt, ein Knopf.
-  `laufende()`        die Menschen, für die gesucht werden muss, mit ihrem Stand.
+  `arbeitsliste()`    **was die Seite als Liste zeigt:** ein Mensch, eine Zeile – Name, Coach,
+                      was fehlt, ein Knopf. Vereinigt aus den beiden Hälften darunter.
+  `alle_handgriffe()` die eine Hälfte: wer einen offenen Taskforce-Handgriff hat.
+  `laufende()`        die andere: die Menschen, für die gesucht werden muss, mit ihrem Stand.
   `beste_treffer()`   eine Kostprobe, damit der Einstieg nicht nur aus Zahlen besteht.
 
 **Eine Grundgesamtheit für das ganze Band.** Alle fünf Stufen zählen dieselbe Menge
@@ -39,8 +41,10 @@ import taskforce as tf
 # Wie viel auf einen Bildschirm passt. Bewusst keine Zahl aus dem heutigen Datenstand:
 # eine Grenze, die zufällig genau so groß ist wie der Bestand, schneidet nie sichtbar ab
 # und fällt darum erst auf, wenn ab dem ersten Überschreiten ein Mensch lautlos fehlt.
-HANDGRIFFE = 8
-LISTE = 12
+# `HANDGRIFFE` stand hier, solange Handgriffe und laufende Maßnahmen zwei Listen waren.
+# Seit es eine Liste ist, begrenzt `LISTE` sie – eine zweite Grenze, die nichts begrenzt,
+# liest sich wie eine Regel und ist keine.
+LISTE = 10
 KOSTPROBE = 5
 
 # Die Arten der Aufgabenliste, die an der Taskforce hängen. „Nachfassen" gehört dazu:
@@ -80,15 +84,30 @@ def aussenstehend():
     Sie sind nicht falsch, sie gehören nur nicht in diesen Trichter – etwa zu jemandem,
     dessen Maßnahme beendet ist, dessen Suchprofil aber weiterläuft. Weglassen wäre
     dasselbe Verschweigen, das dieses Band abschaffen soll; darum stehen sie beschriftet
-    unter dem Band."""
+    unter dem Band.
+
+    `gut` sind davon die, die sich zu lesen lohnen: Relevanz ab 6 – dieselbe Schwelle wie
+    `aufgaben.gute_angebote_liegen()`. Keine zweite Rechenart, nur dieselbe Zahl an einer
+    zweiten Stelle. `treffer` und `leute` bleiben unverändert: an ihnen rechnet der
+    Selbsttest nach, dass drinnen + außen wieder die Zahl der Tafel ergibt.
+
+    **Zu `gut` gehört `gut_leute`, und das ist kein Zierrat.** `leute` zählt jeden, für
+    den irgendein neuer Treffer liegt; `gut` zählt nur die hoch bewerteten Angebote. Ein
+    Satz, der beide Zahlen zusammenspannt – „für 20 Menschen warten 3 gut passende
+    Angebote" –, stellt 19 Menschen als versorgt dar, für die nichts Gutes daliegt. Wer
+    über die guten Angebote spricht, zählt die Menschen aus derselben Menge."""
     wo, werte = _kundenbedingung(drinnen=False)
     z = db.eine(
-        "SELECT COUNT(*) AS treffer, COUNT(DISTINCT k.id) AS leute"
+        "SELECT COUNT(*) AS treffer, COUNT(DISTINCT k.id) AS leute,"
+        "       SUM(CASE WHEN COALESCE(a.score,0)>=6 THEN 1 ELSE 0 END) AS gut,"
+        "       COUNT(DISTINCT CASE WHEN COALESCE(a.score,0)>=6 THEN k.id END) AS gut_leute"
         "  FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id JOIN kunde k ON k.id=p.kunde_id"
         " WHERE a.status='neu' AND p.standort=? AND p.aktiv=1 AND " + wo,
         (db.STANDORT_STANDARD,) + werte)
     return {"treffer": (z["treffer"] if z else 0) or 0,
-            "leute": (z["leute"] if z else 0) or 0}
+            "leute": (z["leute"] if z else 0) or 0,
+            "gut": (z["gut"] if z else 0) or 0,
+            "gut_leute": (z["gut_leute"] if z else 0) or 0}
 
 
 def _zustand(zahl, vorher):
@@ -176,14 +195,6 @@ def alle_handgriffe():
             for a in zeilen]
 
 
-def jetzt_dran(limit=None):
-    """Die ersten Handgriffe – so viele, wie auf einen Bildschirm passen.
-
-    Wie viele es insgesamt sind, sagt `len(alle_handgriffe())`; die Seite nennt beide
-    Zahlen, sonst steht unter acht Zeilen eine Zahl, die etwas anderes meint."""
-    return alle_handgriffe()[:(HANDGRIFFE if limit is None else limit)]
-
-
 # ----------------------------------------------------------- Wer gerade in Maßnahme ist
 def laufende_massnahmen():
     """Die laufenden Maßnahmen – geliehen aus den Aufgabenregeln, nicht nachgebaut.
@@ -207,14 +218,84 @@ def laufende(limit=None):
 
     `limit` schneidet ab, damit der Einstieg auf einen Bildschirm passt. Wie viele es
     insgesamt sind, steht in der ersten Stufe des Bandes – die Seite nennt beide Zahlen
-    und verlinkt weiter, sonst fehlt ab der Grenze ein Mensch lautlos."""
+    und verlinkt weiter, sonst fehlt ab der Grenze ein Mensch lautlos.
+
+    `limit=0` heißt ganze Liste, nicht leere Liste – dieselbe Schranke wie in
+    `arbeitsliste()`, die von hier ihre laufende Hälfte holt. Eine Liste, aus der man
+    vereinigt, darf nicht vorher abgeschnitten sein."""
     neu = _neu_je_kunde()
-    return [{"kunde_id": k["id"], "kunde": k["name"],
-             "coach": k["coach"] or aufgaben.LEITUNG,
-             "profile": k["profile"], "lebenslauf": bool(k["lebenslaeufe"]),
-             "neu": neu.get(k["id"], 0),
-             "ziel": f"/taskforce/kunde/{k['id']}/stand"}
-            for k in laufende_massnahmen()][:(LISTE if limit is None else limit)]
+    zeilen = [{"kunde_id": k["id"], "kunde": k["name"],
+               "coach": k["coach"] or aufgaben.LEITUNG,
+               "profile": k["profile"], "jobprofile": k["jobprofile"],
+               "lebenslauf": bool(k["lebenslaeufe"]),
+               "neu": neu.get(k["id"], 0),
+               "ziel": f"/taskforce/kunde/{k['id']}/stand"}
+              for k in laufende_massnahmen()]
+    return zeilen[:LISTE] if limit is None else (zeilen[:limit] if limit else zeilen)
+
+
+def arbeitsliste(limit=None):
+    """Eine Zeile je Mensch – der Handgriff und der Stand desselben Menschen nebeneinander.
+
+    Vorher standen dieselben Leute zweimal auf der Seite: einmal als offener Handgriff,
+    einmal als laufende Maßnahme mit ihren Plaketten. Wer beides hatte, stand doppelt; wer
+    nur eins hatte, sah aus wie zwei verschiedene Sorten Arbeit. Es ist eine Menge, darum
+    ist es eine Liste.
+
+    Vereinigt wird über `kunde_id`, und zwar in beide Richtungen: Wer einen Handgriff hat,
+    aber keine laufende Maßnahme mehr, fällt **nicht** heraus – er steht mit
+    `laufend=False` drin. Ein Handgriff ohne Kundennummer behält seine eigene Zeile,
+    unterschieden über sein Ziel – genau so, wie `alle_handgriffe()` ihn vorher schon von
+    den anderen unterscheidet. Über den Namen ginge das nicht: der ist dort „—", sobald
+    keiner dasteht, und zwei Namenlose würden zu einem verschmelzen.
+
+    `profile`, `jobprofile` und `lebenslauf` stehen nur für laufende Maßnahmen fest – nur
+    dort sind sie gemessen (`aufgaben.laufende_massnahmen()`). Außerhalb bleiben sie
+    `None`: „kein Profil" zu behaupten, wo nichts gezählt wurde, wäre eine erfundene
+    Angabe. `jobprofile` steht neben `profile`, weil ein Wohnprofil zwar ein Profil ist,
+    für die Arbeitssuche aber nichts sucht.
+
+    `sammel` markiert die Zeilen, deren fehlendes Suchprofil schon in der Kopfzeile der
+    Liste steht. In der Zeile bleibt der Satz dann weg – einmal gesagt genügt.
+
+    `limit` ist hier die Schranke selbst: `None` oder `0` heißt ganze Liste. Die Seite holt
+    alles und schneidet erst danach ab, damit die Zahl unter der Liste dieselbe Menge
+    zählt, aus der die Liste ihre Zeilen nimmt."""
+    zeilen = {}
+    for m in laufende(limit=0):
+        zeilen[m["kunde_id"]] = {
+            "kunde": m["kunde"], "kunde_id": m["kunde_id"], "coach": m["coach"],
+            "stufe": None, "profile": m["profile"], "jobprofile": m["jobprofile"],
+            "lebenslauf": m["lebenslauf"],
+            "neu": m["neu"], "laufend": True, "fehlt": None, "knopf": None,
+            "link": None, "ziel": m["ziel"], "sammel": False}
+    # Erst holen, wenn wirklich jemand ohne laufende Maßnahme auftaucht: die laufenden
+    # bringen ihre Trefferzahl schon aus `laufende()` mit, aus derselben Abfrage.
+    neu = None
+    for h in alle_handgriffe():
+        schluessel = h["kunde_id"] if h["kunde_id"] is not None else ("ziel", h["link"])
+        z = zeilen.get(schluessel)
+        if z is None:
+            if neu is None:
+                neu = _neu_je_kunde()
+            z = zeilen[schluessel] = {
+                "kunde": h["kunde"], "kunde_id": h["kunde_id"], "coach": h["coach"],
+                "stufe": None, "profile": None, "jobprofile": None, "lebenslauf": None,
+                "neu": neu.get(h["kunde_id"], 0), "laufend": False, "fehlt": None,
+                "knopf": None, "link": None,
+                "ziel": (f"/taskforce/kunde/{h['kunde_id']}/stand"
+                         if h["kunde_id"] is not None else h["link"]),
+                "sammel": False}
+        z["stufe"] = h["stufe"]
+        z["fehlt"] = h["fehlt"]
+        z["link"] = h["link"]
+        z["knopf"] = h["knopf"]
+        # Genau die Zeilen, deren Satz oben in der Kopfzeile steht: laufende Maßnahme,
+        # kein Suchprofil, und der Handgriff ist eben dieses fehlende Profil.
+        z["sammel"] = bool(z["laufend"] and not z["profile"] and z["knopf"] == "Suchprofil")
+    liste = sorted(zeilen.values(),
+                   key=lambda z: (aufgaben.STUFEN.get(z["stufe"], 9), z["kunde"] or ""))
+    return liste[:limit] if limit else liste
 
 
 def beste_treffer(limit=None):

@@ -2293,8 +2293,10 @@ def kunden_suchen(text, standort=db.STANDORT_STANDARD, limit=12):
 
     Die Auswahlliste mit allen Namen war bei 93 Kunden nicht mehr zu bedienen – man musste
     wissen, wie der Name im Bestand geschrieben ist, um ihn zu finden. Hier genuegen ein
-    paar Buchstaben aus *irgendeinem* Teil des Namens; die Reihenfolge ist egal, „ammar moh"
-    findet „Mohamed Ammar" genauso wie „mohamed". Die Kundennummer geht auch.
+    paar Buchstaben aus *irgendeinem* Teil des Namens; die Reihenfolge ist egal, „muester er"
+    findet „Erika Müstermann" genauso wie „erika". Die Kundennummer geht auch. Der
+    Beispielname ist mit Absicht keiner, den es geben kann: ein echter Name im Code
+    kollidiert eines Tages mit einem echten Kunden – und steht dann unbemerkt zweimal.
 
     Sortiert wird nach Treffergenauigkeit, nicht alphabetisch: wer den Anfang des Namens
     tippt, will nicht erst durch alle Namen scrollen, die den Buchstaben in der Mitte haben."""

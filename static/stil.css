@@ -359,19 +359,36 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
 .pfad a:hover{color:var(--heading);border-bottom-color:var(--line-strong)}
 .pfad span[aria-current]{color:var(--heading);font-weight:560}
 .pfad-pfeil{opacity:.45}
+/* Der Weg zurueck, vor dem ersten Glied. Groesser als die Schrift der Leiste, weil ein
+   Pfeil in 12px kaum zu treffen ist; ohne Unterstrich, damit er nicht wie ein weiteres
+   Pfadglied aussieht. Die zwei Klassen im Selektor sind noetig, sonst zieht `.pfad a`
+   seinen Unterstrich darueber. */
+.pfad .pfad-zurueck{display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;margin-right:2px;font-size:15px;line-height:1;
+  color:var(--muted);text-decoration:none;border-bottom:none;border-radius:var(--radius-sm)}
+.pfad .pfad-zurueck:hover{color:var(--heading);border-bottom:none}
 
 
 /* ---------- Leerlaufband. Fuenf Stufen vom Menschen bis zur Antwort, nebeneinander.
    Die Tafel zeigt 754 gefundene Angebote; erst diese Reihe zeigt, dass davon nichts
    ankommt. Rot ist die Stelle, an der es stehenbleibt – sie ist der Knopf. */
-.kette{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:0 0 12px}
-.kette-stufe{flex:1 1 150px;min-width:140px;background:var(--surface);border:1px solid var(--line);
+.kette{display:flex;flex-wrap:nowrap;align-items:stretch;gap:8px;margin:0 0 12px}
+.kette-stufe{flex:1 1 0;min-width:0;background:var(--surface);border:1px solid var(--line);
   border-radius:var(--radius-sm);padding:10px 14px}
 .kette-stufe.bruch{border-color:var(--red);background:var(--red-soft)}
 .kette-zahl{font-family:var(--font-mono);font-size:24px;font-weight:600;line-height:1.15;color:var(--heading)}
 .kette-name{font-size:13px;font-weight:560;color:var(--ink)}
+/* Plakette und Name nebeneinander statt untereinander: das spart je Stufe eine Zeile,
+   und ein Trichter, der auf zwei Reihen umbricht, ist kein Trichter mehr. */
+.kette-zeile{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px}
 .kette-stufe .marke{margin-top:5px}
 .kette-pfeil{align-self:center;color:var(--muted);opacity:.45}
+/* Auf schmalen Schirmen darf es doch umbrechen – fuenf Stufen nebeneinander werden
+   unter 760px zu schmal fuer die Beschriftung. */
+@media (max-width:760px){
+  .kette{flex-wrap:wrap}
+  .kette-stufe{flex:1 1 140px;min-width:140px}
+}
 
 /* ---------- Ein Handgriff je Mensch: Name, Coach, was fehlt, ein Knopf. Eine Zeile,
    weil eine Aufgabe, die man erst aufklappen muss, niemand erledigt. */
@@ -381,3 +398,10 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
 .handgriff-name{min-width:170px;font-weight:560;color:var(--heading)}
 .handgriff-fehlt{flex:1;min-width:200px;font-size:13px;color:var(--ink)}
 .handgriff .marke{margin-top:0}
+/* Die Plaketten einer Zeile bleiben beieinander, auch wenn sie umbrechen. */
+.handgriff-marken{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+/* Kopfzeile der Liste: links was fehlt und der Knopf dagegen, rechts das Suchfeld.
+   Steht ueber der ersten Zeile und gehoert zur selben Karte – der Satz zum fehlenden
+   Suchprofil steht damit einmal oben statt in jeder zweiten Zeile. */
+.listenkopf{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line)}

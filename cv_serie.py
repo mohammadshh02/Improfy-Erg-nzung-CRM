@@ -27,16 +27,31 @@ auslesen, Formular füllen, PDF bauen. Genau das, was ein Coach im Browser tut.
 
 Läuft gegen eine Kopie der Datenbank. Am Echtbestand ändert sich nichts.
 """
+import atexit
 import os
 import re
-import shutil
+import sqlite3
 import sys
 import tempfile
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
-KOPIE = os.path.join(tempfile.gettempdir(), "improfy_cv_serie.db")
-shutil.copy(os.path.join(HIER, "improfy_os.db"), KOPIE)
+# Prozessnummer im Namen und Aufraeumen zum Schluss: zwei Laeufe duerfen sich nie dieselbe
+# Datei teilen, und 2 MB echte Kundendaten haben im Papierkorb nichts dauerhaft zu suchen.
+KOPIE = os.path.join(tempfile.gettempdir(), "improfy_cv_serie_%d.db" % os.getpid())
+atexit.register(lambda: os.path.exists(KOPIE) and os.remove(KOPIE))
+
+# Kopie ueber die SQLite-Sicherung statt ueber das Dateisystem: laeuft der
+# Entwicklungsserver nebenher, fehlt bei `shutil.copy` das WAL-Journal und die Kopie ist
+# ein Zwischenzustand. Dieselbe Stelle steht in den vier Selbsttests.
+if os.path.exists(KOPIE):
+    os.remove(KOPIE)
+_quelle = sqlite3.connect(os.path.join(HIER, "improfy_os.db"))
+_ziel = sqlite3.connect(KOPIE)
+with _ziel:
+    _quelle.backup(_ziel)
+_ziel.close()
+_quelle.close()
 os.environ["IMPROFY_OS_DB"] = KOPIE
 
 import app as A                     # noqa: E402

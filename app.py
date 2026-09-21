@@ -904,13 +904,23 @@ def _tf_einstieg():
     # Einmal holen, dann teilen: die Zahl unter der Liste muss genau die Menge zaehlen,
     # aus der die Liste ihre Zeilen nimmt. Zwei getrennte Abfragen waren zwei Mengen –
     # acht Zeilen mit „0 offene Handgriffe" darunter ist schlimmer als keine Zahl.
-    handgriffe = einstieg.alle_handgriffe()
+    alle = einstieg.arbeitsliste(limit=None)
     ketten = einstieg.kette()
+    # Die Kopfzeile zaehlt genau die Menge, die hinter ihrem Knopf steht: laufende
+    # Massnahmen ohne aktives JOBprofil - dieselbe Bedingung, die `sammelanlage.
+    # vorschlaege(art='job')` als Zeilen zeigt, gerechnet aus derselben Liste, die
+    # darunter die Zeilen fuellt. Die Plakette in der Zeile liest dasselbe Feld.
+    #
+    # Vorher stand hier Stufe 1 minus Stufe 2 des Bandes. Das Band zaehlt artlos: wer ein
+    # Wohnprofil hat, gilt dort als versorgt. Ein Kunde mit Wohnprofil und ohne Jobprofil
+    # senkte damit die Kopfzeile um eins, waehrend die Seite hinter dem Knopf ihn weiter
+    # auffuehrte - zwei verschiedene Mengen, beschriftet als eine.
+    ohne_profil = len([z for z in alle if z["laufend"] and not z["jobprofile"]])
     return render_template(
         "taskforce_einstieg.html", stand=stand, neu=tf.anzahl_neu(),
-        kette=ketten, handgriffe=handgriffe[:einstieg.HANDGRIFFE],
-        offene_handgriffe=len(handgriffe), aussen=einstieg.aussenstehend(),
-        laufende=einstieg.laufende(), beste=einstieg.beste_treffer(),
+        kette=ketten, liste=alle[:einstieg.LISTE], liste_gesamt=len(alle),
+        ohne_profil=ohne_profil, laufend_gesamt=ketten[0]["zahl"],
+        aussen=einstieg.aussenstehend(), beste=einstieg.beste_treffer(),
         profile=tf.uebersicht(), lauf=betrieb.lauf_zustand())
 
 

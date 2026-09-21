@@ -15,12 +15,14 @@ Was geprüft wird:
     Wohnkriterien (WBS, Balkon, Etage …) samt IS24-Suchlink
  8. Jobregler: Art, Befristung, Arbeitszeit, Entfernung, Gehalt, Wörter, Arbeitgeber
  9. Tafel: jeder Filter greift und liefert eine gültige Seite
-10. Einstieg: /taskforce zeigt Leerlauf und Handgriffe, /taskforce/tafel die volle Tafel
+10. Einstieg: /taskforce zeigt Leerlauf und Handgriffe, /taskforce/tafel die volle Tafel;
+    jede Taskforce-Seite hat genau eine Pfadleiste mit einem Weg zurück, der trägt
 """
 import atexit
 import datetime
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -53,6 +55,18 @@ with _ziel:
 _ziel.close()
 _quelle.close()
 os.environ["IMPROFY_OS_DB"] = kopie
+
+# Der Sicherungsordner muss mit in den Papierkorb zeigen, nicht nur die Datenbank.
+# `betrieb.py` leitet ihn sonst aus seinem eigenen Verzeichnis ab: ein Testlauf, der auf
+# „jetzt sichern" drückt, legt dann einen Schnappschuss der TESTdatenbank ins echte
+# `sicherungen/` – und `aufraeumen()` wirft bei sieben Ständen je eine echte
+# Nachtsicherung heraus. Wer daraus zurücksichert, holt sich Testkonten in den
+# Echtbestand, und schon das erste Konto schaltet die persönliche Anmeldung scharf.
+# Gelesen wird die Variable beim Import von `betrieb`, also muss sie vorher stehen.
+sicherungen = os.path.join(tempfile.gettempdir(),
+                           "improfy_os_test_sicherungen_%d" % os.getpid())
+os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
+atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
 
 import app as A                    # noqa: E402
 import datenbank as db             # noqa: E402
@@ -464,7 +478,10 @@ def main():
         return "alle Filter zurücksetzen" in t          # nur taskforce.html hat diesen Knopf
 
     def ist_einstieg(t):
-        return "Wo bleibt die Arbeit stehen?" in t      # nur taskforce_einstieg.html
+        # Die Klasse statt der Ueberschrift: an einem Wortlaut zu erkennen, welche Seite
+        # man vor sich hat, haelt keinen Umbau aus. `class="kette"` steht in keiner
+        # anderen Vorlage – geprueft beim Umbau am 21.09.2026.
+        return 'class="kette"' in t                    # nur taskforce_einstieg.html
 
     ein = c.get("/taskforce").text
     pruefe("/taskforce ohne Regler zeigt den Einstieg, nicht die Tafel",
@@ -512,26 +529,245 @@ def main():
     aussen = einstieg.aussenstehend()
     pruefe("Treffer außerhalb der Maßnahmen verschwinden nicht, sondern stehen beschriftet daneben",
            k[2]["zahl"] + aussen["treffer"] == tf.anzahl_neu()
-           and (not aussen["treffer"] or "ohne laufende" in ein),
+           and (not aussen["treffer"] or "außerhalb laufender Maßnahmen" in ein),
            f"{k[2]['zahl']} drinnen + {aussen['treffer']} außen = {tf.anzahl_neu()} auf der Tafel")
 
-    hg = einstieg.jetzt_dran()
+    # Menschen und Angebote in einem Satz müssen aus derselben Menge kommen. „Für 20
+    # Menschen warten 3 gut passende Angebote" weist 19 als versorgt aus, für die nichts
+    # Gutes daliegt – darum wird hier nachgezählt, nicht nur verglichen.
+    aussen_gut = db.hole(
+        "SELECT k.id AS kunde_id FROM tf_angebot a"
+        "  JOIN tf_profil p ON p.id=a.profil_id JOIN kunde k ON k.id=p.kunde_id"
+        " WHERE a.status='neu' AND p.standort=? AND p.aktiv=1 AND COALESCE(a.score,0)>=6"
+        "   AND COALESCE(k.status_code,'') NOT IN ('H','I')", (db.STANDORT_STANDARD,))
+    pruefe("Gute Angebote und die Menschen dazu kommen aus derselben Menge",
+           aussen["gut"] == len(aussen_gut)
+           and aussen["gut_leute"] == len({z["kunde_id"] for z in aussen_gut})
+           and aussen["gut_leute"] <= aussen["leute"],
+           f"{aussen['gut']} Angebote für {aussen['gut_leute']} Menschen "
+           f"(insgesamt {aussen['treffer']} für {aussen['leute']})")
+    pruefe("Der Satz über der Liste nennt die Menschen aus derselben Menge",
+           not aussen["gut"]
+           or f"Für {aussen['gut_leute']} Menschen außerhalb laufender Maßnahmen" in ein)
+
+    # Eine Liste statt zweier. Vorher standen dieselben Menschen zweimal auf der Seite –
+    # einmal als offener Handgriff, einmal als laufende Maßnahme. Geprüft wird darum
+    # zuerst die Menge: sie muss beide Quellen vollständig enthalten und jeden nur einmal.
+    alle_z = einstieg.arbeitsliste(limit=0)
+    liste = einstieg.arbeitsliste(limit=einstieg.LISTE)
     alle_hg = einstieg.alle_handgriffe()
     schluessel = [h["kunde_id"] or h["kunde"] for h in alle_hg]
-    pruefe("Jetzt dran nennt jeden Menschen höchstens einmal und immer mit Link",
+    pruefe("Die Arbeitsliste nennt jeden Menschen höchstens einmal, jeden Handgriff mit Link",
            len(schluessel) == len(set(schluessel)) and all(h["link"] for h in alle_hg)
-           and len(hg) <= einstieg.HANDGRIFFE, f"{len(hg)} von {len(alle_hg)} Zeilen")
-    pruefe("Die Zahl unter der Liste zählt dieselbe Menge wie die Liste",
-           f"{len(hg)} von {len(alle_hg)} Menschen mit offenem Handgriff" in ein
-           or not alle_hg,
-           f"{len(hg)} von {len(alle_hg)}")
+           and len({z["kunde_id"] or z["kunde"] for z in alle_z}) == len(alle_z),
+           f"{len(liste)} von {len(alle_z)} Zeilen")
+    # Beide Richtungen: der Mensch ohne Handgriff darf nicht fehlen, und wer einen
+    # Handgriff hat, dessen Maßnahme aber beendet ist, darf beim Vereinigen nicht
+    # herausfallen. Genau dort verschwindet sonst lautlos jemand.
+    pruefe("Die eine Liste verliert keinen Menschen aus beiden Quellen",
+           {z["kunde_id"] for z in alle_z}
+           == {k["id"] for k in lauf} | {h["kunde_id"] for h in alle_hg},
+           f"{len(alle_z)} Zeilen aus {len(lauf)} laufenden und {len(alle_hg)} Handgriffen")
+    pruefe("Wer einen Handgriff hat, behält ihn samt Knopf – auch ohne laufende Maßnahme",
+           all(any(z["kunde_id"] == h["kunde_id"] and z["knopf"] == h["knopf"]
+                   for z in alle_z) for h in alle_hg))
+    # Die Gesamtzahl der Liste ist groesser als die erste Bandstufe – sie enthaelt auch
+    # die Handgriffe ohne laufende Massnahme. Steht das nicht dabei, stehen zwei Zahlen
+    # fuer scheinbar dieselbe Sache auf einem Bildschirm.
+    weitere = len(alle_z) - len(lauf)
+    zahlenzeile = (f"{len(liste)} von {len(alle_z)} Menschen · {len(lauf)} in laufender Maßnahme"
+                   + (f", {weitere} mit offenem Handgriff ohne laufende Maßnahme"
+                      if weitere > 0 else ""))
+    pruefe("Die Zahl unter der Liste zählt dieselbe Menge wie die Liste und erklärt die Differenz",
+           zahlenzeile in ein or not alle_z, zahlenzeile)
     pruefe("Der Einstieg nennt mindestens einen Menschen beim Namen",
-           not hg or any(h["kunde"] in ein for h in hg),
-           hg[0]["kunde"] if hg else "keine offenen Handgriffe")
-    pruefe("Die laufenden Maßnahmen stehen mit Stand da",
-           len(einstieg.laufende()) == min(len(lauf), einstieg.LISTE)
-           and all(z["ziel"].endswith("/stand") for z in einstieg.laufende()))
+           not liste or any(z["kunde"] in ein for z in liste),
+           liste[0]["kunde"] if liste else "keine Zeile")
+    pruefe("Jede Zeile führt auf den Stand dieses Menschen",
+           all(z["ziel"] for z in alle_z)
+           and all(z["ziel"].endswith("/stand") for z in alle_z if z["kunde_id"]))
     pruefe("Die Kostprobe bleibt bei fünf Treffern", len(einstieg.beste_treffer()) <= 5)
+
+    # Der Satz zum fehlenden Suchprofil war der Grund für den Umbau: er stand in jeder
+    # zweiten Zeile. Jetzt steht er einmal in der Kopfzeile, mit derselben Zahl wie die
+    # zweite Stufe des Bandes – zwei Zahlen für dieselbe Lücke wären schon wieder eine.
+    import sammelanlage
+    pruefe("Die Aussage „kein Suchprofil“ steht höchstens einmal auf der Seite",
+           ein.count("Kein Such-Profil") <= 1, ein.count("Kein Such-Profil"))
+
+    # Die Kopfzeile muss genau die Menge zählen, die hinter ihrem Knopf steht. Der Knopf
+    # führt auf `sammelanlage_seite(art='job')`, also wird gegen deren eigene Liste
+    # geprüft – nicht gegen eine Regel, die zufällig dieselbe Zahl liefert.
+    ohne_job = sammelanlage.vorschlaege(art="job")
+    pruefe("Die Kopfzeile nennt die Menge, die hinter ihrem Knopf steht",
+           (f"{len(ohne_job)} von {len(lauf)} laufenden Maßnahmen haben kein Profil für die "
+            f"Arbeitssuche" in ein)
+           if ohne_job else ("alle laufenden Maßnahmen haben ein Profil für die Arbeitssuche" in ein
+                             or "Zurzeit läuft keine Maßnahme" in ein),
+           f"{len(ohne_job)} von {len(lauf)}")
+    # Das Band zählt artlos weiter – das ist richtig, es ist der Trichter über beide
+    # Arten. Seine Lücke muss aber in der Lücke der Kopfzeile stecken: wer gar kein Profil
+    # hat, hat erst recht keins für die Arbeitssuche. Fällt das auseinander, zählt eine
+    # der beiden Stellen etwas anderes, als sie behauptet.
+    pruefe("Die Lücke des Bandes steckt in der Lücke der Kopfzeile",
+           k[0]["zahl"] - k[1]["zahl"] <= len(ohne_job)
+           and {z["id"] for z in ohne_job} >= {m["id"] for m in lauf if not m["profile"]},
+           f"Band {k[0]['zahl']} - {k[1]['zahl']}, Kopfzeile {len(ohne_job)}")
+
+    # Der Fall, der beides auseinanderbrachte: ein laufender Kunde bekommt ein WOHNprofil
+    # und kein Jobprofil. Er hat dann ein Profil – für seine Arbeitssuche sucht trotzdem
+    # niemand. Vorher sank die Kopfzeile um eins, während die Seite hinter dem Knopf ihn
+    # weiter auflistete, und seine Zeile trug grün „1 Profile".
+    if ohne_job:
+        _wk = ohne_job[0]["id"]
+        _angelegt, _ = sammelanlage.anlegen([(_wk, "", "Köln")], art="wohnung")
+        try:
+            nach = c.get("/taskforce").text
+            nach_job = sammelanlage.vorschlaege(art="job")
+            sichtbar = einstieg.arbeitsliste(limit=einstieg.LISTE)
+            zeile = [z for z in einstieg.arbeitsliste(limit=0) if z["kunde_id"] == _wk][0]
+            pruefe("Ein Wohnprofil zählt nicht als Profil für die Arbeitssuche",
+                   bool(_angelegt) and len(nach_job) == len(ohne_job)
+                   and zeile["profile"] and not zeile["jobprofile"]
+                   and f"{len(nach_job)} von {len(lauf)} laufenden Maßnahmen haben kein Profil "
+                       f"für die Arbeitssuche" in nach,
+                   f"{len(nach_job)} Zeilen in der Sammelanlage, Zeile hat "
+                   f"{zeile['profile']} Profile / {zeile['jobprofile']} Jobprofile")
+            pruefe("Seine Plakette meldet die Lücke statt einer grünen Profilzahl",
+                   nach.count(">kein Profil für die Arbeitssuche<")
+                   == len([z for z in sichtbar
+                           if z["laufend"] and z["profile"] and not z["jobprofile"]]),
+                   nach.count(">kein Profil für die Arbeitssuche<"))
+        finally:
+            # Nur das eben angelegte Profil wieder weg, nicht alle Wohnprofile des Kunden.
+            with db.offen() as con:
+                for _, _pid, _ in _angelegt:
+                    con.execute("DELETE FROM tf_profil WHERE id=?", (_pid,))
+
+    # Zusammenfassen heißt nicht weglassen: was an einem Menschen fehlt, stand vorher in
+    # den Plaketten und steht nachher in denselben.
+    pruefe("Die Plaketten der laufenden Maßnahmen sind vollständig geblieben",
+           ein.count(">kein Lebenslauf<")
+           == len([z for z in liste if z["laufend"] and not z["lebenslauf"]])
+           and ein.count(">kein Profil<")
+           == len([z for z in liste if z["laufend"] and not z["profile"]])
+           and all(f"{z['neu']} neu<" in ein for z in liste if z["neu"]),
+           f"{ein.count('>kein Lebenslauf<')} ohne Lebenslauf, "
+           f"{ein.count('>kein Profil<')} ohne Profil")
+
+    # Das Band: fünf Stufen, flach. Flach heißt nicht: Wege weg. Verlinkt wird jede Stufe, an der es etwas zu tun gibt –
+    # die gebrochene und jede, hinter der etwas liegt. Nur eine Null, die nicht rot ist,
+    # bleibt ohne Link: dort gibt es nichts anzusehen.
+    stufenlinks = ein.count('<div class="marke"><a href=')
+    zu_tun = [s for s in k if s["zustand"] == "p-rot" or s["zahl"]]
+    pruefe("Das Band bleibt flach und verliert keinen Weg",
+           ein.count('class="kette-stufe') == 5 and stufenlinks == len(zu_tun),
+           f"{stufenlinks} Stufenlinks, {len(zu_tun)} Stufen mit etwas zu tun")
+    pruefe("Jedes Bandziel steht auch wirklich auf der Seite",
+           all(f'href="{s["ziel"]}"' in ein.replace("&amp;", "&") for s in zu_tun),
+           [s["ziel"] for s in zu_tun if f'href="{s["ziel"]}"' not in ein.replace("&amp;", "&")])
+    # Ein Suchfeld, nicht zwei. Die Kopfsuche der Leiste steht als `class="ksuche"` da,
+    # das Feld der Liste als `class="ksuche ksuche-klein"` – der Marker mit Leerzeichen
+    # zählt darum nur die Felder der Seite selbst.
+    pruefe("Auf der Seite steht genau ein Suchfeld",
+           ein.count('class="ksuche ') == 1, ein.count('class="ksuche '))
+
+    # Die Kostprobe steht offen da, nicht hinter einem Aufklapper. Ein Beleg, den man
+    # erst aufklappen muss, belegt nichts – und eingeklappt wäre aus der Umsortierung
+    # eine Entfernung geworden.
+    kost = einstieg.beste_treffer()
+    kostzeilen = ein.count('title="Relevanz 0–10"')
+    pruefe("Die Kostprobe steht offen auf der Seite, nicht eingeklappt",
+           'class="tf-nach"' not in ein and kostzeilen == len(kost),
+           f"{kostzeilen} Zeilen gegen {len(kost)} Treffer der Kostprobe")
+
+    # Die Sortierung verlässt sich darauf, dass jede Handgriff-Regel ihre Stufe rot, gelb
+    # oder grau nennt. Eine vierte Bezeichnung bekäme denselben Rang wie eine Zeile ganz
+    # ohne Handgriff und landete hinter den Standzeilen: „Nichts offen" stünde da, obwohl
+    # Arbeit liegt, und der Weg zur Aufgabenliste verschwände mit.
+    pruefe("Jeder Handgriff trägt eine Stufe, die die Sortierung kennt",
+           all(h["stufe"] in aufgaben.STUFEN for h in alle_hg),
+           sorted({str(h["stufe"]) for h in alle_hg if h["stufe"] not in aufgaben.STUFEN}))
+    _mit_knopf = [bool(z["knopf"]) for z in alle_z]
+    pruefe("Keine Zeile mit Handgriff steht hinter einer Zeile ohne",
+           _mit_knopf == sorted(_mit_knopf, reverse=True),
+           f"{sum(_mit_knopf)} Zeilen mit Knopf von {len(_mit_knopf)}")
+
+    # Neun Regeln fragen dieselbe Liste laufender Maßnahmen. Ohne Merker rechnete ein
+    # Seitenaufruf sie neunmal – 23 von 54 Millisekunden. Der Merker lebt genau eine
+    # Anfrage lang: im Agentenlauf und in der Kommandozeile muss weiter frisch gerechnet
+    # werden, sonst zeigt eine stundenlang laufende Schleife Aufgaben zu Menschen, deren
+    # Maßnahme inzwischen beendet ist.
+    with A.app.test_request_context("/taskforce"):
+        _a, _b = aufgaben.laufende_massnahmen(), aufgaben.laufende_massnahmen()
+    pruefe("In einer Anfrage werden die laufenden Maßnahmen einmal geholt", _a is _b)
+    pruefe("Ohne Anfrage wird weiterhin jedes Mal frisch gerechnet",
+           aufgaben.laufende_massnahmen() is not aufgaben.laufende_massnahmen())
+
+    # Kein Kundenname im PRODUKTCODE: die Kunden kommen später aus dem CRM, der Bestand
+    # hier ist Baumaterial. Ein Sonderfall für einen Menschen überlebt den Umzug nicht –
+    # er fällt nur nicht auf, weil er dann für niemanden mehr greift.
+    #
+    # Zwei Grenzen, beide bewusst, und beide stehen im Namen der Prüfung:
+    #
+    # **Der ganze Produktcode**, nicht eine Handvoll Module: jede `.py` in der Wurzel und
+    # in `quellen/`, dazu jede Vorlage. Ausgenommen sind allein die Prüfwerkzeuge, und die
+    # Ausnahmeliste steht hier im Code, nicht im Kopf des Schreibers. Ein Test, der fünf
+    # Dateien liest und „im Produktcode" behauptet, meldet Grün für eine Regel, die
+    # nebenan gebrochen wird – das ist schlimmer als kein Test.
+    #
+    # Testdateien brauchen einen Beispielkunden: ohne ihn kann eine Prüfung nichts
+    # anfassen. Das ist kein Verstoß, sondern die Voraussetzung, und es steht im Namen.
+    #
+    # **Nur vollständige Namen**, also mindestens zwei Namensteile. Einzelne Stücke
+    # klingen scharf, treffen aber deutsche Wörter: im Bestand stehen Sammelzeilen und
+    # Platzhalter statt Personen, deren Stücke („Online", „Leads", „Personen", „Datei")
+    # in halb `app.py` vorkommen. Ein Test, den man mit der Wortwahl im nächsten
+    # Kommentar besänftigen muss, wird abgeschaltet. Ein hart eingetragener Kunde steht
+    # ohnehin praktisch nie mit nur einem Wort da.
+    _pruefwerkzeuge = {"bedienprobe.py", "taskforce_backtest.py", "cv_probe.py",
+                       "cv_serie.py", "seitenpruefung.py"}
+    _produktcode = sorted(n for n in os.listdir(HIER)
+                          if n.endswith(".py") and not n.endswith("_test.py")
+                          and n not in _pruefwerkzeuge)
+    _produktcode += sorted("quellen/" + n for n in os.listdir(os.path.join(HIER, "quellen"))
+                           if n.endswith(".py"))
+    _produktcode += sorted("templates/" + n for n in os.listdir(os.path.join(HIER, "templates"))
+                           if n.endswith(".html"))
+    _quellen = {n: open(os.path.join(HIER, n), encoding="utf-8").read()
+                for n in _produktcode if os.path.exists(os.path.join(HIER, n))}
+    _namen = set()
+    for _z in db.hole("SELECT name FROM kunde WHERE name IS NOT NULL AND name <> ''"):
+        _voll = " ".join(_z["name"].split())
+        if len([t for t in re.split(r"[^\wÄÖÜäöüß]+", _voll) if len(t) > 1]) >= 2:
+            _namen.add(_voll)
+    _gefunden = sorted({f"{n}: {w}" for n, t in _quellen.items() for w in _namen if w in t})
+    pruefe("Kein vollständiger Kundenname steht im Produktcode "
+           "(Selbsttests und Prüfwerkzeuge ausgenommen)",
+           not _gefunden,
+           _gefunden or f"{len(_namen)} Namen gegen {len(_quellen)} Dateien geprüft")
+
+    # Die Sammelanlage ist der Weg, der das Band schließt. Sie darf nicht genau dann von
+    # der Seite verschwinden, wenn gerade keine Lücke offen ist – dann verliert auch die
+    # zweite Bandstufe ihren Link, und der Weg ist praktisch gelöscht.
+    #
+    # Die Lücke kommt aus den Jobprofilen der Arbeitsliste, also wird die verstellt:
+    # jede laufende Zeile bekommt ein Jobprofil, das heißt „alle sind versorgt".
+    _arbeitsliste_echt = einstieg.arbeitsliste
+
+    def _arbeitsliste_ohne_luecke(limit=None):
+        return [dict(z, jobprofile=1 if z["laufend"] else z["jobprofile"])
+                for z in _arbeitsliste_echt(limit=limit)]
+
+    einstieg.arbeitsliste = _arbeitsliste_ohne_luecke
+    try:
+        voll = c.get("/taskforce").text
+    finally:
+        einstieg.arbeitsliste = _arbeitsliste_echt
+    pruefe("Die Sammelanlage bleibt erreichbar, auch wenn keine Lücke offen ist",
+           "/taskforce/profile-anlegen" in voll
+           and ("alle laufenden Maßnahmen haben ein Profil für die Arbeitssuche" in voll
+                or "Zurzeit läuft keine Maßnahme" in voll))
 
     # Abgeschnittene Liste: die Ueberschrift muss die echte Gesamtzahl nennen und den Weg
     # zum Rest zeigen. Eine Grenze, die nie greift, prueft nichts – darum hier erzwungen.
@@ -542,10 +778,9 @@ def main():
     finally:
         einstieg.LISTE = _liste
     pruefe("Abgeschnittene Liste nennt die echte Gesamtzahl und den Weg zum Rest",
-           (f"Laufende Maßnahmen · {len(lauf)}" in kurz
-            and f"hier stehen 2 von {len(lauf)}" in kurz and "alle anzeigen" in kurz)
-           if len(lauf) > 2 else True,
-           f"{len(lauf)} laufende")
+           (f"2 von {len(alle_z)} Menschen" in kurz and "alle Kunden" in kurz)
+           if len(alle_z) > 2 else True,
+           f"{len(alle_z)} Menschen in der Liste")
 
     # Kein Handgriff offen: dann muss ein Satz dastehen, keine leere Liste.
     _echt = einstieg.alle_handgriffe
@@ -554,8 +789,9 @@ def main():
         leer = c.get("/taskforce").text
     finally:
         einstieg.alle_handgriffe = _echt
-    # „alle Taskforce-Aufgaben →" steht nur unter einer gefuellten Liste; die Zeilenklasse
-    # selbst taugt nicht als Merkmal, die laufenden Massnahmen daneben benutzen sie auch.
+    # „alle Taskforce-Aufgaben →" steht nur unter einer Liste, in der wirklich ein
+    # Handgriff offen ist. Die Zeilen der laufenden Maßnahmen stehen weiter da – sie sind
+    # der Stand, keine Aufgabe, und duerfen den Weg zur Aufgabenliste nicht vortaeuschen.
     pruefe("Ohne offenen Handgriff steht ein Satz im Klartext statt einer leeren Liste",
            "Nichts offen" in leer and "alle Taskforce-Aufgaben" not in leer)
 
@@ -624,6 +860,52 @@ def main():
            all(a["link"].startswith("/taskforce/tafel")
                for a in aufgaben.gute_angebote_liegen()),
            [a["link"] for a in aufgaben.gute_angebote_liegen()][:2] or "keine offen")
+
+    # Der Weg zurueck. Die Pfadleiste sagte bisher nur, wo man ist; eine Ebene hoeher kam
+    # nur, wer das richtige Glied traf. Der Pfeil davor nimmt diesen Klick ab – und sein
+    # Ziel ist bewusst nicht „das vorletzte Glied": das waere auf vier von acht Seiten die
+    # Seite selbst oder ein Glied ohne Ziel gewesen, also ein toter Pfeil. Genommen wird das
+    # letzte Glied MIT Ziel. Weil das von den Daten der jeweiligen Seite abhaengt, wird es
+    # hier auf jeder Taskforce-Seite einzeln nachgemessen statt an einem Beispiel.
+    #
+    # Die Adressen mit Regler stehen ausdruecklich mit drin: `/taskforce?art=job` ist die
+    # Tafel, `/taskforce` ohne Regler der Einstieg – zwei Seiten unter einem Pfad, und die
+    # mit Regler ist die, ueber die das CRM und alte Lesezeichen hereinkommen. Genau dort
+    # fehlte der Pfeil, weil das Makro nur den Pfad verglich.
+    for adresse in ("/taskforce", "/taskforce/tafel", "/taskforce/arbeit", "/taskforce/wohnung",
+                    "/taskforce?art=job", "/taskforce?art=wohnung", "/taskforce?status=neu",
+                    f"/taskforce?kunde={kid}",
+                    "/taskforce/suchen", "/taskforce/suchen?art=wohnung",
+                    "/taskforce/profile-anlegen", f"/taskforce/kunde/{kid}/stand",
+                    f"/taskforce/kunde/{kid}", f"/taskforce/profil/{pj}"):
+        t = c.get(adresse).text
+        leisten = t.count('<nav class="pfad"')
+        pfeile = t.count('class="pfad-zurueck"')
+        ziele = [z.replace("&amp;", "&")
+                 for z in re.findall(r'<a class="pfad-zurueck" href="([^"]*)"', t)]
+        pruefe(f"Genau eine Pfadleiste mit genau einem Weg zurück ({adresse})",
+               leisten == 1 and pfeile == 1 and len(ziele) == 1,
+               f"{leisten} Leisten, {pfeile} Pfeile")
+        # Ein Pfeil, der auf die eigene Seite oder ins Nichts zeigt, ist schlimmer als
+        # keiner: man klickt und nichts passiert. Verglichen wird die ganze Adresse samt
+        # Reglern – von der Tafel `/taskforce?art=job` ist `/taskforce` der Einstieg und
+        # damit ein echter Schritt zurueck, nicht dieselbe Seite.
+        ziel = ziele[0] if ziele else ""
+        antwort = c.get(ziel).status_code if ziel else 0
+        pruefe(f"Der Weg zurück führt woandershin und antwortet ({adresse})",
+               ziel not in ("", "#", adresse) and antwort in (200, 302),
+               f"{ziel or 'kein Ziel'} → {antwort}")
+
+    # Und wenn eine kuenftige Seite das Makro ohne Ziel und ohne `zurueck` aufruft: lieber
+    # kein Pfeil als ein falscher. Vorher fiel er auf die Taskforce zurueck – eine Seite
+    # aus einer anderen Abteilung haette damit lautlos hierher gezeigt.
+    with A.app.test_request_context("/coaches"):
+        leiste = A.app.jinja_env.from_string(
+            '{% from "_pfad.html" import pfad %}{{ pfad([("Coaches", None)]) }}').render()
+    pruefe("Ohne Ziel und ohne Rückweg zeigt die Leiste keinen Pfeil statt eines falschen",
+           '<nav class="pfad"' in leiste and "pfad-zurueck" not in leiste
+           and "/taskforce" not in leiste,
+           leiste.strip()[:90])
 
     fehl = [n for n, ok, _ in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

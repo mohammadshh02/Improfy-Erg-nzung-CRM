@@ -8,8 +8,10 @@
    braucht kein Profil, sondern ein Feld. Gesucht wird live bei allen Portalen der Art;
    gespeichert wird nichts, solange niemand „übernehmen" drückt. #}
 
+{# „Selbst suchen" ist diese Seite selbst – ein Glied, das auf sich zeigt, führt nirgends
+   hin. Die Art dahinter wechselt man über die Modus-Knöpfe. #}
 {{ pfad([("Taskforce", url_for('taskforce_seite')),
-          ("Selbst suchen", url_for('taskforce_suchen')),
+          ("Selbst suchen", None),
           ("Arbeitssuche" if art == 'job' else ("Wohnungssuche" if art == 'wohnung'
            else "Arbeit und Wohnung"), None)]) }}
 
@@ -25,8 +27,11 @@
     <strong>Wohnungssuche</strong><span>Wohnungen bei Kleinanzeigen</span></a>
   <a class="modus-knopf{{ ' an' if art=='beides' }}" href="{{ url_for('taskforce_suchen', art='beides', was=f.was, wo=f.wo, km=f.km) }}">
     <strong>beides</strong><span>Stellen und Wohnungen zugleich</span></a>
+  {# Kein Pfeil auf der Aufschrift: der Pfeil der Pfadleiste führt eine Ebene höher, dieser
+     Knopf führt seitwärts zur Tafel. Zwei Pfeile mit verschiedener Bedeutung nebeneinander
+     hätte niemand auseinandergehalten. #}
   <a class="modus-knopf modus-suchen" href="{{ url_for('taskforce_tafel') }}">
-    <strong>← zurück zur Tafel</strong><span>was die Agenten schon gefunden haben</span></a>
+    <strong>zur Tafel</strong><span>was die Agenten schon gefunden haben</span></a>
 </nav>
 
 <form class="reglerbank" method="get" id="suchform">

@@ -68,7 +68,11 @@ def _kunde_zu_name(tokens, kunden):
 
     Verglichen werden ganze Wörter (sonst landet „Rahimi" bei „Ebrahimi"). Es zählt,
     wenn der Nachname des Kunden im Dateinamen steht, oder wenn alle Tokens im Namen
-    vorkommen. „Abdul Nasir Dabas" trifft damit nicht „Abdul Nasir Amiri"."""
+    vorkommen. „Max Peter Sorglos" trifft damit nicht „Max Peter Musterfrau".
+
+    Die Namen in allen Beispielen hier sind erfunden. Die Regeln stammen aus echten
+    Verwechslungen im Bestand, aber ein Kundenname gehört nicht in den Quelltext – das
+    hält der Selbsttest „Kein vollständiger Kundenname steht im Produktcode" fest."""
     if not tokens:
         return None
     treffer = []
@@ -79,13 +83,13 @@ def _kunde_zu_name(tokens, kunden):
             continue
         nachname = woerter[-1]
         # Der Nachname muss dabei sein, oder mindestens zwei Namensteile müssen passen.
-        # Ein einzelner Mittelname reicht nicht: „Herr Hussein_Lebenslauf.pdf" gehört
-        # Mohammed Hussein und landete sonst bei Fada *Hussein* Mirzai. Genau dieser
-        # Fehler steckt schon in drei der fünf Lebensläufe, die die CV-App erzeugt hat.
+        # Ein einzelner Mittelname reicht nicht: „Herr Sorglos_Lebenslauf.pdf" gehört
+        # Timo Sorglos und landete sonst bei Lena *Sorglos* Musterfrau. Genau dieser
+        # Fehler steckte in drei der fünf Lebensläufe, die die CV-App erzeugt hat.
         # Der Nachname des Kunden MUSS im Dateinamen stehen. Alles andere führt in die Irre:
-        #   „Herr Hussein_Lebenslauf.pdf"        gehört Mohammed Hussein, nicht Fada *Hussein* Mirzai
-        #   „Lebenslauf_Abdul Nasir Dabas.pdf"   gehört Herrn Dabas, nicht Abdul Nasir *Amiri*
-        #   „Herr Amin Ali_Lebenslauf.pdf"       gehört Amin Ali, nicht Bayan Yazdeen *Ali*
+        #   „Herr Sorglos_Lebenslauf.pdf"        gehört Timo Sorglos, nicht Lena *Sorglos* Musterfrau
+        #   „Lebenslauf_Max Peter Sorglos.pdf"   gehört Herrn Sorglos, nicht Max Peter *Musterfrau*
+        #   „Herr Jan Beispiel_Lebenslauf.pdf"   gehört Jan Beispiel, nicht Nina Klara *Beispiel*
         # Deshalb zusätzlich: entweder trägt der Dateiname nur diesen einen Namen,
         # oder es passen mindestens zwei Namensteile.
         if nachname in tokens and (len(getroffen) >= 2 or len(tokens) == 1):

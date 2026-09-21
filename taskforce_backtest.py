@@ -19,6 +19,7 @@ import atexit
 import datetime
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -40,6 +41,15 @@ with _ziel:
 _ziel.close()
 _quelle.close()
 os.environ["IMPROFY_OS_DB"] = kopie
+
+# Derselbe Griff fuer den Sicherungsordner: `betrieb.py` leitet ihn sonst aus seinem
+# eigenen Verzeichnis ab, und ein Testlauf schoebe seinen Schnappschuss in das echte
+# `sicherungen/`, wo er bei sieben Staenden eine echte Nachtsicherung verdraengt. Der
+# Unterprozess weiter unten erbt die Variable ueber `os.environ`.
+sicherungen = os.path.join(tempfile.gettempdir(),
+                           "improfy_os_backtest_sicherungen_%d" % os.getpid())
+os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
+atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
 
 import app as A                    # noqa: E402
 import datenbank as db             # noqa: E402
