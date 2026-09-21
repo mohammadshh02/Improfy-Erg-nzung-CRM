@@ -110,6 +110,7 @@ p, li { orphans: 2; widows: 2; }
 .sprachzeile { display: flex; gap: 4mm; break-inside: avoid; margin-bottom: 1mm; }
 .sprachzeile .sp { font-weight: 700; min-width: 32mm; }
 
-/* Der Fuß mit der Seitenzahl – ohne ihn weiß niemand, ob eine Seite fehlt. */
-@page { @bottom-right { content: counter(page) " / " counter(pages); } }
+/* Keine Seitenzahl. Sie stand als Druckerfußzeile unten rechts; der Nutzer hat sie
+   am 21.09.2026 abbestellt. Der untere Rand trägt damit gar keinen Text mehr –
+   `seitenpruefung.pruefe` prüft ihn seitdem mit, statt ihn auszunehmen. */
 </style>

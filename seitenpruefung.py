@@ -91,7 +91,7 @@ def _deckung(text_rect, form_rect):
 
 
 def _textbloecke(seite, fusszeile_ab):
-    """Textblöcke mit Inhalt. Die Fußzeile bleibt draußen – sie steht bewusst im Rand."""
+    """Textblöcke mit Inhalt oberhalb von `fusszeile_ab`."""
     return [(b[:4], " ".join(b[4].split())) for b in seite.get_text("blocks")
             if b[4].strip() and b[1] < fusszeile_ab]
 
@@ -157,8 +157,10 @@ def pruefe(rohdaten, rand_mm=RAND_MM):
         seitenzahl = len(doc)
         for nr, seite in enumerate(doc, 1):
             breite, hoehe = seite.rect.width, seite.rect.height
-            # Die Seitenzahl steht als Druckerfußzeile im unteren Rand – das ist gewollt.
-            fusszeile_ab = hoehe - 10 * MM
+            # Früher stand hier eine Seitenzahl als Druckerfußzeile, und die unteren 10 mm
+            # blieben deshalb ungeprüft. Die Seitenzahl ist raus (21.09.2026), also wird
+            # das ganze Blatt geprüft: Text, der unten herausläuft, fällt jetzt auf.
+            fusszeile_ab = hoehe
             bloecke = _textbloecke(seite, fusszeile_ab)
 
             # --- Rand ---------------------------------------------------------------
