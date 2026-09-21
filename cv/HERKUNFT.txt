@@ -12,3 +12,10 @@ Nachtrag 16.09.2026: zusätzlich übernommen
   cv/galerie/                   Vorschaubilder der Design-Galerie samt manifest.json
 Die KI-Designs (freier Stil, Nachbau einer Galerie-Vorlage) bleiben in der CV-App: sie brauchen
 einen Anthropic-Schlüssel. Die fünf festen Vorlagen brauchen nur Chrome und laufen hier mit.
+
+Nachtrag 21.09.2026: eine Ausnahme vom „unverändert"
+  fill_cv.py, MASTER_DEFAULT — im Vorgabewert standen der Name einer echten Kundin und der
+  private Desktop-Pfad eines Kollegen. Beides ist durch einen neutralen Pfad ersetzt. Der Wert
+  ist tot (nur Vorgabe für --master, die Kommandozeile wird vom OS nicht benutzt); die
+  Begründung steht auch im Kommentar über der Zeile. Sonst ist die Datei weiter unverändert –
+  bei einer Neufassung aus der CV-App ist nur diese Zeile nachzuziehen.

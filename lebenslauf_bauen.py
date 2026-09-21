@@ -158,9 +158,11 @@ def vorbelegung(kunde_id):
 
 
 def blattname(interne_id, vorname, nachname):
-    """'ID-K0094_Ahmed_Al_Saede' – so heißen die Blätter in der Master-Mappe.
+    """'ID-K0000_Nabil_Al_Musterbewerber' – so heißen die Blätter in der Master-Mappe.
 
-    In der Kundenliste stehen teils Schreibvarianten im Namen ("Ahmad = Ahmad Mohammad").
+    In der Kundenliste stehen teils Schreibvarianten im Namen ("Jan = Jan Wendisch").
+    Beide Beispiele sind erfunden; hier standen ein echter Kundenname samt Kundennummer
+    und ein echter Doppeleintrag, und die Datei ist versioniert.
     Alles hinter dem Gleichheitszeichen und Sonderzeichen fliegen raus, sonst tragen
     Dateiname und Blattname Zeichen, an denen Excel und Windows sich stoßen."""
     roh = f"{vorname} {nachname}".split("=")[0]

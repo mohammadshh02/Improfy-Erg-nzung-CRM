@@ -88,22 +88,39 @@ table.seite > thead td { padding-bottom: {{ '10mm' if skin.kopfform == 'band' el
 .blatt { padding: 0 16mm 0 44mm; }
 
 {% elif skin.kopfform == 'ecke' %}
-/* `clip-path` statt `overflow: hidden`. Beides beschneidet die ueberstehenden Kreise -
-   aber `overflow: hidden` im Tabellenkopf bringt Chrome dazu, den Kopf **nicht mehr zu
+/* `clip-path: inset(0)` bleibt als Schutz stehen, auch wenn seit dem Umbau auf
+   Hintergrundkreise nichts mehr uebersteht: Wer hier wieder ein Kaestchen ueber die
+   Kopfkante hinaus setzt, wird beschnitten statt gedruckt. Was es **nicht** werden darf,
+   ist `overflow: hidden` - das bringt Chrome dazu, den Tabellenkopf **nicht mehr zu
    wiederholen**. Ab Seite 2 stand dann gar kein Kopf mehr da, und die erste Ueberschrift
    klebte bei 0,6 pt an der Blattkante. (18.09.2026, gefunden von seitenpruefung.py.) */
 /* Der Kopf wiederholt sich auf **jeder** Seite - jeder Millimeter hier kostet vier
    Seiten lang Platz. Bei viel Inhalt blieben dadurch 120 Zeichen auf einem vierten
    Blatt uebrig. Deshalb knapper als die uebrigen Kopfformen. */
-.kopf { padding: 11mm 16mm 7mm; clip-path: inset(0); }
-.kopf::before { content: ""; position: absolute; right: -18mm; top: -28mm;
-                width: 72mm; height: 72mm; border-radius: 50%; background: var(--farbe2); }
-.kopf::after { content: ""; position: absolute; left: -14mm; top: -20mm;
-               width: 52mm; height: 52mm; border-radius: 50%; background: var(--farbe); }
-/* Der Kreis oben rechts ist 72 mm breit und ragt ueber die Blattkante hinaus. Ohne
-   Abstand nach rechts laeuft ein langer Name oder eine lange Berufsbezeichnung darunter
-   durch - bei "Sachbearbeiterin fuer ..." war der Text zu 7 % verdeckt (gefunden von
-   seitenpruefung.py am 18.09.2026, vorher nie aufgefallen). */
+/* Die beiden Zierkreise sind **Hintergrund**, kein eigenes Kaestchen mehr.
+   Der Fehler davor: `.kopf::before` stand mit `right: -18mm` bei 72 mm Breite ueber der
+   rechten Blattkante. Chrome misst danach das ganze Dokument als zu breit und druckt es
+   auf 92,1 % verkleinert - Schrift, Maße, Raender, alles. Gemessen an einem Massstab von
+   100 mm im Blatt: 92,12 mm bei `ecke`, 100,01 mm bei jeder anderen Kopfform. Acht
+   Prozent kleiner ist auf dem Papier nicht sofort zu sehen, aber es ist ein anderer
+   Lebenslauf als der, den die Auswahl zeigt. `clip-path` half dagegen nicht: es
+   beschneidet die Zeichnung, nicht die Breite, mit der Chrome rechnet.
+   Ein Hintergrund endet immer am Kasten - er kann das Blatt nicht verbreitern. Maße und
+   Mittelpunkte sind aus den alten Kreisen uebernommen: der grosse 36 mm im Radius, 18 mm
+   vor der rechten Kante, Mittelpunkt 8 mm unter der Oberkante; der kleine 26 mm im
+   Radius bei 12 mm / 6 mm. Der kleine liegt weiter oben auf, also steht er als erste
+   Lage - Hintergrundlagen werden von vorn nach hinten gezeichnet.
+   Die letzten 0,1 mm laufen weich aus; eine harte Kante wird im Druck sonst treppig. */
+.kopf { padding: 11mm 16mm 7mm; clip-path: inset(0);
+        background:
+          radial-gradient(circle 26mm at 12mm 6mm,
+                          var(--farbe) 0 25.9mm, transparent 26mm),
+          radial-gradient(circle 36mm at calc(100% - 18mm) 8mm,
+                          var(--farbe2) 0 35.9mm, transparent 36mm); }
+/* Beide Kreise liegen als Hintergrund im Kopf - der grosse deckt die rechte obere Ecke
+   auf 72 mm Breite. Ohne Abstand nach rechts laeuft ein langer Name oder eine lange
+   Berufsbezeichnung darunter durch; bei "Sachbearbeiterin fuer ..." war der Text zu 7 %
+   verdeckt (gefunden von seitenpruefung.py am 18.09.2026, vorher nie aufgefallen). */
 .kopf .inhalt { position: relative; z-index: 2; padding-left: 26mm;
                 padding-right: 46mm; }
 .kopf .name { color: var(--text); font-size: 25pt; }
@@ -155,37 +172,45 @@ table.kopfreihe > tbody > tr > td { padding: 0; vertical-align: top; }
    Spalte. Damit ist jede Kante im Kopf dieselbe.
    Bei der Kopfform mit Randspalte frisst diese schon 44 mm vom Blatt - dort ist die
    Fotospalte schmaler, sonst bleibt fuer den Text zu wenig. */
-td.links { width: {{ '49mm' if skin.kopfform == 'links' else '61mm' }};
-           padding-right: {{ '7mm' if skin.kopfform == 'links' else '9mm' }} !important; }
-/* Alles im Kopf fuellt die Spalte ganz - keine eigenen Breiten mehr. */
-.foto, .nebenfotos { width: 100%; }
-/* Die Fotos der Folgekapitel stehen in **derselben** Spalte wie das erste - gleiche
-   Breite, gleiche Kante. Vorher standen sie rechts und wechselten von Seite zu Seite die
-   Seite; das sah aus, als haette jede Seite ein anderer gesetzt. Wieder eine Tabelle und
-   kein Float: Ein Float laesst nur den Text ausweichen, nicht den Kasten. */
+{# Spaltenbreite und Rinne stehen **einmal** hier. Sie werden an zwei Stellen gebraucht -
+   in der Zelle und im Einzug des Textkoerpers -, und beide muessen auf den Millimeter
+   dieselbe Zahl tragen: Der Einzug ab Seite 2 ersetzt die Zelle von Seite 1. Zweimal
+   ausgeschrieben halten sie genau so lange zusammen, bis jemand nur die eine aendert. #}
+{% set fotospalte = '49mm' if skin.kopfform == 'links' else '61mm' %}
+{% set fotorinne  = '7mm'  if skin.kopfform == 'links' else '9mm' %}
+td.links { width: {{ fotospalte }};
+           padding-right: {{ fotorinne }} !important; }
+/* Die Fotos stehen auf **jeder** Seite in derselben Spalte - gleiche Breite, gleiche
+   Kante. Vorher wechselten sie von Seite zu Seite die Seite; das sah aus, als haette
+   jede Seite ein anderer gesetzt. Eine Tabelle und kein Float: Ein Float laesst nur den
+   Text ausweichen, nicht den Kasten. */
 /* `table-layout: fixed` ist hier Pflicht, nicht Geschmack: Beim automatischen Layout
    rechnet der Browser die Spaltenbreite aus dem Inhalt - eine **leere** Fotozelle
    schrumpft dann, und der Text daneben rueckt nach links. Gemessen: Kapitel mit Foto
    begannen bei 218 pt, Kapitel ohne bei 193 pt. Genau die wandernde Kante, die weg
    sollte. Fest gerechnet gilt die angegebene Breite immer. */
-/* Bis zu zwei kleinere Fotos unter dem Hauptfoto, nebeneinander. Sie teilen sich die
-   Breite der Spalte - dadurch bleibt die Kante rechts dieselbe, egal ob eines oder zwei
-   dastehen. Ein einzelnes zweites Foto nimmt die halbe Breite und bleibt links buendig;
-   es soll nicht so gross werden wie das Hauptfoto, sonst gibt es zwei Hauptfotos. */
-/* Quadratisch, nicht hochkant: Zwei hochkante Bilder unter einem hochkanten Hauptfoto
-   machen den Kopf um gut 35 mm hoeher - bei einem duennen Lebenslauf schiebt das die
-   Qualifikation auf ein zweites, fast leeres Blatt. Quadratisch bleibt der Ausschnitt
-   brauchbar (Gesicht sitzt oben) und der Kopf bleibt flach. */
-.nebenfotos { display: flex; gap: 2.5mm; margin-top: 2.5mm; }
-.nebenfotos img { flex: 1 1 0; min-width: 0; aspect-ratio: 1 / 1;
-                  object-fit: cover; object-position: center top; border-radius: 1.6mm;
-                  /* Dieselbe Rahmenstaerke wie das Hauptfoto - sonst sitzen die
-                     Kanten 0,7 pt daneben, weil der Rahmen zur Breite zaehlt. */
-                  {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
-                  {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
-.foto { aspect-ratio: 3 / 4; height: auto; border-radius: 2mm;
-        {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
-        {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
+/* **Ein Foto je Druckseite, auf jeder Seite an derselben Stelle.** Vorher standen alle
+   Fotos gestapelt im Kopf - drei Bilder auf Seite 1, ab Seite 2 keines mehr. Gewuenscht
+   ist das Gegenteil: jede Seite traegt genau eines, immer an derselben x- und y-Stelle.
+   Wie das geht, ohne die Seitenzahl zu kennen: `.fotoanker` steht in der Fotospalte und
+   liefert den Nullpunkt (`position: relative`). Die Fotos haengen absolut darin und sind
+   um je einen Seitenvorschub nach unten versetzt; Chrome schiebt damit jedes auf das
+   naechste Blatt, an dieselbe Hoehe. Der Anker haelt zugleich den Platz des ersten Fotos
+   im Satz frei, damit der Kontaktblock darunter steht wie eh und je. */
+.fotoanker { position: relative; width: 100%; aspect-ratio: 3 / 4; }
+.seitenfoto { position: absolute; left: 0; width: 100%; aspect-ratio: 3 / 4;
+              object-fit: cover; object-position: center top; border-radius: 2mm;
+              {% if skin.kopfform == 'band' %}border: 1.2mm solid var(--farbe2);{% endif %}
+              {% if skin.kopfform == 'links' %}border: 1.4mm solid #fff;{% endif %} }
+/* Ab Seite 2 steht links ein Foto, wo bisher Text lief - ohne Einzug laege es **auf**
+   dem Text. Der Textkoerper rueckt deshalb auf **jeder** Seite um Spalte plus Rinne ein,
+   also um genau die Breite von `td.links`. Damit hat der Satz auf allen Seiten dieselbe
+   linke Kante: auf Seite 1 die der Zelle daneben, ab Seite 2 die des Einzugs.
+   Nur wenn es Fotos gibt **und** die Seitenzahl bekannt ist (`einzug`) - ohne Bilder und
+   ohne gezaehlte Seiten bleibt der Satz der bisherige (siehe Rumpf und `cv_pdf.bauen`).
+   Denn eingerueckt wird fuer die Fotos: Steht ab Seite 2 keines, waere der Einzug nur
+   eine leere Spalte. */
+.textspalte { padding-left: {{ fotospalte }}; }
 .kontakt svg { width: 3.3mm; height: 3.3mm; flex: none; margin-top: .3mm;
                fill: none; stroke: var(--farbe); stroke-width: 1.35;
                stroke-linecap: round; stroke-linejoin: round; }
@@ -251,12 +276,6 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
      text-transform: uppercase; margin-top: 7mm; opacity: .78;
      font-family: var(--textschrift); }
 
-/* `flow-root` ist hier der entscheidende Punkt: Ohne ihn laeuft der Kasten eines
-   Eintrags **unter** der Fotospalte durch und nur der Text weicht aus. Die Linie und
-   der Punkt sitzen am Kastenrand - und landeten damit mitten auf der Telefonnummer.
-   Mit `flow-root` stellt sich jeder Eintrag neben die Fotospalte, solange sie reicht,
-   und nimmt darunter die volle Breite. Kein Ueberlappen, kein verschenkter Rand. */
-
 /* Die Marke sitzt **am Text**, nicht am Kastenrand. Am Kasten sprang sie: der erste
    Eintrag steht neben dem Foto, die folgenden am linken Rand - eine durchgehende Linie
    haette dort einen Absatz gemacht und ausgesehen wie ein Fehler, nicht wie Absicht. */
@@ -316,7 +335,34 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
    gedraengt wirkte: sieben Stationen und vier Kapitel ohne Atempause dazwischen. */
 /* `auto-fit` mit einer Mindestbreite verteilt selbst: zwei Listen nebeneinander, eine
    dritte rueckt in die naechste Reihe. 58 mm ist die Untergrenze, bei der eine
-   Faehigkeit samt Bewertung noch in eine Zeile passt.
+   Faehigkeit samt Bewertung noch in eine Zeile passt - gemeint ist damit der Satz
+   **ohne** Einzug ueber die vollen 178 mm, wo daraus zwei Spalten zu 84,5 mm werden.
+
+   **Die Zahl bleibt, obwohl sie seit dem Einzug anders wirkt - bitte zu Ende lesen,
+   bevor sie jemand senkt.** Seit jede Seite ein Foto traegt, rueckt der Textkoerper um
+   die Fotospalte ein (`.textspalte`, 61 mm), es bleiben 117 mm. Zwei Spalten waeren
+   darin 54 mm breit, 58 mm passen also nicht mehr hinein, und das Raster faellt auf
+   **eine** Spalte zurueck. Der Qualifikationsblock wird dadurch doppelt so hoch und der
+   Lebenslauf eine Seite laenger (gemessen 21.09.2026: Fall `viel` plus zwei Soft Skills,
+   nr25 und nr5, je 4 -> 5 Seiten).
+
+   Die naheliegende Reparatur - Mindestbreite auf 52 mm - ist trotzdem falsch, und genau
+   deshalb steht sie hier: Bei 54 mm Spalte bleiben dem Namen der Faehigkeit 54 mm minus
+   5 mm Rinne minus Bewertung (18,9 mm Sterne, 29,3 mm Textbewertung), also 30 bzw.
+   20 mm. „Verantwortungsbewusstsein" ist bei 10 pt rund 43 mm breit. Es bricht dort
+   **nicht** um (siehe `hyphens` weiter unten), sondern laeuft ueber seinen Kasten hinaus
+   **in die Bewertung hinein**: gemessen 8,4 mm Ueberdeckung bei nr25 (Sterne), 16,7 mm
+   bei nr13 (Text). Eine Seite gespart, dafuer Schrift auf Schrift - und `seitenpruefung`
+   schweigt dazu, weil die Ueberdeckung unter ihrer Schwelle von 25 % des Textkastens
+   bleibt.
+
+   Zwei Spalten **und** eine Zeile je Faehigkeit gehen in 117 mm nicht zusammen: Name
+   plus Rinne plus Bewertung braucht 68 mm (Sterne) bis 78 mm (Text), zwei Spalten
+   braeuchten damit 145 bis 165 mm statt der 117, die da sind.
+   Jeder Wert ueber 54 mm ergibt im eingerueckten Satz dieselbe eine Spalte; 58 mm sind
+   dort also nicht knapp, sie sind die Grenze fuer den **nicht** eingerueckten Fall und
+   muessen dafuer stehen bleiben. Wer die Seite zurueckholen will, muss am Einzug oder am
+   Umbruch der Faehigkeitszeile ansetzen - nicht an dieser Zahl.
 
    `min-width: 0` ist hier **Pflicht**, nicht Kosmetik: Rasterelemente schrumpfen von
    sich aus nicht unter ihren Inhalt. Ohne die Regel trat jede Spalte ueber ihre Bahn
@@ -340,10 +386,19 @@ h3 { color: var(--text); font-size: 9.5pt; font-weight: 700; letter-spacing: .16
    haelt die Bewertung auf der ersten Zeile. */
 .paare { align-items: start; }
 .paare > * { min-width: 0; }
-/* Echte Silbentrennung statt hartem Umbruch. `break-word` schnitt mitten in die Silbe
+/* Kein harter Umbruch mitten in der Silbe: `break-word` schnitt
    ("Verantwortungsbewus / stsein") - das liest sich wie ein Druckfehler. `hyphens: auto`
-   trennt nach den deutschen Regeln und setzt einen Bindestrich; passt ein Wort trotzdem
-   nicht, faellt das der Seitenpruefung auf statt dem Arbeitgeber. */
+   soll stattdessen nach den deutschen Regeln trennen und einen Bindestrich setzen.
+
+   **Beim Druck ueber Chrome tut es das nicht**, und das muss wissen, wer sich darauf
+   verlaesst: Chrome laedt sein Trennwoerterbuch als Zusatzbestandteil nach; unter
+   `--headless` ohne Netz ist keines da. Nachgemessen am 21.09.2026 in einem Kasten von
+   20 mm Breite: „Verantwortungsbewusstsein" bleibt einzeilig und 43,5 mm breit, laeuft
+   also 23,5 mm ueber seinen Kasten hinaus - und bei `break-word` im selben Kasten
+   bricht es hart um. Die Zeile bricht hier demnach nicht, sie laeuft ueber, und auffallen
+   tut es niemandem: `seitenpruefung` sieht diese Ueberdeckung nicht (siehe oben beim
+   Raster). Solange das so ist, muss die Spalte breit genug bleiben - die Regel steht
+   fuer den Tag, an dem ein Woerterbuch da ist. */
 .paar .was { min-width: 0; overflow-wrap: normal; hyphens: auto;
              -webkit-hyphens: auto; }
 .sprachzeile { min-width: 0; }
@@ -416,16 +471,21 @@ li { margin-bottom: 1.4mm; }
    die volle Breite. #}
 <table class="kopfreihe"><tr>
   <td class="links">
-    {# Alle Fotos stehen hier, in fester Anordnung: das Hauptfoto gross, darunter bis zu
-       zwei kleinere nebeneinander. Fest heisst: unabhaengig davon, wie lang der
-       Lebenslauf ist. Vorher hingen die Zusatzfotos an Kapiteln - und wo ein Kapitel
-       anfaengt, entscheidet der Inhalt. Dieselbe Vorlage sah dadurch bei jedem Kunden
-       anders aus. #}
-    {% if zeige_foto %}<img class="foto" src="{{ foto }}" alt="">{% endif %}
-    {% if weitere.neben1 or weitere.neben2 %}
-    <div class="nebenfotos">
-      {% if weitere.neben1 %}<img src="{{ weitere.neben1 }}" alt="">{% endif %}
-      {% if weitere.neben2 %}<img src="{{ weitere.neben2 }}" alt="">{% endif %}
+    {# Je Druckseite ein Foto, auf jeder Seite an derselben Stelle. Der Anker steht im
+       Satz und gibt den Nullpunkt vor; jedes Foto darin ist um i Seitenvorschuebe nach
+       unten versetzt und landet damit auf Seite i+1 an derselben Hoehe.
+       `seiten` kommt aus dem ersten Druckdurchgang (cv_pdf.bauen) - deshalb stehen hier
+       nie mehr Fotos als Seiten da sind. Ein Foto zu viel wuerde das Dokument selbst um
+       eine Seite verlaengern.
+       Sind weniger Fotos hinterlegt als Seiten, wiederholen sie sich der Reihe nach
+       (drei Fotos auf vier Seiten: 1, 2, 3, 1). So traegt jede Seite eines - Entscheidung
+       des Nutzers, 21.09.2026. #}
+    {% if bilder %}
+    <div class="fotoanker">
+      {% for i in range(seiten) %}
+      <img class="seitenfoto" src="{{ bilder[i % bilder|length] }}" alt=""
+           style="top: calc({{ i }} * {{ vorschub }})">
+      {% endfor %}
     </div>
     {% endif %}
     {# Zeichen statt einer grauen Liste. Sie sind als SVG im Blatt, nicht als Schrift:
@@ -455,6 +515,12 @@ li { margin-bottom: 1.4mm; }
   </td>
 </tr></table>
 
+{# Ab hier laeuft der Text unter der Fotospalte weiter - und ab Seite 2 steht dort ein
+   Foto. Der Einzug haelt ihn daneben statt darunter. Ohne Fotos faellt der Kasten weg
+   und der Satz ist Zeichen fuer Zeichen der bisherige.
+   `einzug` ist aus demselben Grund dabei: Konnte die Seitenzahl nicht gezaehlt werden,
+   traegt nur Seite 1 ein Foto - dann waere der Einzug ab Seite 2 eine leere Spalte. #}
+{% if bilder and einzug %}<div class="textspalte">{% endif %}
     {% if beruf %}
     <section class="kapitel">
       <h2>Berufserfahrung</h2>
@@ -549,6 +615,7 @@ li { margin-bottom: 1.4mm; }
       </div>
     </section>
     {% endif %}
+{% if bilder and einzug %}</div>{% endif %}
 </div>
 </td></tr></tbody>
 </table>

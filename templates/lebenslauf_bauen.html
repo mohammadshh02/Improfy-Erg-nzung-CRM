@@ -369,11 +369,16 @@
   </script>
   <h3 style="margin:18px 0 8px">Bewerbungsfotos</h3>
   {% if kundenfotos %}
-  <p class="marke" style="margin:0 0 10px">Bis zu drei Fotos, jedes an seinem Platz im
-    Lebenslauf. Sie stehen an verschiedenen Stellen im Aufbau und landen damit auf
-    verschiedenen Seiten – <strong>auf welcher genau, entscheidet der Umbruch</strong>,
-    nicht die Einstellung: Bei viel Berufserfahrung fängt die Qualifikation auf Seite 3
-    an, bei wenig schon auf Seite 2.</p>
+  <p class="marke" style="margin:0 0 10px">Bis zu drei Fotos, <strong>eines je
+    Druckseite</strong>, jedes immer an derselben Stelle der Seite. Gedruckt wird in der
+    Reihenfolge hier und unabhängig vom Umbruch: das erste Foto auf Seite 1, das zweite
+    auf Seite 2, das dritte auf Seite 3. Wird eines entfernt, rückt das nächste nach –
+    es bleibt keine Seite ohne Bild. Hat der Lebenslauf mehr Seiten als Fotos hinterlegt
+    sind, fangen die Fotos von vorn an – zwei Fotos auf vier Seiten ergeben 1, 2, 1, 2.
+    Umgekehrt <strong>druckt ein kurzer Lebenslauf nicht alle Fotos</strong>: Es kommen
+    nie mehr Bilder aufs Blatt, als es Seiten gibt – bei einem einseitigen Lebenslauf
+    also nur das erste, auch wenn hier drei Karten stehen. Die übrigen bleiben hinterlegt
+    und kommen von selbst zum Zug, sobald der Lebenslauf länger wird.</p>
   <div class="kundenfotos">
     {% for f in kundenfotos %}
     <div class="fotokarte">
@@ -415,7 +420,16 @@
 </div>
 
 <p style="margin:18px 0 0">
-  <button type="submit" class="btn btn-primary">Excel erzeugen und herunterladen</button>
+  {# **Jeder Knopf nennt sein Ziel, auch der erste.** Das Formular selbst hat kein
+     `action` und schickt damit an die Adresse, auf der man gerade steht - und diese
+     Seite ist unter zweien zu erreichen: `/kunde/<id>/lebenslauf` kennt POST,
+     `/lebenslauf?kunde=<id>` nicht. Der zweite Weg ist der normale: Die Kundenauswahl
+     zeigt dorthin, und nach jedem Fotowechsel springt es dorthin zurueck. Ohne
+     `formaction` endete der Excel-Knopf von dort aus in „405 Method Not Allowed" - er
+     sah aus wie immer und tat nichts. Der PDF-Knopf trug sein Ziel von Anfang an und
+     war deshalb nie betroffen. #}
+  <button type="submit" class="btn btn-primary"
+     formaction="{{ url_for('lebenslauf_erzeugen', kid=v.kunde_id) }}">Excel erzeugen und herunterladen</button>
   {% if chrome %}<button type="submit" class="btn btn-primary"
      formaction="{{ url_for('lebenslauf_pdf', kid=v.kunde_id) }}">PDF im gewählten Design</button>{% endif %}
   <a class="btn btn-sm" href="{{ url_for('kunde_detail', kid=v.kunde_id) }}" style="margin-left:8px">zurück zur Akte</a>

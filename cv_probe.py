@@ -5,7 +5,7 @@
     python -X utf8 cv_probe.py atanas     nur eine Vorlage
 
 **Warum das nötig ist.** Eine Lebenslauf-Vorlage sieht mit dem einen Beispiel gut aus,
-mit dem nächsten fällt sie auseinander. Drei Fälle entscheiden:
+mit dem nächsten fällt sie auseinander. Vier Fälle entscheiden:
 
   **viel**   – acht Stationen, lange Tätigkeiten, zehn Fähigkeiten. Hier zeigt sich, ob
                Inhalt abgeschnitten wird und ob Einträge mitten durchreißen.
@@ -13,6 +13,9 @@ mit dem nächsten fällt sie auseinander. Drei Fälle entscheiden:
                halb leer bleibt oder ob es trotzdem gesetzt aussieht.
   **lang**   – sehr lange Firmennamen, E-Mail-Adressen und Berufsbezeichnungen. Hier
                zeigt sich, ob etwas über den Rand läuft.
+  **voll**   – der Qualifikationsblock ausgereizt: 12 Soft Skills, 6 Programme, 5
+               Sprachen, 4 Zusatzqualifikationen und Hobbys. Hier zeigt sich, was das
+               Raster am Blattende tut, wenn es der höchste Block des Lebenslaufs ist.
 
 Geprüft wird gegen das erzeugte PDF, nicht gegen den Bildschirm: Seitenzahl, Dateigröße
 und – das Wichtigste – ob jeder Eintrag, den wir hineingegeben haben, im PDF-Text auch
@@ -47,16 +50,20 @@ def _beruf(n):
             for i in range(n)]
 
 
+# **Alle drei Personen sind frei erfunden** – Name, Geburtsdatum, Anschrift und Nummer
+# gibt es so nicht. Die Datei ist versioniert; ein echter Kundenname oder eine echte
+# Handynummer hätte hier nichts verloren, auch nicht als Probedatensatz. Die Nummern
+# können gar nicht vergeben sein (+49 000 …), die Anschriften sind Musteranschriften.
 FAELLE = {
     "viel": {
-        "vorname": "Mohammad Tahir", "nachname": "Mohammadi",
+        "vorname": "Nabil", "nachname": "Musterbewerber",
         "angestrebter_job": "Fachkraft für Lagerlogistik", "geschlecht": "m",
-        "geburtsdatum": "14.03.1987", "mobil": "+49 177 2306596",
-        "email": "mohammad.tahir.mohammadi@example-mail.de",
-        "adresse": "Oskar-Jäger-Straße 173, 50825 Köln-Ehrenfeld",
+        "geburtsdatum": "01.01.1990", "mobil": "+49 000 0000000",
+        "email": "nabil.musterbewerber@beispiel.de",
+        "adresse": "Musterweg 1, 00000 Musterstadt",
         "massnahme_zeitraum": "17.08.2026 - 11.10.2026",
         "fuehrerschein": {"vorhanden": True, "klasse": "B", "eu": True},
-        "ueber_mich": ("Guten Tag,\n\nmein Name ist Mohammad Tahir Mohammadi. Nach meiner "
+        "ueber_mich": ("Guten Tag,\n\nmein Name ist Nabil Musterbewerber. Nach meiner "
                        "Ausbildung war ich über zwölf Jahre in der Lagerlogistik tätig, zuletzt "
                        "als Schichtverantwortlicher für ein Team von acht Personen.\n\n"
                        "Ich arbeite sorgfältig, bin körperlich belastbar und gewohnt, im "
@@ -124,6 +131,76 @@ FAELLE = {
         "soft_skills": [{"eigenschaft": "Verantwortungsbewusstsein", "sterne": 5}],
         "hobbys": "Chorgesang",
     },
+    # **Der vierte Fall, und warum es ihn braucht (21.09.2026).** Die drei oberen reizen
+    # die Berufserfahrung aus, den Qualifikationsblock nicht: `viel` hat zehn Faehigkeiten
+    # und fuenf Programme und liegt damit bei vier Seiten genau auf der Kante - zwei
+    # Faehigkeiten mehr, und es werden fuenf. Beim Umbau auf „ein Foto je Seite" ist genau
+    # dort etwas passiert, das keiner der drei Faelle gesehen hat: Der Textkoerper rueckt
+    # seither um die Fotospalte ein, das Qualifikationsraster hat nur noch 117 mm statt
+    # 178 mm und faellt von zwei Spalten auf eine (siehe den Kommentar am `.quali-raster`
+    # in cv_skin.html).
+    #
+    # Dieser Fall stellt den Block deshalb an die erste Stelle: 12 Soft Skills, 6
+    # Programme, 5 Sprachen, 4 Zusatzqualifikationen, Hobbys - der hoechste Block des
+    # Lebenslaufs, und er steht am Ende, wo der Umbruch wehtut. Die Berufserfahrung ist
+    # bewusst knapp (drei Stationen): Was hier reisst, soll aus den Qualifikationen
+    # kommen und nicht aus acht Stationen davor.
+    #
+    # Die Person ist wie die drei anderen **frei erfunden** - Name, Geburtsdatum,
+    # Anschrift, Nummer (+49 000 …) gibt es so nicht.
+    "voll": {
+        "vorname": "Amira", "nachname": "Musterfrau",
+        "angestrebter_job": "Kauffrau für Büromanagement", "geschlecht": "w",
+        "geburtsdatum": "14.06.1992", "mobil": "+49 000 0000000",
+        "email": "amira.musterfrau@beispiel.de",
+        "adresse": "Musterallee 12, 00000 Musterstadt",
+        "massnahme_zeitraum": "02.03.2026 - 29.05.2026",
+        "fuehrerschein": {"vorhanden": True, "klasse": "B", "eu": True},
+        "ueber_mich": ("Guten Tag,\n\nmein Name ist Amira Musterfrau. Ich habe acht Jahre "
+                       "im Büro einer Spedition gearbeitet, zuletzt in der "
+                       "Auftragsabwicklung.\n\n"
+                       "Ich arbeite strukturiert, bin im Umgang mit Kundinnen und Kunden "
+                       "geübt und übernehme gern Verantwortung für einen festen "
+                       "Aufgabenbereich."),
+        "berufserfahrung": [
+            {"zeitraum": "03.2019 - 08.2025",
+             "jobtitel": "Sachbearbeiterin Auftragsabwicklung",
+             "firma": "Rheinische Speditionsgesellschaft mbH",
+             "taetigkeiten": ["Auftragserfassung und Terminüberwachung",
+                              "Schriftverkehr mit Kunden und Fahrern",
+                              "Vorbereitung der monatlichen Abrechnung"]},
+            {"zeitraum": "09.2015 - 02.2019", "jobtitel": "Bürokraft",
+             "firma": "Steuerkanzlei Musterberg und Partner",
+             "taetigkeiten": ["Postbearbeitung und Aktenpflege",
+                              "Vorbereitende Buchhaltung"]},
+            {"zeitraum": "08.2012 - 08.2015", "jobtitel": "Verkäuferin",
+             "firma": "Modehaus Musterstadt GmbH",
+             "taetigkeiten": ["Beratung und Kassentätigkeit"]}],
+        "bildung": [{"zeitraum": "2009 - 2012", "abschluss": "Kauffrau für Büromanagement",
+                     "institution": "Berufskolleg Musterstadt", "note": "2,1"},
+                    {"zeitraum": "2003 - 2009", "abschluss": "Mittlere Reife",
+                     "institution": "Realschule Musterstadt", "note": "2,4"}],
+        "zusatzqualifikationen": ["Zertifikat Büromanagement (IHK)",
+                                  "Buchführung Grundkurs", "Zehn-Finger-Schreiben",
+                                  "Erste Hilfe"],
+        "sprachen": [{"sprache": "DEUTSCH", "niveau": "C1"},
+                     {"sprache": "BOSNISCH", "niveau": "Muttersprache"},
+                     {"sprache": "ENGLISCH", "niveau": "Fließend"},
+                     {"sprache": "FRANZÖSISCH", "niveau": "Grundkenntnisse"},
+                     {"sprache": "ITALIENISCH", "niveau": "Grundkenntnisse"}],
+        "edv_kenntnisse": [{"programm": p, "sterne": 3 + (i % 3)} for i, p in enumerate(
+            ["MS Word", "MS Excel", "MS PowerPoint", "MS Outlook",
+             "DATEV Mittelstand", "SAP ERP"])],
+        # Die langen Wörter stehen hier mit Absicht: „Verantwortungsbewusstsein" ist bei
+        # 10 pt 43,5 mm breit und damit das Maß, an dem sich entscheidet, ob eine
+        # Rasterspalte noch eine Zeile je Fähigkeit trägt.
+        "soft_skills": [{"eigenschaft": e, "sterne": 4 + (i % 2)} for i, e in enumerate(
+            ["Zuverlässigkeit", "Belastbarkeit", "Teamfähigkeit", "Sorgfalt",
+             "Lernbereitschaft", "Pünktlichkeit", "Kommunikationsfähigkeit",
+             "Verantwortungsbewusstsein", "Flexibilität", "Auffassungsgabe",
+             "Organisationstalent", "Durchsetzungsvermögen"])],
+        "hobbys": "Lesen, Schwimmen, Gartenarbeit",
+    },
 }
 
 
@@ -149,37 +226,60 @@ def _pdf_text(rohdaten):
 MIN_LETZTE_SEITE = 150
 
 
-def _musterfoto():
+def _musterfoto(kleidung=(44, 60, 82), grund=(233, 235, 237)):
     """Eine gezeichnete Silhouette - nur fuer die Probe, sie wird nirgends gespeichert.
 
     Ohne Foto faellt der Umbruch anders als im Echtbetrieb: die Fotospalte ist das
-    hoechste Einzelstueck auf Seite 1. Wer ohne sie prueft, prueft den falschen Fall."""
+    hoechste Einzelstueck auf Seite 1. Wer ohne sie prueft, prueft den falschen Fall.
+
+    Die drei Bilder sind **verschieden eingefaerbt**, und das ist kein Schmuck: Jede
+    Seite traegt eines, und sind es weniger Fotos als Seiten, fangen sie von vorn an.
+    Mit dreimal demselben Bild waere im PDF nicht zu erkennen, ob die Reihenfolge
+    stimmt oder ob auf jeder Seite zufaellig dasselbe steht."""
     import io
     from PIL import Image, ImageDraw
-    b = Image.new("RGB", (900, 1150), (233, 235, 237))
+    b = Image.new("RGB", (900, 1150), grund)
     z = ImageDraw.Draw(b)
     z.ellipse((310, 200, 590, 480), fill=(203, 176, 148))
-    z.rounded_rectangle((240, 495, 660, 1150), 46, fill=(44, 60, 82))
+    z.rounded_rectangle((240, 495, 660, 1150), 46, fill=kleidung)
     puffer = io.BytesIO()
     b.save(puffer, "JPEG", quality=88)
     return cv_pdf.foto_uri(puffer.getvalue(), "image/jpeg")
 
 
-FOTO = None
+FOTOS = None
 
 
 def pruefe(schluessel, fall_name, daten, speichern=True):
     """Eine Vorlage mit einem Fall bauen und nachsehen, was herauskam."""
-    global FOTO
-    if FOTO is None:
-        FOTO = _musterfoto()
-    # Mit allen drei Fotos, nicht nur mit einem: Die Hoehe der Bilder entscheidet mit,
-    # wo der Umbruch faellt. Mit einem Foto war alles sauber, mit dreien rutschten die
-    # Sprachen allein auf ein drittes Blatt - gesehen erst beim Ansehen (18.09.2026).
-    weitere = {"neben1": FOTO, "neben2": FOTO}
+    global FOTOS
+    if FOTOS is None:
+        FOTOS = [_musterfoto(), _musterfoto((92, 46, 46), (240, 236, 228)),
+                 _musterfoto((38, 84, 70), (226, 238, 234))]
+    # Mit allen drei Fotos, nicht nur mit einem: Geprueft wird der volle Fall - drei
+    # Bilder, die sich ueber die Seiten verteilen und sich auf einem laengeren
+    # Lebenslauf wiederholen.
+    #
+    # Zwei Durchgaenge wie im Echtbetrieb: erst die Seiten zaehlen, dann je Seite ein
+    # Foto setzen. `cv_pdf.bauen` macht genau das, legt das Ergebnis aber in
+    # ausgabe/lebenslaeufe/ ab - dort haben 69 Probelaeufe nichts zu suchen, da liegen
+    # die Lebenslaeufe echter Kunden. Die Probe schreibt in ihren eigenen Ordner.
+    #
+    # `_seiten_zaehlen` gibt `None` zurueck, wenn die Seitenzahl nicht zu ermitteln ist
+    # (kein pymupdf). Dann wird wie im Echtbetrieb ohne Einzug gedruckt - ein Foto auf
+    # Seite 1 statt eines Einzugs ohne Fotos dahinter.
     with A.app.test_request_context():
         pdf = cv_pdf.pdf_aus_html(
-            cv_pdf.html_bauen(render_template, daten, schluessel, FOTO, weitere))
+            cv_pdf.html_bauen(render_template, daten, schluessel, bilder=FOTOS))
+        blaetter = cv_pdf._seiten_zaehlen(pdf)
+        if blaetter is None:
+            pdf = cv_pdf.pdf_aus_html(
+                cv_pdf.html_bauen(render_template, daten, schluessel, bilder=FOTOS,
+                                  seiten=1, einzug=False))
+        elif blaetter > 1:
+            pdf = cv_pdf.pdf_aus_html(
+                cv_pdf.html_bauen(render_template, daten, schluessel, bilder=FOTOS,
+                                  seiten=blaetter))
     seiten, text = _pdf_text(pdf)
     # Zwei Dinge sind gewollt und dürfen nicht als Verlust gelten:
     #   Versalien – die Vorlagen setzen Überschriften groß (ZUVERLÄSSIGKEIT)

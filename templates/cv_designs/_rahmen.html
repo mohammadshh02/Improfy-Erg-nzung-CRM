@@ -100,13 +100,11 @@ p, li { orphans: 2; widows: 2; }
 .wiederholt { position: fixed; top: 0; left: 0; right: 0; }
 
 /* ------------------------------------------------------------------ Bausteine */
-.foto {
-  width: {{ (fotobreite | default('58mm')) | safe }};
-  height: {{ (fotohoehe | default('73mm')) | safe }};
-  object-fit: cover;
-  object-position: center top;   /* der Kopf sitzt oben, nicht in der Mitte */
-  display: block;
-}
+/* Hier stand `.foto` mit fester Breite und Hoehe in Millimetern. Die Klasse traegt
+   kein Element mehr (die Fotos heissen seit dem 21.09.2026 `.seitenfoto` und richten
+   sich nach ihrer Spalte), und genau dieses feste Millimetermass war der Fehler vom
+   18.09.2026: Das Foto ragte 9 mm ueber seine Zelle hinaus, bis auf 2 pt an den Text.
+   Eine tote Regel, die den alten Fehler wieder anbietet, bleibt nicht stehen. */
 .paare { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 8mm; }
 .sterne { letter-spacing: 1px; line-height: 1.1; }
 .sprachzeile { display: flex; gap: 4mm; break-inside: avoid; margin-bottom: 1mm; }

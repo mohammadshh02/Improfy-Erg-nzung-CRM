@@ -6,7 +6,7 @@
     python -X utf8 cv_serie.py --grenze 5   nur die ersten fünf Kunden
 
 **Warum das über einen einzelnen Testfall hinausgeht.** Ein Beispiel sagt nichts. Echte
-Kundendaten sind schief: Namen mit Gleichheitszeichen („Ahmad = Ahmad Mohammad"), fehlende
+Kundendaten sind schief: Namen mit Gleichheitszeichen („Jan = Jan Wendisch", erfunden), fehlende
 Geburtsdaten, Kurzprofile mit drei Wörtern, Lebenslauftexte über 3.000 Zeichen, Menschen
 ohne jede Berufserfahrung. Eine Vorlage, die mit einem Datensatz gut aussieht, fällt beim
 nächsten auseinander – und das merkt man erst, wenn sie beim Arbeitgeber liegt.

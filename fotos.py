@@ -31,24 +31,36 @@ import re
 import datenbank as db
 
 # **Plaetze im Lebenslauf.** Ein Kunde darf mehrere Bewerbungsfotos haben - in der Regel
-# zwei oder drei aus derselben Aufnahme. Jedes bekommt einen Platz, und die Plaetze liegen
-# so weit auseinander, dass sie im fertigen PDF auf verschiedenen Seiten landen.
+# zwei oder drei aus derselben Aufnahme. Der Platz sagt, in welcher Reihenfolge sie
+# gedruckt werden: das erste auf die erste Seite, das zweite auf die zweite und so fort.
+# Jede Druckseite traegt genau ein Foto, immer an derselben Stelle der Seite.
 #
-# Warum Plaetze und keine Seitenzahlen: Auf welcher Seite etwas landet, entscheidet erst
-# der Umbruch - bei viel Berufserfahrung faengt die Qualifikation auf Seite 3 an, bei
-# wenig schon auf Seite 2. Eine feste Seitenzahl waere deshalb ein Versprechen, das die
-# Vorlage nicht halten kann. Ein Platz im Aufbau haelt immer.
+# Sind weniger Fotos hinterlegt als der Lebenslauf Seiten hat, fangen sie von vorn an
+# (drei Fotos auf vier Seiten: 1, 2, 3, 1). Verteilt wird das in der Vorlage, nicht hier -
+# wie viele Seiten es werden, weiss erst der Druck.
+#
 # Die Reihenfolge ist zugleich die Vergabereihenfolge: Das zweite hochgeladene Foto
 # bekommt von selbst den zweiten Platz.
 #
-# **Warum alle drei im Kopf stehen und nicht ueber die Seiten verteilt.** Vorher hingen
-# sie an Kapiteln ("bei der Schulbildung"). Wo ein Kapitel anfaengt, entscheidet aber der
-# Inhalt - bei viel Berufserfahrung auf Seite 3, bei wenig auf Seite 1. Dieselbe Vorlage
-# sah damit bei jedem Kunden anders aus. Ein fester Platz im Kopf haengt an nichts.
+# **Die Schluessel heissen weiter `kopf`, `neben1`, `neben2`**, obwohl die Namen nichts
+# mehr beschreiben. Sie stehen so in der Datenbank; wer sie umbenennt, ohne die Zeilen
+# mitzuschreiben, nimmt jedem Kunden seine hinterlegten Bilder weg. Sichtbar ist ohnehin
+# nur die Beschriftung daneben.
+#
+# **Die Beschriftung nennt die Reihenfolge, nicht die Seitenzahl** („Erstes Foto", nicht
+# „Foto fuer die erste Seite"). Sie haette sonst mehr versprochen, als sie haelt, denn
+# **Platz und Druckplatz sind zweierlei**: Loescht der Coach das mittlere Foto, behalten
+# die uebrigen ihre Plaetze - `foto_loeschen` loescht nur die Zeile und schreibt keinen
+# Platz um. Gestaucht wird erst die **Druckliste**: `cv_pdf._bilderliste` nimmt die
+# Plaetze in ihrer Reihenfolge und laesst Luecken weg, das Bild von Platz drei wird damit
+# das zweite der Reihe und steht auf Seite 2 - im Formular aber weiter unter „Drittes
+# Foto". Die Luecke stattdessen bis in den Druck durchzureichen waere schlechter: Eine
+# Seite bekaeme ein leeres Bild und damit den leeren 61-mm-Streifen zurueck, den
+# `seitenpruefung` seit dem 21.09.2026 ausdruecklich als Mangel meldet.
 PLAETZE = [
-    ("kopf",   "Hauptfoto – groß, oben links"),
-    ("neben1", "kleines Foto links, erste Stelle"),
-    ("neben2", "kleines Foto links, zweite Stelle"),
+    ("kopf",   "Erstes Foto"),
+    ("neben1", "Zweites Foto"),
+    ("neben2", "Drittes Foto"),
 ]
 PLATZ_SCHLUESSEL = [k for k, _ in PLAETZE]
 
@@ -142,9 +154,9 @@ def verkleinern(rohdaten):
 def freier_platz(kunde_id):
     """Der erste Platz, der bei diesem Kunden noch frei ist – sonst wieder der Kopf.
 
-    So landet das zweite Foto von selbst bei der Berufserfahrung und das dritte bei der
-    Qualifikation, ohne dass jemand etwas einstellen muss. Wer es anders will, stellt es
-    im Formular um."""
+    So landet das zweite Foto von selbst auf der zweiten Seite und das dritte auf der
+    dritten, ohne dass jemand etwas einstellen muss. Wer es anders will, stellt es im
+    Formular um."""
     belegt = {z["platz"] for z in db.hole(
         "SELECT platz FROM kunde_foto WHERE kunde_id=?", (kunde_id,))}
     for k in PLATZ_SCHLUESSEL:
@@ -317,8 +329,9 @@ def stand():
 
 # ------------------------------------------------------- Aus einem Ordner einlesen
 def _teile(text):
-    # Der Unterstrich zählt in \w als Wortzeichen – „Farnam_Foroutan" bliebe sonst ein
-    # einziges Wort und fände keinen Namen. Ziffern fliegen mit raus (IMG_2931).
+    # Der Unterstrich zählt in \w als Wortzeichen – „Nabil_Musterbewerber" bliebe sonst
+    # ein einziges Wort und fände keinen Namen. Ziffern fliegen mit raus (IMG_2931).
+    # Der Beispielname ist erfunden; hier stand ein echter Kundenname.
     return [t for t in re.split(r"[^a-zA-ZäöüßÄÖÜ]+", (text or "").casefold()) if len(t) > 2]
 
 

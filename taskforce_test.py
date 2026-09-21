@@ -43,7 +43,14 @@ def pruefe(name, bedingung, detail=""):
 def main():
     db.init(); tf.init()
     c = A.app.test_client()
-    kid = db.wert("SELECT id FROM kunde WHERE name LIKE 'Mohamed Ammar%'") or db.wert("SELECT MIN(id) FROM kunde")
+    # Der Kunde, an dem die Taskforce-Daten haengen: Der Test raeumt gleich dessen
+    # Profile samt Angeboten ab und legt sie neu an – nimmt er einen anderen, bleibt der
+    # alte Bestand daneben stehen und die Filterpruefungen weiter unten messen eine
+    # Mischung aus beidem. Vorher stand hier ein echter Kundenname als LIKE-Muster; in
+    # einer versionierten Datei hat der nichts zu suchen. Die Sache selbst - „der Kunde
+    # mit den Suchprofilen" - steht jetzt da, statt seines Namens.
+    kid = (db.wert("SELECT kunde_id FROM tf_profil ORDER BY kunde_id LIMIT 1")
+           or db.wert("SELECT MIN(id) FROM kunde"))
     with db.offen() as con:
         con.execute("DELETE FROM tf_ereignis")
         con.execute("DELETE FROM tf_angebot WHERE profil_id IN (SELECT id FROM tf_profil WHERE kunde_id=?)", (kid,))

@@ -23,6 +23,16 @@ sys.path.insert(0, HIER)
 ZIEL = os.path.join(HIER, "static", "vorlagen")
 
 # Frei erfunden: Name, Nummer und Anschrift gibt es so nicht.
+#
+# **Die Form muss der echten entsprechen**, nicht nur der Inhalt: Was hier steht, geht
+# durch dieselbe Vorlage wie die Daten eines Kunden (`lebenslauf_bauen.aus_formular`).
+# Drei Abweichungen haben die Vorschaubilder still verfälscht:
+#   * `zusatzqualifikationen` war ein String - die Vorlage lief darüber Buchstabe für
+#     Buchstabe und setzte „S", „t", „a", „p" als eigene Aufzählungspunkte.
+#   * `fuehrerschein` war ein String - abgefragt wird `fuehrerschein.vorhanden`, und das
+#     gibt es an einem String nicht: Der Führerschein fiel aus dem Bild.
+#   * `bildung[].einrichtung` heißt echt `institution` - die Schulen standen ohne
+#     Einrichtung da.
 MUSTER = {
     "vorname": "Maria", "nachname": "Musterfrau",
     "angestrebter_job": "Fachkraft für Lagerlogistik",
@@ -30,7 +40,7 @@ MUSTER = {
     "mobil": "+49 000 0000000", "email": "maria.musterfrau@beispiel.de",
     "adresse": "Musterweg 1, 00000 Musterstadt",
     "massnahme_zeitraum": "01.01.2026 - 31.03.2026",
-    "fuehrerschein": "Klasse B",
+    "fuehrerschein": {"vorhanden": True, "klasse": "B", "eu": True},
     "ueber_mich": ("Guten Tag,\n\nmein Name ist Maria Musterfrau. Nach meiner Ausbildung war "
                    "ich über zwölf Jahre in der Lagerlogistik tätig, zuletzt als "
                    "Schichtverantwortliche für ein Team von acht Personen.\n\n"
@@ -52,11 +62,11 @@ MUSTER = {
     ],
     "bildung": [
         {"zeitraum": "2006 - 2009", "abschluss": "Ausbildung Fachkraft für Lagerlogistik",
-         "einrichtung": "Musterberufsschule"},
+         "institution": "Musterberufsschule", "note": ""},
         {"zeitraum": "2002 - 2006", "abschluss": "Mittlere Reife",
-         "einrichtung": "Musterschule"},
+         "institution": "Musterschule", "note": ""},
     ],
-    "zusatzqualifikationen": "Staplerschein · Erste-Hilfe-Kurs",
+    "zusatzqualifikationen": ["Staplerschein", "Erste-Hilfe-Kurs"],
     "sprachen": [{"sprache": "DEUTSCH", "niveau": "Muttersprache"},
                  {"sprache": "ENGLISCH", "niveau": "gute Kenntnisse"}],
     "edv_kenntnisse": [{"programm": "Lagerverwaltung", "sterne": 5},

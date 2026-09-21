@@ -75,7 +75,10 @@ def jetzt():
 
 
 def nummer(telefon):
-    """Deutsche Schreibweisen in die Form bringen, die WhatsApp erwartet: 491772306596.
+    """Deutsche Schreibweisen in die Form bringen, die WhatsApp erwartet: 491760000000.
+
+    Die Beispielnummer ist erfunden (Endung lauter Nullen). Hier stand die Handynummer
+    einer echten Kundin – in einer versionierten Datei hat so etwas nichts zu suchen.
 
     Eine Nummer mit + oder 00 trägt ihre Landesvorwahl schon – die bleibt stehen. Sonst
     bekäme eine österreichische Nummer eine deutsche Vorwahl vorgeklebt und ginge an

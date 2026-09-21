@@ -224,10 +224,15 @@ def main():
     print("\n9. Kundennachrichten ueber WhatsApp")
     import nachrichten
     nachrichten.init()
+    # Alle Nummern und Namen in diesem Abschnitt sind erfunden (Endung lauter Nullen,
+    # Mustername). Hier standen die Handynummern zweier Kundinnen und der volle Name
+    # eines Kunden samt seiner Nummer - in einer versionierten Datei hat das nichts zu
+    # suchen. Geprueft wird unveraendert dasselbe: die drei Schreibweisen einer
+    # deutschen Nummer, der Text mit Vornamen, der Link mit Nummer.
     pruefe("Deutsche Nummern werden korrekt umgeformt",
-           nachrichten.nummer("+49 177 2306596") == "491772306596"
-           and nachrichten.nummer("0176 81257422") == "4917681257422"
-           and nachrichten.nummer("017681257422") == "4917681257422")
+           nachrichten.nummer("+49 177 0000000") == "491770000000"
+           and nachrichten.nummer("0176 0000000") == "491760000000"
+           and nachrichten.nummer("01760000000") == "491760000000")
     pruefe("Auslandsnummern behalten ihre Vorwahl",
            nachrichten.nummer("+43 660 1234567") == "436601234567"
            and nachrichten.nummer("0043 660 1234567") == "436601234567")
@@ -235,15 +240,15 @@ def main():
            nachrichten.nummer("kaputt") == "" and nachrichten.nummer("") == ""
            and nachrichten.nummer("123") == "")
     text = nachrichten.text_bauen(
-        {"name": "Irfanullah Hayat"},
+        {"name": "Nabil Musterbewerber"},
         [{"art": "job", "titel": "Lagerhelfer", "anbieter": "Amazon", "ort": "Köln"},
          {"art": "wohnung", "titel": "2 Zimmer", "anbieter": "Privat", "ort": "Kalk"}])
     pruefe("Nachricht nennt Stellen und Wohnungen getrennt",
-           "1 Stelle" in text and "1 Wohnung" in text and "Irfanullah" in text
+           "1 Stelle" in text and "1 Wohnung" in text and "Nabil" in text
            and "Improfy-Team" in text, text.split(chr(10))[0])
-    link = nachrichten.wa_link("+49 176 41609534", text)
+    link = nachrichten.wa_link("+49 152 0000000", text)
     pruefe("WhatsApp-Link traegt Nummer und Text",
-           link.startswith("https://wa.me/4917641609534?text=") and len(link) > 100)
+           link.startswith("https://wa.me/491520000000?text=") and len(link) > 100)
     pruefe("Ohne Nummer kein Link", nachrichten.wa_link("", text) == "")
     r = c.get("/nachrichten")
     pruefe("Seite antwortet und nennt den Weg", r.status_code == 200

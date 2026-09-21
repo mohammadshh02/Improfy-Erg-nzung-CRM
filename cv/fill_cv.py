@@ -27,7 +27,12 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 
 # ---------------------------------------------------------------- Konfiguration
-MASTER_DEFAULT = "/Users/ikromsdikiy/Desktop/Improfy/Sahar Mohammadi Niyay Rodsary.xlsx"
+# Diese eine Zeile ist vom Grundsatz „unveraendert uebernommen" (cv/HERKUNFT.txt)
+# ausgenommen: Im Vorgabewert standen der Name einer echten Kundin und der private
+# Desktop-Pfad eines Kollegen. Beides hat in einer versionierten Datei nichts zu suchen.
+# Der Wert selbst ist tot - das OS ruft `fill_cv` nie ueber die Kommandozeile auf,
+# benutzt wird er nur von `--master`, und dort gibt der Aufrufer den Pfad mit.
+MASTER_DEFAULT = "vorlagen/Muster-Vorlage.xlsx"
 TEMPLATE_SHEET = "Muster"
 GELB = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 FEHLT = "⚠ BITTE ERGÄNZEN"

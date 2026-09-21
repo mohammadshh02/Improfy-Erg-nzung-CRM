@@ -66,9 +66,13 @@ def _tokens(s):
 def _kunde_zu_name(tokens, kunden):
     """Eindeutiger Kunde, dessen Name zu den Tokens des Dateinamens passt.
 
-    Verglichen werden ganze Wörter (sonst landet „Rahimi" bei „Ebrahimi"). Es zählt,
+    Verglichen werden ganze Wörter (sonst landet „Mann" bei „Mustermann"). Es zählt,
     wenn der Nachname des Kunden im Dateinamen steht, oder wenn alle Tokens im Namen
-    vorkommen. „Abdul Nasir Dabas" trifft damit nicht „Abdul Nasir Amiri"."""
+    vorkommen. „Max Emil Probstel" trifft damit nicht „Max Emil Beispielmann".
+
+    **Alle Namen in dieser Funktion sind erfunden.** Die Fälle sind echt – sie stammen
+    aus fünf falsch zugeordneten Lebensläufen –, die Namen standen hier aber im
+    Klartext, und die Datei ist versioniert."""
     if not tokens:
         return None
     treffer = []
@@ -79,13 +83,14 @@ def _kunde_zu_name(tokens, kunden):
             continue
         nachname = woerter[-1]
         # Der Nachname muss dabei sein, oder mindestens zwei Namensteile müssen passen.
-        # Ein einzelner Mittelname reicht nicht: „Herr Hussein_Lebenslauf.pdf" gehört
-        # Mohammed Hussein und landete sonst bei Fada *Hussein* Mirzai. Genau dieser
+        # Ein einzelner Mittelname reicht nicht: „Herr Musterer_Lebenslauf.pdf" gehört
+        # Erik Musterer und landete sonst bei Lena *Musterer* Beispielmann. Genau dieser
         # Fehler steckt schon in drei der fünf Lebensläufe, die die CV-App erzeugt hat.
-        # Der Nachname des Kunden MUSS im Dateinamen stehen. Alles andere führt in die Irre:
-        #   „Herr Hussein_Lebenslauf.pdf"        gehört Mohammed Hussein, nicht Fada *Hussein* Mirzai
-        #   „Lebenslauf_Abdul Nasir Dabas.pdf"   gehört Herrn Dabas, nicht Abdul Nasir *Amiri*
-        #   „Herr Amin Ali_Lebenslauf.pdf"       gehört Amin Ali, nicht Bayan Yazdeen *Ali*
+        # Der Nachname des Kunden MUSS im Dateinamen stehen. Alles andere führt in die
+        # Irre (Namen erfunden, Fälle echt):
+        #   „Herr Musterer_Lebenslauf.pdf"        gehört Erik Musterer, nicht Lena *Musterer* Beispielmann
+        #   „Lebenslauf_Max Emil Probstel.pdf"    gehört Herrn Probstel, nicht Max Emil *Beispielmann*
+        #   „Herr Jan Wendisch_Lebenslauf.pdf"    gehört Jan Wendisch, nicht Rosa Bela *Wendisch*
         # Deshalb zusätzlich: entweder trägt der Dateiname nur diesen einen Namen,
         # oder es passen mindestens zwei Namensteile.
         if nachname in tokens and (len(getroffen) >= 2 or len(tokens) == 1):

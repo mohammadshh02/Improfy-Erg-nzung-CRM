@@ -714,21 +714,20 @@ def lebenslauf_pdf(kid):
             notieren("Bewerbungsfoto hinterlegt", "lebenslauf", kid, hochgeladen.filename)
         except Exception:
             pass
-    # Alle Fotos des Kunden, nach Platz sortiert: das erste in den Kopf, die weiteren an
-    # ihre Kapitel. Mehr als drei gibt es nicht - so viele Plaetze hat der Aufbau.
-    bilder = {}
+    # Alle Fotos des Kunden in der Reihenfolge ihrer Plaetze - `alle_fotos` sortiert
+    # bereits danach. Aus dieser Liste setzt die Vorlage je Druckseite eines; sind es
+    # weniger Fotos als Seiten, wiederholen sie sich der Reihe nach.
+    bilder = []
     for f in fotos.alle_fotos(kid):
         rohbild, bildtyp = fotos.bild(f["id"])
         if rohbild:
-            bilder[f["platz"]] = cv_pdf.foto_uri(rohbild, bildtyp)
-    foto_uri = bilder.get("kopf")
-    weitere = {k: v for k, v in bilder.items() if k != "kopf"}
+            bilder.append(cv_pdf.foto_uri(rohbild, bildtyp))
     v = LB.vorbelegung(kid)
     name = LB.blattname(v["interne_id"], daten.get("vorname") or "", daten.get("nachname") or "")
     dateiname = f"{name}_{design}_{datetime.date.today():%Y-%m-%d}.pdf"
     try:
-        pdf, dateiname, _pfad = cv_pdf.bauen(_render, daten, design, foto_uri, dateiname,
-                                             weitere=weitere)
+        pdf, dateiname, _pfad = cv_pdf.bauen(_render, daten, design, dateiname=dateiname,
+                                             bilder=bilder)
     except Exception as e:
         return _cv_seite(kid, daten, fehler=f"PDF nicht erzeugt: {e}")
     LB.merken(kid, dateiname)
