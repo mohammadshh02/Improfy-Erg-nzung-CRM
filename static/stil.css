@@ -135,6 +135,15 @@ input[type=checkbox]{accent-color:var(--accent-ink);width:15px;height:15px;verti
 .field{display:flex;flex-direction:column;gap:5px}
 .field label{font-weight:560;font-size:13.5px}
 .field input{width:100%}
+/* **`hidden` muss verstecken - auch an einem Knopf.**
+   Das Attribut wirkt sonst allein ueber die Grundregel des Browsers
+   ([hidden]{display:none}), und die steht im Ursprung des Browsers: jede Regel von
+   uns schlaegt sie. Die Zeile gleich darunter setzt `display:inline-flex` auf jeden
+   Knopf - damit stand ein `<button hidden>` als leere gruene Pille im Blatt, mit der
+   Maus anklickbar und mit Tab erreichbar (gemessen: display inline-flex, 34x18 px).
+   Diese Regel schliesst die ganze Klasse und nicht den einen Fall, damit es nicht am
+   Zufall der Selektoren haengt. */
+[hidden]{display:none !important}
 button,.knopf,.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:var(--radius-pill);border:1px solid var(--pill-green);
   background:var(--pill-green);color:var(--accent-ink);font-weight:600;font-size:14.5px;font-family:inherit;cursor:pointer;text-decoration:none;
   transition:background .12s ease,border-color .12s ease;line-height:1.35}

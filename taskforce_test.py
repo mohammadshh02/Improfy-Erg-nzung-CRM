@@ -17,15 +17,17 @@ Was geprüft wird:
  9. Tafel: jeder Filter greift und liefert eine gültige Seite
 """
 import os
-import shutil
+import re
 import sys
-import tempfile
 import time
+import urllib.error
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
-kopie = os.path.join(tempfile.gettempdir(), "improfy_os_test.db")
-shutil.copy(os.path.join(HIER, "improfy_os.db"), kopie)
+import pruefkopie                # noqa: E402
+# Warum die Arbeitskopie über `sqlite3.backup` läuft und nicht über `shutil.copy`,
+# steht im Kopf von `pruefkopie.py`. Am Echtbestand ändert der Lauf nichts.
+kopie = pruefkopie.anlegen("improfy_os_test.db")
 os.environ["IMPROFY_OS_DB"] = kopie
 
 import app as A                    # noqa: E402
@@ -38,6 +40,52 @@ ergebnis = []
 def pruefe(name, bedingung, detail=""):
     ergebnis.append((name, bool(bedingung), detail))
     print(f"  {'OK  ' if bedingung else 'FEHL'} {name}{(' – ' + str(detail)) if detail else ''}")
+
+
+# **Was ein gedrosseltes Portal angeht, ist keine Aussage über das OS.** Abschnitt 2
+# und 7 greifen auf die lebenden Portale zu. Kleinanzeigen antwortete am 22.09.2026 auf
+# die Suche mit 46 Treffern und danach auf jede Detailseite mit 400 – drei Prüfläufe
+# rot, ohne dass eine Zeile Code kaputt war, und eine ganze Prüfrunde dafür verbraucht.
+# Indeeds 403 wurde längst so behandelt; hier steht dasselbe für alle Quellen.
+#
+# **Nur diese drei Antworten, und nur für den Abruf nach draußen.** 400 (Kleinanzeigen
+# weist den Abruf ab), 403 (gesperrt) und 429 (zu viele Anfragen). Alles andere bleibt
+# FEHL – eine Prüfung, die jeden Fehler wegschluckt, ist keine mehr.
+DROSSEL_CODES = (400, 403, 429)
+
+
+def _drossel(fehler):
+    """Hat das Portal gedrosselt? Gibt den HTTP-Code zurück, sonst None.
+
+    Nimmt eine Ausnahme (Abschnitt 2 bekommt den `HTTPError` selbst) oder den Text,
+    den `abgleich_profil` bei einem misslungenen Abruf in die Spalte `abgleich`
+    schreibt (Abschnitt 7 sieht nur den). Am Text erkannt wird allein, was `urllib`
+    bei einem `HTTPError` erzeugt – „HTTP Error 429: Too Many Requests". Eine 400, die
+    irgendwo sonst in einer Meldung steht, zählt nicht."""
+    if isinstance(fehler, urllib.error.HTTPError):
+        return fehler.code if fehler.code in DROSSEL_CODES else None
+    text = str(fehler or "")
+    return next((c for c in DROSSEL_CODES if re.search(r"HTTP Error %d\b" % c, text)), None)
+
+
+def warnen(name, grund):
+    """Eine Prüfung, die nicht laufen konnte, weil das Portal gedrosselt hat.
+
+    Gezählt wird sie als bestanden – rot wäre gelogen, am OS ist nichts kaputt –,
+    gedruckt aber als WARN, damit niemand sie für eine gelaufene Prüfung hält."""
+    ergebnis.append((name, True, grund))
+    print(f"  WARN {name} – {grund}")
+
+
+def pruefe_portal(name, bedingung, drosselungen, detail=""):
+    """Wie `pruefe`, aber: Scheitert die Reihe **und** hat das Portal gedrosselt, wird
+    daraus eine Warnung. Ist `drosselungen` leer, bleibt es bei FEHL."""
+    if not bedingung and drosselungen:
+        warnen(name, "Das Portal hat gedrosselt (HTTP %s) – die Prüfung ist deshalb "
+                     "nicht gelaufen, am OS ist nichts kaputt"
+                     % "/".join(sorted({str(c) for c in drosselungen})))
+        return
+    pruefe(name, bedingung, detail)
 
 
 def main():
@@ -69,6 +117,20 @@ def main():
     pruefe("Wohnprofil angelegt", r.status_code == 302 and pw, f"id {pw}")
 
     print("\n2. Quellen einzeln")
+    # Die Drosselerkennung zuerst, und zwar ohne Netz: Von ihr haengt ab, welche
+    # gescheiterte Reihe unten zur Warnung wird. Zu weit gefasst, schluckt sie echte
+    # Fehler - dann waere der ganze Abschnitt wertlos. Geprueft wird beides: dass die
+    # drei Codes erkannt werden (als Ausnahme wie als Text aus der Datenbank) und dass
+    # nichts anderes durchgeht, auch keine Zahl, die bloss im Meldungstext steht.
+    _http = urllib.error.HTTPError
+    pruefe("Nur 400/403/429 vom Portal gelten als Drosselung",
+           _drossel(_http("http://x", 429, "Too Many Requests", None, None)) == 429
+           and _drossel(_http("http://x", 400, "Bad Request", None, None)) == 400
+           and _drossel("HTTP Error 403: Forbidden") == 403
+           and _drossel(_http("http://x", 500, "Server Error", None, None)) is None
+           and _drossel("HTTP Error 404: Not Found") is None
+           and _drossel("meinestadt kennt den Ort nicht (400 Stellen)") is None
+           and _drossel(ValueError("kaputt")) is None and _drossel(None) is None)
     p = tf.profil(pj)
     for schl, (name, art, fn, bereit) in tf.QUELLEN.items():
         if not bereit():
@@ -91,7 +153,9 @@ def main():
             if schl == "jobs.indeed" and "403" in str(e):
                 pruefe(f"{name}: blockt gerade (403) – Agent versucht es beim nächsten Lauf erneut", True, "Warnung")
             else:
-                pruefe(f"{name}: antwortet", False, str(e)[:120])
+                _code = _drossel(e)
+                pruefe_portal(f"{name}: antwortet", False,
+                              [_code] if _code else [], str(e)[:120])
 
     print("\n3. Gedächtnis")
     g1, n1, m1 = tf.lauf(pj)
@@ -129,8 +193,72 @@ def main():
                 "/taskforce/api/angebote?status=angeschrieben", "/taskforce/api/kpi", "/taskforce/export.csv", f"/kunde/{kid}", "/"]:
         r = c.get(url)
         pruefe(f"GET {url} → {r.status_code}", r.status_code == 200)
+    # **Ein Filter, der nicht zu lesen war, öffnet den Export nicht.** Gemessen am
+    # 22.09.2026: `export.csv` 1305 Zeilen, `?kunde=<id>` eine, `?kunde=999999` eine –
+    # und `?kunde=²` wieder 1305, also 413 kB Angebote aller Kunden als Download,
+    # ungesehen und ohne einen Satz dazu. Auf der Tafel ist der offene Filter
+    # vertretbar (der Coach sieht die Tabelle vor sich), in einer Datei nicht.
+    _alle = c.get("/taskforce/export.csv")
+    _einer = c.get(f"/taskforce/export.csv?kunde={kid}")
+    _leer = c.get("/taskforce/export.csv?kunde=999999")
+    # Gemessen wird gegen den Kunden **ohne** Angebote: Im Bestand der Arbeitskopie
+    # haengen alle Angebote an dem einen Kunden mit Suchprofilen, `?kunde=<id>` liefert
+    # also dieselbe Datei wie der ungefilterte Aufruf - daraus liesse sich nichts
+    # ablesen. Eine Nummer, die es nicht gibt, muss dagegen eine leere Datei ergeben.
+    pruefe("Der Export filtert nach Kunde",
+           _alle.status_code == 200 and _einer.status_code == 200
+           and _leer.status_code == 200 and len(_einer.data) <= len(_alle.data)
+           and len(_leer.data) < len(_alle.data) / 10,
+           "%d / %d / %d Bytes" % (len(_alle.data), len(_einer.data), len(_leer.data)))
+    for _kaputt in ("²", "abc", "9" * 20):
+        _r = c.get("/taskforce/export.csv?kunde=%s" % _kaputt)
+        pruefe("Unbrauchbarer Filter liefert keinen Export aller Kunden (kunde=%s)"
+               % _kaputt[:4],
+               _r.status_code == 400
+               and "keine Kundennummer" in _r.get_data(as_text=True)
+               and len(_r.data) < len(_alle.data),
+               "%d, %d Bytes" % (_r.status_code, len(_r.data)))
+    # **Dasselbe Loch hatte die Schnittstelle.** Gemessen am 22.09.2026:
+    # `/taskforce/api/angebote?kunde=²` gab 200, anzahl 1304, 932 487 Bytes - waehrend
+    # der Export daneben bei derselben Angabe schon 400 sagte. Auf der Tafel ist der
+    # offene Filter vertretbar (der Coach sieht die Tabelle vor sich), an der
+    # CRM-Schnittstelle nicht: Dort sieht niemand etwas, und das CRM haengt die
+    # Angebote aller Kunden an einen Datensatz.
+    _api_alle = c.get("/taskforce/api/angebote")
+    for _kaputt in ("²", "abc", "9" * 20):
+        _r = c.get("/taskforce/api/angebote?kunde=%s" % _kaputt)
+        pruefe("Unbrauchbarer Filter liefert auch über die Schnittstelle nicht alle "
+               "Kunden (kunde=%s)" % _kaputt[:4],
+               _r.status_code == 400
+               and "keine Kundennummer" in _r.get_data(as_text=True)
+               and len(_r.data) < len(_api_alle.data),
+               "%d, %d Bytes" % (_r.status_code, len(_r.data)))
+    # Eine Nummer, die es gibt, und eine, die es nicht gibt, bleiben unangetastet -
+    # die Schranke steht nur vor dem, was sich nicht als Nummer lesen laesst.
+    pruefe("Eine lesbare Kundennummer geht weiter durch, auch eine unbekannte",
+           c.get("/taskforce/api/angebote?kunde=999999").status_code == 200
+           and c.get("/taskforce/api/angebote?kunde=%d" % kid).status_code == 200,
+           c.get("/taskforce/api/angebote?kunde=999999").get_json().get("anzahl"))
     j = c.get(f"/taskforce/api/angebote?kunde={kid}&status=angeschrieben").get_json()
     pruefe("JSON enthält Kunde, Link, Status, Bearbeiter", j["anzahl"] == 2 and all(x["url"] and x["bearbeiter"] for x in j["angebote"]), j["anzahl"])
+    # `/taskforce/kunde` ist der Sprung aus der Kundenauswahl. Ohne brauchbare Nummer
+    # endete er in der rohen 404-Seite des Servers (leer, ?kid=0) oder in einem Absturz
+    # (?kid=abc) - beides sagt nicht, was fehlt. Eine Nummer, die es nicht gibt, bleibt
+    # dagegen 404: dort ist die Auskunft richtig.
+    # Auch die Riesenzahl gehört dazu: Sie passt nicht in die 64 Bit von SQLite und
+    # endete als 500er. Geprüft wird der Satz auf der Seite, nicht nur der Status –
+    # fiele der Hinweis weg, bliebe die Prüfung sonst grün.
+    # `?kid=²` steht dabei für die Unterscheidung `isdecimal`/`isdigit`: `"²".isdigit()`
+    # ist wahr, `int("²")` wirft. Ohne diese Adresse ließ sich `isdecimal` zurückdrehen,
+    # ohne dass eine einzige Prüfung rot wurde – der Fix hatte keinen Wächter.
+    for anhang in ("", "?kid=0", "?kid=abc", "?kid=99999999999999999999", "?kid=²"):
+        r = c.get("/taskforce/kunde" + anhang, follow_redirects=True)
+        pruefe("/taskforce/kunde%s sagt, was fehlt" % (anhang or " ohne Nummer"),
+               r.status_code == 200
+               and "Bitte erst einen Kunden auswählen." in r.get_data(as_text=True),
+               r.status_code)
+    pruefe("Eine Kundennummer, die es nicht gibt, bleibt 404",
+           c.get("/taskforce/kunde?kid=999999", follow_redirects=True).status_code == 404)
 
     print("\n7. Die Kette: Lebenslauf, Kurzprofil, Beschreibung, Abgleich, Wohnkriterien")
     r = c.post(f"/taskforce/kunde/{kid}/lebenslauf", data={"url": "https://drive.google.com/file/d/1TestTestTestTestTestTest12345/view",
@@ -143,8 +271,14 @@ def main():
     n = tf.abgleich_profil(pj, max_n=6)
     mit = db.hole("SELECT quelle, match, abgleich, LENGTH(beschreibung_lang) AS l FROM tf_angebot WHERE profil_id=? AND abgleich IS NOT NULL", (pj,))
     geladen = [m for m in mit if m["l"]]
-    pruefe(f"Beschreibungen nachgeladen ({len(geladen)} von {len(mit)}) und abgeglichen", n > 0 and len(geladen) >= 1, [m["quelle"] for m in geladen])
-    pruefe("Abgleich nennt passt/fehlt/unklar", any(any(tf.abgleich_von(m).get(k) for k in ("passt", "fehlt", "unklar", "plus")) for m in mit))
+    # `abgleich_profil` faengt den misslungenen Abruf selbst und schreibt ihn in die
+    # Spalte `abgleich` - hier wird nachgesehen, ob nur die Detailseiten gesperrt waren.
+    _gedrosselt = [x for x in (_drossel(tf.abgleich_von(m).get("fehler")) for m in mit) if x]
+    pruefe_portal(f"Beschreibungen nachgeladen ({len(geladen)} von {len(mit)}) und abgeglichen",
+                  n > 0 and len(geladen) >= 1, _gedrosselt, [m["quelle"] for m in geladen])
+    pruefe_portal("Abgleich nennt passt/fehlt/unklar",
+                  any(any(tf.abgleich_von(m).get(k) for k in ("passt", "fehlt", "unklar", "plus")) for m in mit),
+                  _gedrosselt)
     pw_p = tf.profil(pw)
     krit = tf.kriterien(pw_p)
     pruefe("Wohnkriterien gespeichert (Balkon, Aufzug, Warmmiete, Etage, 2 Wohnungstypen, Extra)",
@@ -154,7 +288,10 @@ def main():
     pruefe("IS24-Suchlink trägt Preis, Zimmer, Ausstattung, Etage, Typen", all(x in url for x in ("price=-600.0", "numberofrooms=1.0-", "balcony", "lift", "floor=-3", "groundfloor")), url)
     nw = tf.abgleich_profil(pw, max_n=3)
     wm = db.hole("SELECT abgleich, zusatz FROM tf_angebot WHERE profil_id=? AND abgleich IS NOT NULL", (pw,))
-    pruefe("Wohnungs-Abgleich prüft Kriterien gegen Anzeige", nw > 0 and any(tf.abgleich_von(w) for w in wm), [tf.abgleich_von(w) for w in wm][:1])
+    _w_gedrosselt = [x for x in (_drossel(tf.abgleich_von(w).get("fehler")) for w in wm) if x]
+    pruefe_portal("Wohnungs-Abgleich prüft Kriterien gegen Anzeige",
+                  nw > 0 and any(tf.abgleich_von(w) for w in wm), _w_gedrosselt,
+                  [tf.abgleich_von(w) for w in wm][:1])
     r = c.get(f"/taskforce/profil/{pw}")
     pruefe("Profilseite Wohnung zeigt Kriterien-Formular, Extra-Notizen und IS24-Link", r.status_code == 200 and "Extra-Notizen" in r.text and "IS24-Suche" in r.text)
     r = c.get(f"/taskforce/profil/{pj}")

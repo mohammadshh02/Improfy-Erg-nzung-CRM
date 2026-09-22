@@ -8,14 +8,14 @@ Geprüft wird der Weg, den die Kollegin im Alltag geht: Kunde in der Akte öffne
 """
 import os
 import re
-import shutil
 import sys
-import tempfile
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
-kopie = os.path.join(tempfile.gettempdir(), "improfy_os_cv_test.db")
-shutil.copy(os.path.join(HIER, "improfy_os.db"), kopie)
+import pruefkopie                # noqa: E402
+# Warum die Arbeitskopie über `sqlite3.backup` läuft und nicht über `shutil.copy`,
+# steht im Kopf von `pruefkopie.py`. Am Echtbestand ändert der Lauf nichts.
+kopie = pruefkopie.anlegen("improfy_os_cv_test.db")
 os.environ["IMPROFY_OS_DB"] = kopie
 
 import openpyxl                     # noqa: E402
@@ -40,6 +40,22 @@ def offen(pfad):
 
 def ohne_kommentare(text):
     return re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+
+
+def erster_absender(html):
+    """Der erste Absende-Knopf im grossen Formular – der, den Enter drückt.
+
+    HTML macht den ersten Absende-Knopf eines Formulars zum Standardknopf: Ein Enter in
+    irgendeinem einzeiligen Feld löst ihn aus. Welcher das ist, entscheidet allein die
+    Reihenfolge im Blatt – deshalb wird hier das HTML gelesen und nicht geklickt."""
+    anfang = html.find('<form method="post" enctype="multipart/form-data">')
+    if anfang < 0:
+        return ""
+    innen = html[anfang:html.find("</form>", anfang)]
+    for treffer in re.finditer(r"<(?:button|input)\b[^>]*>", innen):
+        if 'type="submit"' in treffer.group(0):
+            return treffer.group(0)
+    return ""
 
 
 def _fotos_je_seite(rohdaten):
@@ -247,10 +263,40 @@ def main():
 
     print("\n9. Bewerbungsfoto")
     import io as _io
+    import sys as _sys
     import fotos
     fotos.init()
+    # **Ohne Pillow wird gar nichts hinterlegt.** Der Rueckfall im ImportError-Zweig von
+    # `verkleinern` oeffnete keine Datei: Alles, was `bildtyp` an den ersten Bytes
+    # erkennt, kam durch - auch `image/heic`, das weder Browser noch PDF-Druck
+    # darstellen. Ein frischer Checkout ohne `pip install` haette damit bei
+    # drei belegten Plaetzen ein echtes Bewerbungsfoto durch einen unlesbaren HEIC-Block
+    # ersetzt und „Foto hinterlegt" gemeldet. Geprueft wird das **immer**, nicht nur auf
+    # einem Rechner ohne Pillow: `None` in `sys.modules` laesst `from PIL import Image`
+    # genau so scheitern wie eine fehlende Installation.
+    _heic_huelle = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heicmif1" + b"\x00" * 64
+    _pil_merk = _sys.modules.get("PIL", "fehlt")
+    _sys.modules["PIL"] = None
+    try:
+        fotos.verkleinern(_heic_huelle)
+        _ohne_pillow = ""
+    except fotos.KeinBild as _e:
+        _ohne_pillow = str(_e)
+    finally:
+        if _pil_merk == "fehlt":
+            _sys.modules.pop("PIL", None)
+        else:
+            _sys.modules["PIL"] = _pil_merk
+    pruefe("Fehlt Pillow, wird nichts hinterlegt – auch kein erkanntes Format",
+           "Pillow" in _ohne_pillow, _ohne_pillow[:70] or "durchgelassen")
     try:
         from PIL import Image
+    except ImportError:
+        Image = None
+    if Image is None:
+        pruefe("Pillow fehlt – die Reihen mit erzeugten Bildern entfallen", True,
+               "ohne Pillow lässt sich kein Probebild erzeugen")
+    else:
         bild = Image.new("RGB", (2000, 2500), (150, 170, 120))
         puffer = _io.BytesIO(); bild.save(puffer, "JPEG", quality=95)
         gross = puffer.getvalue()
@@ -270,8 +316,534 @@ def main():
         pruefe("Formular zeigt das hinterlegte Foto",
                bool(_f) and f"/kunde/{kid}/foto/{_f[0]['id']}.jpg" in _seite,
                [x["platz"] for x in _f])
-    except ImportError:
-        pruefe("Pillow fehlt – Fototest übersprungen", True)
+
+        # --- Welchen Knopf drueckt Enter? -------------------------------------
+        # Seit die Fotokarten ihre Knoepfe im grossen Formular tragen, stand der
+        # Entfernen-Knopf des ersten Bildes ganz vorn - und damit loeschte ein Enter im
+        # Vornamen das Bewerbungsfoto des Kunden, endgueltig und ohne Rueckfrage. Der
+        # Testclient sieht das nie, er klickt gezielt; im Browser entscheidet die
+        # Reihenfolge im Blatt. Geprueft wird deshalb der erste Absende-Knopf selbst.
+        _erster = erster_absender(_seite)
+        pruefe("Enter im großen Formular baut die Excel und löscht nichts",
+               'formaction="/kunde/%d/lebenslauf"' % kid in _erster
+               and " name=" not in _erster and "formnovalidate" not in _erster
+               and "disabled" not in _erster and "/foto/" not in _erster,
+               " ".join(_erster.split()) or "kein Absende-Knopf im Formular gefunden")
+
+        # `hidden` allein versteckt nichts. Das Attribut wirkt ueber die Grundregel des
+        # Browsers ([hidden]{display:none}), und die steht im Ursprung des Browsers:
+        # jede Regel von uns schlaegt sie. `stil.css` gibt jedem Knopf
+        # `display:inline-flex` - damit stand dieser Knopf als leere gruene Pille
+        # zwischen „Was die Taskforce schon weiss" und der Karte „Person", mit der Maus
+        # anklickbar, mit Tab erreichbar, mit der Leertaste ausloesbar (am laufenden
+        # Server gemessen: display inline-flex, 34x18 px). Deshalb wird hier beides
+        # geprueft: das Attribut am Knopf **und** die Regel, die es durchsetzt.
+        _css = c.get("/static/stil.css").get_data(as_text=True)
+        pruefe("Der Standardknopf trägt `hidden` – und die Stilvorlage setzt das durch",
+               " hidden" in _erster
+               and re.search(r"\[hidden\][^{]*\{[^}]*display\s*:\s*none\s*!important",
+                             _css) is not None,
+               "[hidden]-Regel in stil.css: "
+               + ("vorhanden" if "[hidden]" in _css else "FEHLT"))
+
+        _fid = _f[0]["id"]
+        _design = cv_sammlung.alle()[-1]["kennung"]
+        if not cv_pdf.bereit():
+            # Fotokarten und Vorlagenwahl stehen im Blatt unter {% if chrome %}. Ohne
+            # installiertes Chrome/Edge zeigt die Seite sie gar nicht - dann ist an
+            # ihnen nichts zu pruefen und auch nichts kaputt. Gesagt wird es trotzdem,
+            # statt still zu ueberspringen.
+            pruefe("Ohne Chrome stehen Fotokarten und Vorlagenwahl nicht im Blatt – "
+                   "die Prüfungen daran entfallen",
+                   "fotokarte" not in _seite
+                   and 'type="radio" name="design"' not in _seite)
+        else:
+            # --- Die beiden Knoepfe an der Fotokarte --------------------------
+            # Sie stehen mitten im grossen Formular, hingen aber per `form="..."` an zwei
+            # leeren Formularen am Blattende. Abgeschickt wird immer nur das Formular, an
+            # dem der Knopf haengt - und dort stand nichts: Ein Klick auf „entfernen"
+            # kostete den halb geschriebenen Lebenslauf. Geprueft wird deshalb nicht
+            # „kein Fehler", sondern dass die ausgefuellten Felder wieder herausfallen.
+            pruefe("Foto-Knöpfe hängen am großen Formular",
+                   'form="loesch' not in _seite and 'id="loesch' not in _seite
+                   and 'form="platz' not in _seite)
+            # Der Testclient fuehrt keine Browservalidierung aus, der Coach aber schon:
+            # ohne `formnovalidate` blockt der Browser das Entfernen, solange ein
+            # Pflichtfeld (Vorname, Nachname, Zielberuf) leer ist. Der Knopf saehe aus
+            # wie immer und taete nichts. Dass er ohne Rueckfrage loescht, ist nur so
+            # lange vertretbar, wie er **nicht** der Standardknopf ist - deshalb steht
+            # hier beides in einer Pruefung.
+            _knopf = _seite[_seite.rfind("<button", 0, _seite.find("entfernen</button>")):
+                            _seite.find("entfernen</button>")]
+            pruefe("Der Entfernen-Knopf nennt sein Ziel, umgeht die Pflichtfeldprüfung "
+                   "und ist nicht der Standardknopf",
+                   "formnovalidate" in _knopf and "formaction" in _knopf
+                   and "/foto/" in _knopf and "/foto/" not in _erster,
+                   " ".join(_knopf.split())[:90])
+
+            # --- Der Knopf, der das Foto hinterlegt ---------------------------
+            # Er hat sein eigenes Ziel (`/kunde/<id>/foto`), weil diese Seite auch unter
+            # `/lebenslauf?kunde=<id>` steht und ein Knopf ohne `formaction` von dort in
+            # 405 liefe. `formnovalidate` wie am Entfernen-Knopf: Ein Foto muss sich
+            # auch hinterlegen lassen, solange der Zielberuf noch leer ist. Und er darf
+            # **nicht** der erste Absende-Knopf sein - sonst legte Enter wieder Fotos ab.
+            _ende = _seite.find("Foto hinterlegen</button>")
+            _fotoknopf = _seite[_seite.rfind("<button", 0, _ende):_ende] if _ende > 0 else ""
+            pruefe("Der Foto-Knopf nennt sein Ziel, umgeht die Pflichtfeldprüfung und "
+                   "ist nicht der Standardknopf",
+                   _ende > 0 and 'formaction="/kunde/%d/foto"' % kid in _fotoknopf
+                   and "formnovalidate" in _fotoknopf
+                   and _seite.find(_erster) < _ende,
+                   " ".join(_fotoknopf.split())[:90] or "kein Foto-Knopf im Blatt")
+
+            # Die Vorlagenwahl steht im grossen Formular; „Unterlagen auslesen" ist ein
+            # eigenes, vorher geschlossenes Formular. Von dort kam nie ein Design mit -
+            # der Coach waehlte Nr. 17, legte den alten Lebenslauf ab und bekam die
+            # Seite mit Nr. 1 zurueck. Jetzt faehrt die Kennung als verstecktes Feld mit.
+            pruefe("Das Auslese-Formular führt ein Feld für die Vorlage mit",
+                   'name="design"' in _seite[:_seite.find("Unterlagen auslesen")])
+            _r = c.post(f"/kunde/{kid}/lebenslauf/lesen",
+                        data={"rohtext": "Lagerhelfer bei der Testfirma GmbH, Köln",
+                              "design": _design})
+            _t = _r.get_data(as_text=True)
+            pruefe("Gewähltes Design überlebt das Auslesen der Unterlagen",
+                   _r.status_code == 200 and 'value="%s" checked' % _design in _t, _design)
+
+            # Auch der leere Zweig reicht die Vorlage durch: Faellt aus den Unterlagen
+            # nichts heraus, kommt die Seite mit einer Meldung zurueck - und sprang
+            # frueher dabei auf Nr. 1. Bisher fasste diese Stelle kein Test an.
+            _r = c.post(f"/kunde/{kid}/lebenslauf/lesen",
+                        data={"rohtext": "", "design": _design})
+            _t = _r.get_data(as_text=True)
+            pruefe("Gewähltes Design überlebt eine leere Auslese",
+                   _r.status_code == 200 and "nichts auslesen" in _t
+                   and 'value="%s" checked' % _design in _t, _design)
+
+            # Und die beiden Fehlerzweige. Damit sie ueberhaupt vorkommen, wird der
+            # Bauschritt absichtlich zum Stolpern gebracht und gleich wieder eingehaengt
+            # - sonst bleibt der Zweig fuer immer ungeprueft, und die Vorlage ginge
+            # genau dann verloren, wenn der Coach ohnehin von vorn anfangen muss.
+            def _stolpern(*_a, **_k):
+                raise RuntimeError("Probe: Bau abgebrochen")
+
+            _echt = A.LB.bauen
+            A.LB.bauen = _stolpern
+            try:
+                _t = c.post(f"/kunde/{kid}/lebenslauf",
+                            data=dict(daten, design=_design)).get_data(as_text=True)
+            finally:
+                A.LB.bauen = _echt
+            pruefe("Gewähltes Design überlebt einen Fehler im Excel-Bau",
+                   "Probe: Bau abgebrochen" in _t
+                   and 'value="%s" checked' % _design in _t, _design)
+
+            _echt = A.cv_pdf.bauen
+            A.cv_pdf.bauen = _stolpern
+            try:
+                _t = c.post(f"/kunde/{kid}/lebenslauf/pdf",
+                            data=dict(daten, design=_design)).get_data(as_text=True)
+            finally:
+                A.cv_pdf.bauen = _echt
+            pruefe("Gewähltes Design überlebt einen Fehler im PDF-Druck",
+                   "PDF nicht erzeugt" in _t
+                   and 'value="%s" checked' % _design in _t, _design)
+
+            # Der Platzwechsel wird ueber den zweiten Einstieg geprueft:
+            # `/lebenslauf?kunde=` ist der normale Weg und kennt kein POST. Ein Formular
+            # ohne gesetztes Ziel liefe von dort in 405 - der Klick verpuffte. Das Ziel
+            # kommt deshalb aus der gelieferten Seite, so wie der Browser es macht.
+            _seite2 = c.get(f"/lebenslauf?kunde={kid}").get_data(as_text=True)
+            _ziel = re.search('name="platz_%d"[^>]*data-ziel="([^"]+)"' % _fid, _seite2)
+            _r = c.post(_ziel.group(1),
+                        data=dict(daten, design=_design, **{f"platz_{_fid}": "neben1"})) \
+                if _ziel else None
+            # **Der Titel nennt, was wirklich gemessen wird.** „behält das ausgefüllte
+            # Formular" versprach mehr, als die Prüfung hielt: `LB.aus_formular`
+            # verwirft **Teilzeilen** (lebenslauf_bauen.py:273-291) - eine Berufsstation
+            # mit nur Tätigkeiten, eine Bildungszeile mit nur einer Note, ein Niveau
+            # ohne Sprache, Sterne ohne Programm. Der Coach, der in Station 3 erst die
+            # Tätigkeiten tippt und dann auf eine Fotokarte klickt, findet den Text
+            # nicht wieder. Deshalb wird hier eine solche Teilzeile mitgeschickt und
+            # getrennt gemessen, statt sie unter einer zu weiten Überschrift zu
+            # verstecken. Geändert wird das Verhalten in dieser Runde nicht - das ist
+            # eine eigene Entscheidung, siehe Bericht.
+            _teilzeile = "Palettieren im Hochregal"
+            _mit_teil = dict(daten, design=_design, **{f"platz_{_fid}": "neben1"})
+            for _feld in ("beruf_zeitraum", "beruf_firma", "beruf_jobtitel"):
+                _mit_teil[_feld] = list(daten[_feld]) + [""]
+            _mit_teil["beruf_taet"] = list(daten["beruf_taet"]) + [_teilzeile]
+            _r = c.post(_ziel.group(1), data=_mit_teil) if _ziel else None
+            _t = _r.get_data(as_text=True) if _r else ""
+            pruefe("Platzwechsel behält die ausgefüllten Felder und vollständige Zeilen",
+                   bool(_ziel) and _r.status_code == 200
+                   and 'name="angestrebter_job" value="Lagerhelfer"' in _t
+                   and daten["ueber_mich"] in _t
+                   and 'name="beruf_firma" value="Testfirma GmbH, Köln"' in _t,
+                   f"{_ziel.group(1) if _ziel else 'kein Ziel in der Seite'} · "
+                   f"{_r.status_code if _r else '-'}")
+            # Die Gegenprobe, damit die Lücke gemessen dasteht und nicht behauptet:
+            # Wird das Verhalten eines Tages geändert, wird diese Zeile rot und zwingt
+            # dazu, auch den Titel darüber wieder anzufassen.
+            pruefe("Bekannt und offen: eine Berufszeile aus nur Tätigkeiten überlebt "
+                   "den Fotoklick nicht",
+                   bool(_ziel) and _teilzeile not in _t,
+                   "im Blatt wiedergefunden" if _teilzeile in _t else "verworfen")
+            # Die Vorlagenwahl stand fest auf Nr. 1: jedes Neuzeichnen warf die Wahl weg.
+            pruefe("Gewähltes Design überlebt den Fotowechsel",
+                   'value="%s" checked' % _design in _t, _design)
+
+            # Ein im Dateifeld gewaehltes Bild darf beim Foto-Klick nicht mitgespeichert
+            # werden: `fotos.freier_platz` gibt bei drei belegten Plaetzen wieder den
+            # Kopf zurueck - das neue Bild ueberschriebe also das Foto von Seite 1, und
+            # gemeldet wuerde nur „Foto entfernt.". Geprueft wird: es kommt keines dazu,
+            # es aendert sich keines, und der Coach erfaehrt, dass seine Auswahl
+            # liegengeblieben ist.
+            _stand = {(z["id"], z["platz"], z["bytes"]) for z in fotos.alle_fotos(kid)}
+            _r = c.post(f"/kunde/{kid}/foto/{_fid}",
+                        data=dict(daten, foto=(_io.BytesIO(gross), "Zweites.jpg"),
+                                  **{f"platz_{_fid}": "neben1"}),
+                        content_type="multipart/form-data")
+            _t = _r.get_data(as_text=True)
+            pruefe("Der Foto-Klick legt kein neues Bild ab und sagt das auch",
+                   _r.status_code == 200 and "nicht hinterlegt" in _t
+                   and {(z["id"], z["platz"], z["bytes"])
+                        for z in fotos.alle_fotos(kid)} == _stand,
+                   [(z["platz"], z["bytes"]) for z in fotos.alle_fotos(kid)])
+
+            _r = c.post(f"/kunde/{kid}/foto/{_fid}", data=dict(daten, was="loeschen"))
+            _t = _r.get_data(as_text=True)
+            pruefe("Fotowechsel behält das ausgefüllte Formular",
+                   _r.status_code == 200
+                   and 'name="angestrebter_job" value="Lagerhelfer"' in _t
+                   and daten["ueber_mich"] in _t
+                   and 'name="beruf_firma" value="Testfirma GmbH, Köln"' in _t,
+                   _r.status_code)
+            # Zweiter Tab, Zurueck-Taste, zweimal geklickt: Dann ist das Foto schon fort.
+            # „Foto entfernt." waere gelogen; der Platzwechsel sagt in derselben Lage
+            # „Dieses Foto gibt es nicht mehr."
+            _t = c.post(f"/kunde/{kid}/foto/{_fid}",
+                        data=dict(daten, was="loeschen")).get_data(as_text=True)
+            pruefe("Ein Foto, das schon fort ist, wird nicht noch einmal als entfernt "
+                   "gemeldet",
+                   "Dieses Foto gibt es nicht mehr." in _t and "Foto entfernt." not in _t)
+
+        # --- Ein Weg, ein Foto zu hinterlegen -------------------------------
+        # Vorher waren es drei halbe: der Excel-Knopf, der PDF-Knopf und diese Route.
+        # Weil der versteckte Standardknopf des Blattes auf den Excel-Zweig zeigt, legte
+        # **jedes** Enter in einem Textfeld ein weiteres Foto ab, solange im Dateifeld
+        # eine Datei stand: drei Enter fuellten alle drei Plaetze, das vierte
+        # ueberschrieb still das Kopffoto. Der Coach sah davon nichts - die Antwort ist
+        # ein Download. Dreimal auf „Excel erzeugen" tat dasselbe.
+        fotos.loeschen(kid)
+        _klein = _io.BytesIO()
+        Image.new("RGB", (600, 800), (40, 60, 120)).save(_klein, "JPEG", quality=80)
+        _klein = _klein.getvalue()
+        _r = c.post(f"/kunde/{kid}/foto",
+                    data=dict(daten, was="hinterlegen",
+                              foto=(_io.BytesIO(gross), "Fotoknopf.jpg")),
+                    content_type="multipart/form-data")
+        _t = _r.get_data(as_text=True)
+        pruefe("Der Foto-Knopf hinterlegt das Bild und behält das ausgefüllte Formular",
+               _r.status_code == 200 and "Foto hinterlegt" in _t
+               and fotos.foto(kid) is not None
+               and 'name="angestrebter_job" value="Lagerhelfer"' in _t
+               and daten["ueber_mich"] in _t,
+               f"Status {_r.status_code}, {len(fotos.alle_fotos(kid))} Foto(s)")
+        pruefe("Ohne gewählte Datei sagt der Foto-Knopf, was fehlt",
+               "Keine Datei gewählt." in c.post(f"/kunde/{kid}/foto", data=dict(daten))
+               .get_data(as_text=True))
+        # Erst mit allen drei Plaetzen belegt zeigt sich das stille Ueberschreiben:
+        # `fotos.freier_platz` gibt dann wieder den Kopf zurueck.
+        for _name in ("Zweites.jpg", "Drittes.jpg"):
+            c.post(f"/kunde/{kid}/foto",
+                   data=dict(daten, foto=(_io.BytesIO(gross), _name)),
+                   content_type="multipart/form-data")
+        _stand = [(z["id"], z["platz"], z["bytes"]) for z in fotos.alle_fotos(kid)]
+        pruefe("Drei Fotoplätze lassen sich über den Foto-Knopf belegen",
+               len(_stand) == 3, [(z[1], z[2]) for z in _stand])
+
+        # **Auch die Fotokarte darf das Blatt nicht leeren.** `lebenslauf_foto` schuetzt
+        # sich mit `if "vorname" in request.form` und zeichnet sonst den gespeicherten
+        # Stand; `kunde_foto_aendern` reichte `LB.aus_formular` ungeprueft durch, und
+        # ein Aufruf ohne Formular kam mit leeren Feldern zurueck - obwohl der Docstring
+        # Gleichlauf mit `lebenslauf_foto` versprach. Der Platz, auf den gelegt wird,
+        # ist der, auf dem das Foto schon liegt: `platz_setzen` kehrt dann sofort um,
+        # am Bestand aendert sich nichts, und gemessen wird allein das gezeichnete Blatt.
+        def _feld(_text, _name):
+            _m = re.search(r'name="%s" value="([^"]*)"' % _name, _text)
+            return _m.group(1) if _m else None
+
+        _geladen = c.get("/lebenslauf?kunde=%d" % kid).get_data(as_text=True)
+        _foto1 = fotos.alle_fotos(kid)[0]
+        _r = c.post(f"/kunde/{kid}/foto/{_foto1['id']}",
+                    data={"platz_%d" % _foto1["id"]: _foto1["platz"]})
+        _t = _r.get_data(as_text=True)
+        pruefe("Ein Aufruf ohne Blatt zeigt den gespeicherten Stand, keine leeren Felder",
+               _r.status_code == 200 and _feld(_geladen, "vorname")
+               and _feld(_t, "vorname") == _feld(_geladen, "vorname")
+               and [(z["id"], z["platz"], z["bytes"])
+                    for z in fotos.alle_fotos(kid)] == _stand,
+               "Vorname im Blatt: %r · gespeichert: %r"
+               % (_feld(_t, "vorname"), _feld(_geladen, "vorname")))
+
+        # --- Was kein Bild ist, kommt nicht herein ---------------------------
+        # Der schlimmste Fall, den dieses Formular hatte: `fotos.verkleinern` fing jede
+        # Ausnahme und behielt „lieber das Original als gar kein Foto" - mit
+        # aufgestempeltem `image/jpeg`. Zusammen mit `freier_platz` (bei drei belegten
+        # Plaetzen wieder der Kopf) und `ON CONFLICT ... DO UPDATE` ersetzte eine
+        # 17-Byte-Textdatei das echte Bewerbungsfoto, gemeldet wurde „Foto hinterlegt,
+        # 0 kB.". Kein Laborfall: `BILDENDUNGEN` fuehrt `.heic`, und das hier
+        # installierte Pillow kennt HEIC nicht - ein iPhone-Foto aus „CVs Köln" lief
+        # genau in diesen Zweig. Geprueft wird deshalb dreierlei: Es wird abgelehnt,
+        # der Grund steht da, und der belegte Platz ist unberuehrt.
+        _r = c.post(f"/kunde/{kid}/foto",
+                    data=dict(daten, foto=(_io.BytesIO(b"das ist kein Bild"),
+                                           "kein_bild.txt")),
+                    content_type="multipart/form-data")
+        _t = _r.get_data(as_text=True)
+        pruefe("Eine Datei, die kein Bild ist, wird abgelehnt und überschreibt nichts",
+               _r.status_code == 200 and "kein lesbares Bild" in _t
+               and "Foto hinterlegt" not in _t
+               and [(z["id"], z["platz"], z["bytes"])
+                    for z in fotos.alle_fotos(kid)] == _stand,
+               [(z["platz"], z["dateiname"], z["bytes"]) for z in fotos.alle_fotos(kid)])
+        # HEIC bekommt eine eigene Auskunft: „ging nicht" sagt dem Coach nicht, was er
+        # tun soll. Die Bytes sind eine ISO-BMFF-Huelle mit der Marke `heic` - genau
+        # das, was ein iPhone liefert.
+        _heic = (b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heicmif1"
+                 + b"\x00" * 64)
+        _r = c.post(f"/kunde/{kid}/foto",
+                    data=dict(daten, foto=(_io.BytesIO(_heic), "IMG_4711.heic")),
+                    content_type="multipart/form-data")
+        _t = _r.get_data(as_text=True)
+        pruefe("Ein HEIC vom iPhone wird abgelehnt und sagt, was zu tun ist",
+               _r.status_code == 200 and "HEIC" in _t and "Maximal kompatibel" in _t
+               and [(z["id"], z["platz"], z["bytes"])
+                    for z in fotos.alle_fotos(kid)] == _stand,
+               fotos.bildtyp(_heic))
+        # **AVIF ist kein Sonderfall mehr.** Dieses Pillow liest es (gemessen:
+        # `features.check("avif")` ist wahr), und Chrome - ueber das der PDF-Druck
+        # laeuft - zeigt es seit Fassung 85; AVIF steht deshalb in `fotos.FORMATE` und
+        # kommt weiter unten in der Formatreihe wirklich durch `verkleinern`. Hier
+        # steht der andere Fall: eine AVIF-Huelle ohne Bildinhalt, wie sie auf einem
+        # Rechner mit AVIF-losem Pillow auch von einem echten Bild uebrig bliebe. Sie
+        # darf **nicht** den Satz „bitte noch einmal aus dem Chat herunterladen"
+        # bekommen - ein zweiter Download aendert nichts an einer Bildbibliothek, und
+        # der Coach laedt endlos neu.
+        _avif = (b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00avifmif1"
+                 + b"\x00" * 64)
+        _r = c.post(f"/kunde/{kid}/foto",
+                    data=dict(daten, foto=(_io.BytesIO(_avif), "IMG_4712.avif")),
+                    content_type="multipart/form-data")
+        _t = _r.get_data(as_text=True)
+        pruefe("Ein unlesbares AVIF schickt den Coach nicht zum Neuladen",
+               _r.status_code == 200 and "AVIF" in _t
+               and "noch einmal aus dem Chat" not in _t
+               and "Maximal kompatibel" not in _t
+               and [(z["id"], z["platz"], z["bytes"])
+                    for z in fotos.alle_fotos(kid)] == _stand,
+               _t[_t.find("AVIF-Bild"):][:60] or "kein AVIF-Rat")
+        pruefe("Der Bildtyp kommt aus den ersten Bytes, nicht aus der Endung",
+               fotos.bildtyp(_klein) == "image/jpeg"
+               and fotos.bildtyp(_heic) == "image/heic"
+               and fotos.bildtyp(_avif) == "image/avif"
+               and fotos.bildtyp(b"das ist kein Bild") is None)
+
+        # --- Das vierte Foto nennt den Platz, den es ersetzt ------------------
+        # Alle drei Plaetze sind belegt, `freier_platz` gibt wieder den Kopf zurueck -
+        # das naechste Bild kostet Seite 1. Das darf passieren, aber nicht
+        # stillschweigend: Vorher stand daneben nur „Foto hinterlegt, 2 kB", und im
+        # gelieferten Blatt kam „ersetzt" kein einziges Mal vor. Im Echtbestand hat
+        # genau ein Kunde Fotos, und zwar alle drei Plaetze belegt - der einzige echte
+        # Fall steht also exakt in diesem Zustand.
+        _vorher = fotos.alle_fotos(kid)[0]
+        _r = c.post(f"/kunde/{kid}/foto",
+                    data=dict(daten, foto=(_io.BytesIO(_klein), "Viertes.jpg")),
+                    content_type="multipart/form-data")
+        _t = _r.get_data(as_text=True)
+        _nachher = fotos.alle_fotos(kid)
+        # Gesucht wird der Satz, nicht nur das Wort „ersetzt": Das steht seit dieser
+        # Runde auch im Hinweis neben dem Knopf, und eine Pruefung darauf waere grün,
+        # ohne dass die Meldung selbst etwas sagt.
+        pruefe("Das vierte Foto nennt den Platz und das Bild, das es ersetzt hat",
+               _r.status_code == 200 and "Foto hinterlegt" in _t
+               and ("auf Platz „%s“." % fotos.PLAETZE[0][1]) in _t
+               and "wurde dabei ersetzt und ist fort" in _t
+               and (_vorher["dateiname"] or "") in _t
+               and len(_nachher) == 3 and _nachher[0]["dateiname"] == "Viertes.jpg",
+               [(z["platz"], z["dateiname"]) for z in _nachher])
+        # Und die Seite verspricht daneben nicht mehr das Gegenteil: Solange alle
+        # Plaetze belegt sind, heisst das Feld nicht „hinzufügen".
+        # Der Text im Blatt ist umgebrochen; gesucht wird deshalb im zusammengezogenen
+        # Fliesstext, nicht im Quelltext mit seinen Zeilenenden.
+        _seite3 = " ".join(c.get(f"/lebenslauf?kunde={kid}")
+                           .get_data(as_text=True).split())
+        pruefe("Bei belegten Plätzen sagt das Formular austauschen, nicht hinzufügen",
+               "Foto austauschen" in _seite3 and "Weiteres Foto hinzufügen" not in _seite3
+               and "Plätze sind belegt" in _seite3,
+               "Foto austauschen" in _seite3)
+        # Der Ausgangsstand fuer alles, was danach kommt: wieder drei Plaetze belegt,
+        # aber mit der neuen Bildnummer auf dem Kopf.
+        _stand = [(z["id"], z["platz"], z["bytes"]) for z in fotos.alle_fotos(kid)]
+
+        # Enter in einem Textfeld loest den ersten Absende-Knopf aus; sein Ziel steht in
+        # der Seite. Viermal, mit einer Datei im Fotofeld.
+        # **Diese Reihe war schon am Stand vor dem Umbau gruen**: `lebenslauf_erzeugen`
+        # hat das Feld `foto` nie gelesen, der Enter-Weg war also nie der Weg, ueber den
+        # Fotos verschwanden - das war der PDF-Knopf, mehrfach geklickt (die Reihe
+        # darunter). Gefaehrlich wurde der Excel-Zweig erst, als Runde 2 dieses Umbaus
+        # den Upload dorthin legte, wo der versteckte Standardknopf haengt. Die Reihe
+        # bleibt als Waechter genau dafuer stehen: Wer den Upload je wieder an diese
+        # Route haengt, macht sie rot.
+        _enterziel = re.search('formaction="([^"]+)"', _erster)
+        for _ in range(4):
+            c.post(_enterziel.group(1) if _enterziel else f"/kunde/{kid}/lebenslauf",
+                   data=dict(daten, foto=(_io.BytesIO(_klein), "Enterbild.jpg")),
+                   content_type="multipart/form-data")
+        pruefe("Vier Enter mit gewählter Datei legen kein Foto ab und überschreiben keines",
+               bool(_enterziel)
+               and [(z["id"], z["platz"], z["bytes"])
+                    for z in fotos.alle_fotos(kid)] == _stand,
+               [(z["platz"], z["bytes"]) for z in fotos.alle_fotos(kid)])
+
+        _r = c.post(f"/kunde/{kid}/lebenslauf",
+                    data=dict(daten, foto=(_io.BytesIO(_klein), "Excelfoto.jpg")),
+                    content_type="multipart/form-data")
+        pruefe("Der Excel-Knopf baut die Excel und rührt die Fotos nicht an",
+               _r.status_code == 200 and len(_r.data) > 20000
+               and [(z["id"], z["platz"], z["bytes"])
+                    for z in fotos.alle_fotos(kid)] == _stand,
+               f"{len(_r.data)} Bytes, {len(fotos.alle_fotos(kid))} Foto(s)")
+        if cv_pdf.bereit():
+            _r = c.post(f"/kunde/{kid}/lebenslauf/pdf",
+                        data=dict(daten, foto=(_io.BytesIO(_klein), "PDFfoto.jpg")),
+                        content_type="multipart/form-data")
+            pruefe("Der PDF-Knopf druckt und rührt die Fotos nicht an",
+                   _r.status_code == 200
+                   and [(z["id"], z["platz"], z["bytes"])
+                        for z in fotos.alle_fotos(kid)] == _stand,
+                   f"{len(_r.data)} Bytes, {len(fotos.alle_fotos(kid))} Foto(s)")
+
+        # --- Eine Liste erlaubter Formate, nicht drei ------------------------
+        # `BILDENDUNGEN` kannte kein `.gif`, die Meldung in `verkleinern` versprach GIF
+        # ausdruecklich, und der Einzelknopf nahm eines an: `aufnehmen([("gut.gif", …)])`
+        # sagte „keine Bilddatei", derselbe Inhalt ueber den Knopf „Foto hinterlegt,
+        # 400 kB". Geprueft wird jetzt gegen die eine Liste `fotos.FORMATE`: Was dort
+        # steht, muss durch `verkleinern` kommen und darf von `aufnehmen` nicht am Namen
+        # abgewiesen werden.
+        _formatfehler = []
+        for _name, _endungen in fotos.FORMATE:
+            _p = _io.BytesIO()
+            try:
+                Image.new("RGB", (900, 1200), (120, 140, 160)).save(_p, _name.upper())
+            except Exception as _e:
+                # Kann dieses Pillow das Format nicht einmal schreiben, kann
+                # `verkleinern` es auch nicht lesen - dann verspricht `FORMATE_TEXT`
+                # zu viel. Das ist ein Befund und kein Grund, die Reihe zu ueberspringen.
+                _formatfehler.append("%s: Pillow kann das hier nicht (%s)" % (_name, _e))
+                continue
+            _roh = _p.getvalue()
+            try:
+                fotos.verkleinern(_roh)
+            except fotos.KeinBild as _e:
+                _formatfehler.append("%s: %s" % (_name, _e))
+                continue
+            _abgelehnt = fotos.aufnehmen(
+                [("kein_kundenname_%s%s" % (_name.lower(), _endungen[0]), _roh)])[2]
+            if _abgelehnt:
+                _formatfehler.append("aufnehmen: %s" % _abgelehnt[0])
+        pruefe("Jedes Format aus der einen Liste kommt durch – auch über den Sammelweg",
+               not _formatfehler, _formatfehler or fotos.FORMATE_TEXT)
+        pruefe("Und was kein Bild ist, wird auf beiden Wegen mit demselben Satz "
+               "abgelehnt",
+               fotos.FORMATE_TEXT in (fotos.aufnehmen(
+                   [("notiz.txt", b"das ist kein Bild")])[2] or [""])[0],
+               fotos.aufnehmen([("notiz.txt", b"das ist kein Bild")])[2])
+
+        # --- Ein unlesbares Bild bricht das Einlesen eines Ordners nicht ab ---
+        # Der Alltag: zwanzig Bilder aus „CVs Köln" in einem Ordner, eine IMG_4711.heic
+        # dabei. `eingang_ablegen` wirft seit der Sperre `KeinBild`; ungeschuetzt in der
+        # Schleife brach damit der ganze Durchgang ab, alles alphabetisch Dahinterliegende
+        # erreichte den Eingang nie, und die Seite zeigte nur den HEIC-Rat.
+        import shutil as _shutil
+        import tempfile as _tempfile
+        _bilderordner = _tempfile.mkdtemp(prefix="fototest-")
+        try:
+            _p = _io.BytesIO()
+            Image.new("RGB", (800, 1000), (90, 110, 130)).save(_p, "JPEG")
+            for _n, _inhalt in (("a_IMG_0001.jpg", _p.getvalue()),
+                                ("b_IMG_4711.heic", _heic_huelle),
+                                ("c_IMG_0002.jpg", _p.getvalue())):
+                with open(os.path.join(_bilderordner, _n), "wb") as _f:
+                    _f.write(_inhalt)
+            _eingang_vorher = fotos.stand()["eingang"]
+            _r = c.post("/lebenslauf/fotos", data={"was": "ordner",
+                                                   "ordner": _bilderordner})
+            _t = " ".join(_r.get_data(as_text=True).split())
+            pruefe("Ein unlesbares Bild hält die beiden anderen nicht auf",
+                   _r.status_code == 200
+                   and fotos.stand()["eingang"] == _eingang_vorher + 2
+                   and "2 liegen im Eingang" in _t,
+                   "%d → %d im Eingang" % (_eingang_vorher, fotos.stand()["eingang"]))
+            pruefe("Und der Grund für das unlesbare Bild steht auf der Seite",
+                   "b_IMG_4711.heic" in _t and "HEIC" in _t,
+                   _t[_t.find("Nicht angenommen"):][:90] or "kein Grund genannt")
+        finally:
+            _shutil.rmtree(_bilderordner, ignore_errors=True)
+        for _z in fotos.eingang():          # den Eingang wieder leeren
+            fotos.eingang_verwerfen(_z["id"])
+
+        # --- Gleiche Gruende einmal, und nichts faellt stumm weg -------------
+        # Acht iPhone-Bilder in einem Ordner ergaben acht Zeilen mit demselben
+        # 200-Zeichen-Satz - ohne Pillow steht er sogar bei jeder Datei, gleich welchen
+        # Formats. Zwanzig davon waren nicht mehr zu lesen. Jetzt steht der Grund
+        # einmal da, mit allen Namen davor.
+        _ordner2 = _tempfile.mkdtemp(prefix="fototest-viele-")
+        try:
+            for _i in range(8):
+                with open(os.path.join(_ordner2, "IMG_%04d.heic" % _i), "wb") as _f:
+                    _f.write(_heic_huelle)
+            _r = c.post("/lebenslauf/fotos", data={"was": "ordner",
+                                                   "ordner": _ordner2})
+            _t = " ".join(_r.get_data(as_text=True).split())
+            _block = _t[_t.find("Nicht angenommen"):] if "Nicht angenommen" in _t else ""
+            pruefe("Acht gleiche Gründe stehen als eine Zeile, mit allen Namen davor",
+                   _r.status_code == 200 and _block.count("Maximal kompatibel") == 1
+                   and all("IMG_%04d.heic" % _i in _block for _i in range(8)),
+                   "%d× derselbe Grund" % _block.count("Maximal kompatibel"))
+        finally:
+            _shutil.rmtree(_ordner2, ignore_errors=True)
+        for _z in fotos.eingang():
+            fotos.eingang_verwerfen(_z["id"])
+        # Beim Hochladen traegt jeder Grund seinen Dateinamen, es bleiben also acht
+        # verschiedene. Dann greift die Kuerzung der Seite: Sechs stehen da - und der
+        # Rest wird gezaehlt statt stillschweigend weggelassen. Vorher fielen bei
+        # zwanzig Bildern vierzehn Gruende weg, ohne ein Wort darueber.
+        _r = c.post("/lebenslauf/fotos",
+                    data={"was": "hochladen",
+                          "bilder": [(_io.BytesIO(b"das ist kein Bild"),
+                                      "notiz_%d.txt" % _i) for _i in range(8)]},
+                    content_type="multipart/form-data")
+        _t = " ".join(_r.get_data(as_text=True).split())
+        pruefe("Was über die sechs gezeigten Gründe hinausgeht, wird gezählt",
+               _r.status_code == 200 and "und 2 weitere" in _t,
+               _t[_t.find("Nicht angenommen"):][:120] or "nichts abgelehnt")
+        for _z in fotos.eingang():
+            fotos.eingang_verwerfen(_z["id"])
+
+        # --- Melden, nicht still loeschen ------------------------------------
+        # `was=loeschen` raeumt **alle** Fotos des Kunden ab und meldete dafuer „Foto
+        # entfernt." in der Einzahl - ohne Rueckfrage und ohne zu sagen, was fort ist.
+        # Kein Knopf zeigt heute dorthin, der Weg bleibt aber ansprechbar.
+        _vorher_alle = fotos.alle_fotos(kid)
+        _r = c.post(f"/kunde/{kid}/foto", data=dict(daten, was="loeschen"))
+        _t = " ".join(_r.get_data(as_text=True).split())
+        pruefe("Das Sammellöschen sagt, wie viele Fotos es entfernt hat und welche",
+               len(_vorher_alle) > 1 and not fotos.alle_fotos(kid)
+               and ("%d Fotos entfernt." % len(_vorher_alle)) in _t
+               and all((z["dateiname"] or "") in _t for z in _vorher_alle),
+               "%d Bilder, Meldung: %s"
+               % (len(_vorher_alle), _t[_t.find("Fotos entfernt"):][:60]))
     # Beide Namen sind erfunden – hier standen zwei echte Kunden, und diese Datei ist
     # versioniert. Geprueft wird unveraendert dasselbe: der Dateiname aus Vor- und
     # Nachname mit Unterstrich, und derselbe Name mitten in einem Satz.
@@ -342,8 +914,8 @@ def main():
     #
     #   /kunde/<id>/lebenslauf   kennt GET und (auf derselben Adresse) POST
     #   /lebenslauf?kunde=<id>   kennt nur GET - und das ist der normale Weg: die
-    #                            Kundenauswahl zeigt dorthin, und nach jedem Fotowechsel
-    #                            springt `kunde_foto_aendern` dorthin zurueck
+    #                            Kundenauswahl zeigt dorthin, und von dort aus werden
+    #                            auch die Fotoknoepfe gedrueckt
     #
     # Das grosse Formular traegt kein `action`, schickt also an die Adresse, auf der man
     # steht. Vom zweiten Einstieg aus lief der Excel-Knopf damit in 405 - der Knopf sah

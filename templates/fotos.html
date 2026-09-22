@@ -27,8 +27,12 @@
   <div class="hinweis" style="margin:14px 0 0">
     <strong>{{ ergebnis.zugeordnet|length }} Fotos über den Dateinamen zugeordnet.</strong>
     {% if ergebnis.eingang %}<br>{{ ergebnis.eingang }} liegen im Eingang – unten zuordnen.{% endif %}
+    {# Sechs Gruende sind genug fuer einen Blick - der Rest wird gezaehlt statt
+       stillschweigend weggelassen. Bei zwanzig iPhone-Bildern fielen vierzehn Gruende
+       weg, ohne dass die Seite ein Wort darueber verlor. #}
     {% if ergebnis.abgelehnt %}<br><span style="color:var(--red)">Nicht angenommen:</span>
-      {{ ergebnis.abgelehnt[:6]|join(' · ') }}{% endif %}
+      {{ ergebnis.abgelehnt[:6]|join(' · ') }}{% if ergebnis.abgelehnt|length > 6 %}
+      · … und {{ ergebnis.abgelehnt|length - 6 }} weitere{% endif %}{% endif %}
   </div>
   {% endif %}
 {% endif %}

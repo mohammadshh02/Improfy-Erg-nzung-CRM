@@ -33,7 +33,9 @@
 <h2>Sicherungsstände</h2>
 <div class="karte">
   <p class="marke" style="margin:0 0 10px">Ordner: <code>{{ z.ordner }}</code> ·
-    es bleiben die {{ staende_max }} jüngsten Stände liegen, ältere fallen raus.
+    liegen bleibt je Kalendertag ein Stand, {{ staende_max }} Tage weit zurück (von heute
+    jeder) – und in jedem Fall die {{ staende_max }} jüngsten Dateien, damit ein Vormittag
+    mit mehreren Sicherungen am Folgetag nicht auf einen einzigen Stand zusammenfällt.
     Gesichert wird mit der Sicherungsfunktion von SQLite, nicht mit Kopieren – das ist auch
     dann heil, wenn gerade jemand im OS arbeitet.</p>
   <table>
@@ -66,7 +68,7 @@
   <p class="marke" style="margin:0">In der <code>.env</code>, danach das OS neu starten:</p>
   <table>
     <tr><td><code>OS_SICHERUNG_UHRZEIT</code></td><td class="marke">wann gesichert wird (Vorgabe 03:00)</td></tr>
-    <tr><td><code>OS_SICHERUNG_STAENDE</code></td><td class="marke">wie viele Stände liegen bleiben (Vorgabe 7)</td></tr>
+    <tr><td><code>OS_SICHERUNG_STAENDE</code></td><td class="marke">wie viele Kalendertage zurückreichen und wie viele Dateien mindestens liegen bleiben (Vorgabe 7)</td></tr>
     <tr><td><code>OS_SICHERUNG_ORDNER</code></td><td class="marke">wohin gesichert wird – auf einem Server am besten auf eine andere Platte</td></tr>
     <tr><td><code>TF_LAUF_UHRZEIT</code></td><td class="marke">wann die Agenten laufen (Vorgabe 05:30), <code>aus</code> schaltet ab</td></tr>
   </table>

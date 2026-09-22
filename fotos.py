@@ -22,6 +22,13 @@ Drei Wege sind hier vorgesehen, in dieser Reihenfolge des Aufwands:
 
 **Gespeichert wird verkleinert.** Ein Handyfoto hat gern 5 MB; gedruckt wird es knapp
 6 cm breit. 1200 Pixel lange Kante reichen dafür satt und halten die Datenbank klein.
+
+**Was kein Bild ist, kommt nicht herein.** Beim Verkleinern wird jede Datei einmal
+wirklich geöffnet. Geht das nicht, endet der Weg hier mit `KeinBild` – gespeichert wird
+nichts. Der Grund steht weiter unten an der Ausnahme: Ein Foto, das fehlt, sieht der
+Coach sofort; eines, das stillschweigend überschrieben wurde, findet er nie wieder.
+Das gilt ohne Ausnahme: Fehlt die Bildbibliothek, wird nicht etwa das Original behalten,
+sondern gar nichts hinterlegt – ungeöffnet ist ungeprüft.
 """
 import datetime
 import io
@@ -98,8 +105,104 @@ CREATE TABLE IF NOT EXISTS foto_eingang (
     erstellt  TEXT
 );
 """
-BILDENDUNGEN = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".bmp", ".tif", ".tiff")
+# **Eine Liste der Formate, nicht drei.** Bis zum 22.09.2026 standen die erlaubten
+# Formate an drei Stellen mit drei verschiedenen Inhalten: `BILDENDUNGEN` kannte kein
+# `.gif`, die Meldung in `verkleinern` versprach GIF ausdruecklich, und der Einzelknopf
+# nahm ein GIF auch an. Gemessen: `aufnehmen([("gut.gif", …)])` sagte „keine Bilddatei",
+# derselbe Inhalt ueber den Knopf „Foto hinterlegt, 400 kB". Jetzt kommt beides hier her.
+FORMATE = [("JPEG", (".jpg", ".jpeg")), ("PNG", (".png",)), ("WebP", (".webp",)),
+           ("GIF", (".gif",)), ("BMP", (".bmp",)), ("TIFF", (".tif", ".tiff")),
+           ("AVIF", (".avif",))]
+FORMATE_TEXT = "%s und %s" % (", ".join(n for n, _ in FORMATE[:-1]), FORMATE[-1][0])
+# **AVIF geht, HEIC nicht - deshalb steht AVIF jetzt in der Liste.** Hier stand, beide
+# liessen sich „hier nicht lesen", und `FORMATE_TEXT` verschwieg AVIF entsprechend.
+# Gemessen am 22.09.2026 mit dem installierten Pillow 12.3.0: `registered_extensions()`
+# fuehrt `.avif → AVIF`, `features.check("avif")` ist wahr, und ein erzeugtes AVIF laeuft
+# glatt durch `verkleinern`. Darstellen laesst es sich auch - der PDF-Druck laeuft ueber
+# Chrome, und Chrome zeigt AVIF seit Fassung 85.
+#
+# `.heic` kennt dieses Pillow dagegen wirklich nicht (kein Eintrag in
+# `registered_extensions()`). Es steht mit Absicht trotzdem in `BILDENDUNGEN`: So kommt
+# ein iPhone-Bild bis zum Verkleinern durch und der Coach bekommt den Rat, was er tun
+# soll (`HEIC_RAT`), statt eines nichtssagenden „keine Bilddatei".
+#
+# **Diese Liste waehlt aus, sie erlaubt nicht.** Gebraucht wird sie nur noch beim
+# Einlesen eines Ordners: Welche Dateien zwischen Rechnungen und Word-Dokumenten
+# ueberhaupt angesehen werden. Ob eine Datei ein Bild ist, entscheidet allein
+# `verkleinern`, und das oeffnet sie wirklich - die Endung eines Chat-Downloads sagt
+# darueber nichts ("IMG_1234.jpg" mit HEIC darin ist der Alltag).
+BILDENDUNGEN = tuple(e for _, endungen in FORMATE for e in endungen) + (".heic",)
 KANTE = 1200            # lange Kante nach dem Verkleinern
+
+
+class KeinBild(ValueError):
+    """Die abgelegte Datei laesst sich nicht als Bild lesen.
+
+    Eine eigene Klasse, damit der Aufrufer diesen Fall von einem Datenbankfehler
+    unterscheiden kann. Wichtiger ist, **dass** es ihn ueberhaupt gibt: Frueher behielt
+    `verkleinern` hier „lieber das Original als gar kein Foto" und stempelte es auf
+    `image/jpeg`. Zusammen mit `freier_platz`, das bei drei belegten Plaetzen wieder den
+    Kopf liefert, und dem `ON CONFLICT ... DO UPDATE` in `speichern` war das ein stiller
+    Totalverlust: Eine Textdatei ersetzte ein echtes Bewerbungsfoto, gemeldet wurde
+    „Foto hinterlegt, 0 kB." Ein fehlendes Foto sieht der Coach, ein ueberschriebenes nie.
+    """
+
+
+def bildtyp(rohdaten):
+    """Was fuer ein Bild ist das? Gibt den MIME-Typ zurueck oder None.
+
+    Die ersten Bytes sind verlaesslicher als die Dateiendung - aus der Chat-Gruppe
+    kommen Bilder als „IMG_1234.jpg", auch wenn HEIC drinsteckt. Gebraucht an zwei
+    Stellen: fuer den ehrlichen Bildtyp, wenn Pillow fehlt, und fuer die Meldung an den
+    Coach, wenn sich das Format nicht lesen laesst."""
+    k = bytes(rohdaten or b"")[:32]
+    if k.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if k.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if k.startswith(b"GIF87a") or k.startswith(b"GIF89a"):
+        return "image/gif"
+    if k.startswith(b"RIFF") and k[8:12] == b"WEBP":
+        return "image/webp"
+    if k.startswith(b"BM"):
+        return "image/bmp"
+    if k.startswith(b"II*\x00") or k.startswith(b"MM\x00*"):
+        return "image/tiff"
+    if k[4:8] == b"ftyp":
+        # ISO-BMFF: HEIC (iPhone) und AVIF stecken in derselben Huelle, die Marke
+        # dahinter entscheidet.
+        marke = k[8:12]
+        if marke in (b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm",
+                     b"hevs", b"mif1", b"msf1"):
+            return "image/heic"
+        if marke in (b"avif", b"avis"):
+            return "image/avif"
+    return None
+
+
+# Was der Coach tun soll, gehoert in die Meldung - „ging nicht" hilft ihm nicht weiter.
+# Das hier installierte Pillow (12.3.0) kennt kein HEIC: `Image.registered_extensions()`
+# hat keinen Eintrag dafuer. Ein iPhone-Foto aus „CVs Köln" landet also genau hier.
+HEIC_RAT = (
+    "Das ist ein HEIC-Bild, wie es ein iPhone von sich aus aufnimmt – lesen kann das OS "
+    "es nicht. Zwei Wege: am iPhone unter Einstellungen → Kamera → Formate auf "
+    "„Maximal kompatibel“ umstellen, dann kommen neue Aufnahmen als JPEG; oder dieses "
+    "Bild vorher umwandeln (in der Fotos-App „Exportieren“ als JPEG, oder es sich "
+    "selbst per WhatsApp schicken). Am hinterlegten Foto wurde nichts geändert.")
+
+# **Scheitert ein AVIF doch einmal, liegt es nicht an der Datei.** Auf diesem Rechner
+# geht AVIF (siehe oben bei `FORMATE`); auf einem anderen kann dasselbe Pillow ohne
+# AVIF gebaut sein. Dann fiele die Datei unter „erkanntes Format, trotzdem nicht zu
+# oeffnen" - und dort steht „meist ist sie unvollstaendig uebertragen, bitte noch
+# einmal herunterladen". Das waere hier falsch und schickt den Coach ins endlose
+# Neuladen: Ein zweiter Download aendert nichts an einer Bildbibliothek. Deshalb eine
+# eigene Auskunft, die sagt, wo der Hebel wirklich sitzt.
+AVIF_RAT = (
+    "Das ist ein AVIF-Bild. Auf diesem Rechner lässt es sich gerade nicht öffnen – das "
+    "liegt an der Bildbibliothek dieser Installation, nicht an der Datei; noch einmal "
+    "herunterladen hilft deshalb nicht. Zwei Wege: einmal pip install -U pillow "
+    "ausführen, oder das Bild vorher als JPEG speichern (in der Fotos-App "
+    "„Exportieren“). Am hinterlegten Foto wurde nichts geändert.")
 
 
 def _alte_tabelle(con):
@@ -134,9 +237,31 @@ def jetzt():
 
 
 def verkleinern(rohdaten):
-    """Auf Druckgröße bringen. Gibt (bytes, mime, breite, hoehe) zurück."""
+    """Auf Druckgröße bringen. Gibt (bytes, mime, breite, hoehe) zurück.
+
+    Wirft `KeinBild`, wenn sich die Datei nicht als Bild öffnen lässt. Das ist der
+    Kern: Es wird lieber gar nichts hinterlegt als etwas, das kein Bild ist – denn
+    hinterlegen heißt hier, einen Platz zu belegen, und ein belegter Platz kann ein
+    echtes Foto kosten.
+
+    **Ohne Pillow wird gar nichts hinterlegt.** Hier stand ein Rückfall: Fehlt die
+    Bildbibliothek, wurde das Original behalten, sofern `bildtyp` die ersten Bytes
+    erkannte. Das war ein Schlupfloch mitten durch die einzige Sperre dieses Moduls –
+    in diesem Zweig wird nichts geöffnet, also kam alles durch, was `bildtyp` erkennt,
+    einschließlich `image/heic`, das weder der Browser noch der PDF-Druck darstellen
+    kann. Und `bildtyp` ist dafür zu schwach: Eine Datei, die mit „BM" beginnt, gilt
+    ihm als BMP. Der Fall ist kein Laborfall: Ein frischer Checkout ohne
+    `pip install` hätte bei drei belegten Plätzen ein echtes Bewerbungsfoto durch
+    einen unlesbaren HEIC-Block ersetzt und „Foto hinterlegt, 1843 kB" gemeldet – genau der Totalverlust, gegen den `KeinBild` steht. Fehlt
+    Pillow, ist das ein Einrichtungsfehler; der gehört gemeldet, nicht überbrückt."""
     try:
         from PIL import Image, ImageOps
+    except ImportError as e:
+        raise KeinBild(
+            "Die Bildbibliothek Pillow fehlt – ohne sie kann das OS kein Bild prüfen "
+            "und keines auf Druckgröße bringen. Hinterlegt wird deshalb nichts. "
+            "Einmal pip install -r requirements.txt ausführen, dann geht es.") from e
+    try:
         bild = Image.open(io.BytesIO(rohdaten))
         bild.load()
         bild = ImageOps.exif_transpose(bild)      # Drehung aus den EXIF-Daten übernehmen
@@ -146,9 +271,22 @@ def verkleinern(rohdaten):
         puffer = io.BytesIO()
         bild.save(puffer, format="JPEG", quality=88, optimize=True)
         return puffer.getvalue(), "image/jpeg", bild.width, bild.height
-    except Exception:
-        # Ohne Pillow lieber das Original behalten als gar kein Foto.
-        return rohdaten, "image/jpeg", None, None
+    except Exception as e:
+        typ = bildtyp(rohdaten)
+        if typ == "image/heic":
+            raise KeinBild(HEIC_RAT) from e
+        if typ == "image/avif":
+            raise KeinBild(AVIF_RAT) from e
+        if typ:
+            # Erkanntes Format, trotzdem nicht zu öffnen: meist abgeschnitten oder
+            # beschädigt – etwa ein Bild, dessen Übertragung abgebrochen ist.
+            raise KeinBild(
+                "Die Datei sieht aus wie %s, ließ sich aber nicht öffnen (%s). Meist "
+                "ist sie unvollständig übertragen. Bitte noch einmal aus dem Chat "
+                "herunterladen und erneut wählen." % (typ, e)) from e
+        raise KeinBild(
+            "Das ist keine Bilddatei. Erlaubt sind %s; HEIC vom iPhone bitte vorher "
+            "umwandeln." % FORMATE_TEXT) from e
 
 
 def freier_platz(kunde_id):
@@ -156,7 +294,13 @@ def freier_platz(kunde_id):
 
     So landet das zweite Foto von selbst auf der zweiten Seite und das dritte auf der
     dritten, ohne dass jemand etwas einstellen muss. Wer es anders will, stellt es im
-    Formular um."""
+    Formular um.
+
+    **Sind alle drei Plaetze belegt, kommt der Kopf zurueck** - das naechste Foto
+    ersetzt dann das Bild von Seite 1. Das ist gewollt (irgendwohin muss es, und der
+    Alltag ist „aus dem Chat kam ein besseres Bild"), darf aber nicht stillschweigend
+    geschehen: `speichern` gibt das weggefallene Bild in `ersetzt` zurueck, damit die
+    Meldung es benennen kann."""
     belegt = {z["platz"] for z in db.hole(
         "SELECT platz FROM kunde_foto WHERE kunde_id=?", (kunde_id,))}
     for k in PLATZ_SCHLUESSEL:
@@ -166,10 +310,22 @@ def freier_platz(kunde_id):
 
 
 def speichern(kunde_id, rohdaten, dateiname=None, quelle="hochgeladen", platz=None):
+    """Ein Foto an einem Platz hinterlegen. Gibt zurueck, was daraus wurde.
+
+    In `platz` steht, wohin es ging, in `ersetzt` das Bild, das dabei weggefallen ist
+    (oder None). Beides braucht der Aufrufer fuer die Meldung: Bei drei belegten
+    Plaetzen gibt `freier_platz` wieder den Kopf zurueck - das vierte Foto ersetzt also
+    das Bild von Seite 1. Das darf passieren, aber nicht stillschweigend.
+
+    Kein lesbares Bild heisst `KeinBild` **vor** dem Schreiben: Erst wird verkleinert,
+    dann angefasst. Eine abgelehnte Datei laesst den belegten Platz unberuehrt."""
     if not rohdaten:
         raise ValueError("Keine Bilddaten.")
     platz = platz if platz in PLATZ_SCHLUESSEL else freier_platz(kunde_id)
     daten, mime, breite, hoehe = verkleinern(rohdaten)
+    ersetzt = db.eine(
+        "SELECT dateiname, bytes, breite, hoehe, quelle, geaendert FROM kunde_foto"
+        "  WHERE kunde_id=? AND platz=?", (kunde_id, platz))
     with db.offen() as con:
         con.execute(
             "INSERT INTO kunde_foto (kunde_id, platz, daten, mime, breite, hoehe, bytes,"
@@ -181,7 +337,8 @@ def speichern(kunde_id, rohdaten, dateiname=None, quelle="hochgeladen", platz=No
             (kunde_id, platz, daten, mime, breite, hoehe, len(daten), quelle, dateiname,
              jetzt()))
     return {"bytes": len(daten), "breite": breite, "hoehe": hoehe, "mime": mime,
-            "platz": platz}
+            "platz": platz, "ersetzt": ersetzt,
+            "platz_text": dict(PLAETZE).get(platz, platz)}
 
 
 def alle_fotos(kunde_id):
@@ -217,8 +374,14 @@ def platz_setzen(foto_id, platz):
 
 
 def foto_loeschen(foto_id):
+    """Ein Foto entfernen. Ist es schon fort, ist das eine Auskunft, kein stiller Erfolg."""
     with db.offen() as con:
-        con.execute("DELETE FROM kunde_foto WHERE id=?", (foto_id,))
+        weg = con.execute("DELETE FROM kunde_foto WHERE id=?", (foto_id,)).rowcount
+    # Zweiter Tab, Zurueck-Taste, zweimal geklickt: Dann steht die Karte noch auf dem
+    # Blatt, die Zeile ist aber schon fort - „Foto entfernt." waere gelogen. `platz_setzen`
+    # sagt in derselben Lage denselben Satz.
+    if not weg:
+        raise ValueError("Dieses Foto gibt es nicht mehr.")
 
 
 def foto(kunde_id):
@@ -292,14 +455,18 @@ def eingang_verwerfen(eingang_id):
 def aufnehmen(dateien, standort=db.STANDORT_STANDARD):
     """Hochgeladene Bilder annehmen: eindeutige sofort zuordnen, den Rest in den Eingang.
 
-    `dateien` ist eine Folge von (dateiname, rohdaten). Gibt zurueck, was wohin ging."""
+    `dateien` ist eine Folge von (dateiname, rohdaten). Gibt zurueck, was wohin ging.
+
+    **Ueber die Endung wird hier nicht mehr entschieden.** Hier stand eine zweite,
+    engere Liste erlaubter Endungen: Ein GIF wurde abgelehnt („gut.gif: keine
+    Bilddatei"), waehrend derselbe Inhalt ueber den Einzelknopf anstandslos hereinkam.
+    Entschieden wird jetzt an einer Stelle - in `verkleinern`, und zwar am geoeffneten
+    Bild. Der Grund, den der Coach zu lesen bekommt, ist damit auch hier der richtige
+    („Das ist keine Bilddatei. Erlaubt sind …") statt eines Urteils ueber den Namen."""
     kunden = db.hole("SELECT id, name FROM kunde WHERE standort=?", (standort,))
     zugeordnet, offen, abgelehnt = [], 0, []
     for name, roh in dateien:
         if not roh:
-            continue
-        if os.path.splitext(name or "")[1].lower() not in BILDENDUNGEN:
-            abgelehnt.append(f"{name}: keine Bilddatei")
             continue
         try:
             kunde_id = zuordnen(name, kunden)

@@ -388,7 +388,7 @@ def _spur_ergaenzen(ip, geraet):
 def aktivitaet_seite():
     """Wer war wann angemeldet und was hat er getan – je Person auswählbar."""
     wer = request.args.get("wer") or None
-    tage = request.args.get("tage", 30, type=int)
+    tage = zahl_arg("tage", 30)
     return render_template(
         "aktivitaet.html", gewaehlt=wer, tage=tage, z=aktivitaet.zaehler(tage),
         alle_leute=aktivitaet.leute(tage), bereiche=aktivitaet.bereiche(tage=tage),
@@ -405,8 +405,8 @@ def coaches_seite():
     Loest die alte Seite "Mitarbeiter-Spur" ab. Die Spur allein war eine Zahlenreihe
     ohne Bezug: 40 Aktionen sagen nichts, wenn man nicht weiss, wie viele Menschen
     jemand betreut. Beides zusammen ist die Frage, die die Standortleitung stellt."""
-    coach = request.args.get("coach", type=int)
-    tage = request.args.get("tage", 30, type=int)
+    coach = zahl_arg("coach")
+    tage = zahl_arg("tage", 30)
     if tage not in (7, 14, 30, 90):
         tage = 30
     gewaehlt = coaches.einer(coach) if coach else None
@@ -425,7 +425,7 @@ def protokoll_seite():
     f = {"benutzer": request.args.get("benutzer") or None,
          "bereich": request.args.get("bereich") or None,
          "suche": (request.args.get("q") or "").strip() or None}
-    tage = request.args.get("tage", type=int)
+    tage = zahl_arg("tage")
     seit = None
     if tage:
         seit = (datetime.datetime.now() - datetime.timedelta(days=tage)).isoformat()
@@ -466,7 +466,7 @@ def kunden():
     liegt ein Lebenslauf vor, läuft ein Suchprofil. Termine, Unterrichtseinheiten,
     Dokumente und Abrechnung stehen im CRM und werden hier nicht doppelt geführt."""
     suche = (request.args.get("q") or "").strip() or None
-    coach = request.args.get("coach", type=int)
+    coach = zahl_arg("coach")
     nur = request.args.get("nur") or None
     sql = ("SELECT k.id, k.name, k.status_code, k.telefon, k.email, k.stadt, k.massnahme,"
            "       k.kundennummer, m.name AS coach,"
@@ -500,6 +500,48 @@ def kunden():
 # Eine getippte Riesenzahl in der Adresse endete deshalb in einem Absturz statt in 404.
 SQLITE_MAX = 2 ** 63 - 1
 CRM_URL = os.environ.get("CRM_URL", "https://crm.improfy.de")
+
+
+@app.before_request
+def _zahlenschranke():
+    """Die Schranke steht an der Tür, nicht in jeder Sicht.
+
+    Jede Nummer in der Adresse wird am Ende einer SQLite-Abfrage übergeben, und SQLite
+    nimmt nur 64 Bit; darüber endete die Abfrage im 500er statt in 404. Einzelne Sichten
+    haben das selbst geprüft – zehn weitere nicht, darunter `/kunde/<id>/lebenslauf`,
+    die Bildrouten und fünf POST-Routen. Eine Zeile je Sicht heißt: bei der nächsten
+    neuen Route fehlt sie wieder. Deshalb hier einmal für alle.
+
+    Geprüft wird `view_args`, also das, was der Adressbaum wirklich durchgelassen hat.
+    `bool` ist in Python ein `int` und wird ausgenommen, damit ein künftiger
+    Wahrheitswert im Pfad nicht versehentlich mitgeprüft wird."""
+    for wert in (request.view_args or {}).values():
+        if isinstance(wert, int) and not isinstance(wert, bool) and abs(wert) > SQLITE_MAX:
+            abort(404)
+    return None
+
+
+def zahl_arg(name, standard=None, quelle=None):
+    """Eine Nummer aus der Adresse – zu große Zahlen gelten als nicht angegeben.
+
+    Die Schranke oben sieht nur `view_args`, also die Platzhalter im Pfad. Eine Nummer
+    kann aber auch als Abfrageparameter kommen, und `request.args.get(name, type=int)`
+    reicht sie ungeprüft bis in die SQLite-Abfrage durch: `/taskforce/export.csv?kunde=
+    99999999999999999999` endete deshalb im 500er statt in einer leeren Liste. Dieselbe
+    64-Bit-Grenze gilt hier.
+
+    **Abgewiesen wird nichts.** Eine unbrauchbare Angabe zählt als „nicht angegeben",
+    der Filter bleibt also offen und die Seite zeigt alles. Das ist die Hausregel beim
+    Filtern: Aussortiert wird nur, was sicher nicht passt – und eine kaputte Nummer sagt
+    über keinen Datensatz etwas aus. Wo eine Nummer den Datensatz *bestimmt* (Pfad),
+    bleibt es bei 404 durch die Schranke oben."""
+    roh = ((request.args if quelle is None else quelle).get(name) or "").strip()
+    # `isdecimal` und nicht `isdigit`: „²".isdigit() ist wahr, `int("²")` wirft.
+    vorzeichenlos = roh[1:] if roh[:1] == "-" else roh
+    if not vorzeichenlos.isdecimal():
+        return standard
+    zahl = int(roh)
+    return standard if abs(zahl) > SQLITE_MAX else zahl
 
 
 @app.route("/kunde/<int:kid>")
@@ -569,7 +611,7 @@ LEER_BILDUNG = {"zeitraum": "", "abschluss": "", "institution": "", "note": ""}
 
 
 def _cv_seite(kid, daten=None, fehler=None, gelesen=None, rohtext="", hinweise=None,
-              meldung=None, gesucht=""):
+              meldung=None, gesucht="", design=None, nachsatz=None):
     # Ohne Kunden ist das kein Fehler, sondern der erste Zustand der Seite: das Formular
     # steht da, die Vorlagen sind sichtbar, und oben wird gefragt, für wen es sein soll.
     v = LB.vorbelegung(kid) if kid else None
@@ -580,8 +622,14 @@ def _cv_seite(kid, daten=None, fehler=None, gelesen=None, rohtext="", hinweise=N
         liste = list(liste or [])
         return liste + [dict(leer) for _ in range(max(0, anzahl - len(liste)))]
     return render_template(
+        # `design` reicht die gewaehlte Vorlage durch jedes Neuzeichnen. Ohne das
+        # sprang die Auswahl bei jedem Fehler und jedem Fotoklick auf Nr. 1 zurueck.
         "lebenslauf_bauen.html", v=v, d=d, fehler=fehler, gelesen=gelesen, rohtext=rohtext,
+        design=design,
         hinweise=hinweise or [], lesbar=dokument_lesen.ENDUNGEN, meldung=meldung,
+        # `nachsatz` steht im Blatt als eigener Absatz unter der Meldung. Angehaengt an
+        # „Foto entfernt." las er sich als ein Satz und wurde ueberlesen.
+        nachsatz=nachsatz,
         foto=fotos.foto(kid) if kid else None,
         kundenfotos=fotos.alle_fotos(kid) if kid else [], plaetze=fotos.PLAETZE,
         kundenwahl=LB.uebersicht(),
@@ -608,7 +656,9 @@ def lebenslauf_uebersicht():
     man hergekommen ist. Jetzt öffnet dieser Reiter direkt das Bauformular; die Person
     ist die erste Frage darin, nicht die Voraussetzung dafür."""
     kid = (request.args.get("kunde") or "").strip()
-    if kid.isdigit() and 0 < int(kid) <= SQLITE_MAX:
+    # `isdecimal` und nicht `isdigit`: „²".isdigit() ist wahr, int("²") wirft. Die
+    # Adresse `/lebenslauf?kunde=²` endete damit im 500er statt in der Kundenauswahl.
+    if kid.isdecimal() and 0 < int(kid) <= SQLITE_MAX:
         if LB.vorbelegung(int(kid)):
             return _cv_seite(int(kid))
 
@@ -665,7 +715,7 @@ def lebenslauf_lesen(kid):
         rohtext = gelesener_text
     if not daten:
         return _cv_seite(kid, fehler="Aus den Unterlagen ließ sich nichts auslesen.",
-                         rohtext=rohtext,
+                         rohtext=rohtext, design=request.form.get("design"),
                          hinweise=hinweise or ["Keine Datei abgelegt und kein Text eingefügt."])
     # Was das OS sicher weiß, gewinnt gegen das, was im alten Lebenslauf steht.
     v = LB.vorbelegung(kid)
@@ -681,16 +731,26 @@ def lebenslauf_lesen(kid):
     if not daten.get("massnahme_zeitraum"):
         daten["massnahme_zeitraum"] = v["daten"]["massnahme_zeitraum"]
     return _cv_seite(kid, daten, gelesen=gefunden or ["nichts Verwertbares"], rohtext=rohtext,
-                     hinweise=hinweise)
+                     hinweise=hinweise, design=request.form.get("design"))
 
 
 @app.route("/kunde/<int:kid>/lebenslauf", methods=["POST"])
 def lebenslauf_erzeugen(kid):
     daten = LB.aus_formular(request.form)
+    # **Hier wird kein Foto abgelegt.** Diese Route hat das Feld `foto` nie gelesen;
+    # erst in Runde 2 dieses Umbaus wurde der Upload hier eingebaut, und genau das war
+    # nicht zu halten: Der versteckte Standardknopf oben im Blatt zeigt auf sie, also
+    # haette **jedes** Enter in einem Textfeld einen Upload ausgeloest - drei Enter
+    # alle drei Fotoplaetze gefuellt, das vierte still das Kopffoto ueberschrieben.
+    # Weil die Antwort ein Download ist, haette der Coach nichts davon gesehen.
+    # Der Fehler, der diesen Umbau ausgeloest hat, sass woanders: beim PDF-Knopf, der
+    # das gewaehlte Bild nebenbei mitnahm und bei jedem Klick erneut ablegte.
+    # Das Foto hat seit dieser Runde einen eigenen Knopf neben dem Dateifeld
+    # (`lebenslauf_foto`). Ein Weg, ein Foto zu hinterlegen, statt drei halbe.
     try:
         rohdaten, fehlend, dateiname, _pfad = LB.bauen(kid, daten)
     except Exception as e:
-        return _cv_seite(kid, daten, fehler=str(e))
+        return _cv_seite(kid, daten, fehler=str(e), design=request.form.get("design"))
     from flask import Response
     return Response(
         rohdaten,
@@ -705,15 +765,13 @@ def lebenslauf_pdf(kid):
     from flask import render_template as _render
     daten = LB.aus_formular(request.form)
     design = request.form.get("design") or cv_pdf.DESIGNS[0][0]
-    # Ein frisch hochgeladenes Foto gewinnt und wird gleich am Kunden gemerkt,
-    # sonst nimmt das PDF das, was schon hinterlegt ist.
-    hochgeladen = request.files.get("foto")
-    if hochgeladen and hochgeladen.filename:
-        try:
-            fotos.speichern(kid, hochgeladen.read(), hochgeladen.filename)
-            notieren("Bewerbungsfoto hinterlegt", "lebenslauf", kid, hochgeladen.filename)
-        except Exception:
-            pass
+    # **Hier wird kein Foto mehr abgelegt** - und hier sass der Ausgangsfehler: Dieser
+    # Zweig nahm das gewaehlte Bild nebenbei mit, und der Coach klickt „PDF" mehrmals,
+    # um ein Design zu vergleichen. Drei Klicks fuellten alle drei Fotoplaetze, der
+    # vierte ueberschrieb still das Kopffoto; die Antwort ist ein Download, in dem
+    # keine Meldung Platz hat, also sah niemand etwas davon. Ein Klick auf „PDF" ist
+    # ein Druckauftrag, keine Aenderung am Kunden. Das PDF nimmt, was am Kunden
+    # hinterlegt ist; hinterlegt wird es mit dem Knopf neben dem Dateifeld.
     # Alle Fotos des Kunden in der Reihenfolge ihrer Plaetze - `alle_fotos` sortiert
     # bereits danach. Aus dieser Liste setzt die Vorlage je Druckseite eines; sind es
     # weniger Fotos als Seiten, wiederholen sie sich der Reihe nach.
@@ -729,7 +787,8 @@ def lebenslauf_pdf(kid):
         pdf, dateiname, _pfad = cv_pdf.bauen(_render, daten, design, dateiname=dateiname,
                                              bilder=bilder)
     except Exception as e:
-        return _cv_seite(kid, daten, fehler=f"PDF nicht erzeugt: {e}")
+        return _cv_seite(kid, daten, fehler=f"PDF nicht erzeugt: {e}",
+                         design=request.form.get("design"))
     LB.merken(kid, dateiname)
     from flask import Response
     return Response(pdf, mimetype="application/pdf",
@@ -738,22 +797,103 @@ def lebenslauf_pdf(kid):
 
 @app.route("/kunde/<int:kid>/foto", methods=["POST"])
 def lebenslauf_foto(kid):
-    """Bewerbungsfoto hinterlegen oder entfernen – es gehört an den Kunden, nicht an einen Klick."""
+    """Das Bewerbungsfoto hinterlegen – der eine Weg dafür.
+
+    Vorher gab es zwei halbe: der PDF-Knopf und diese Route (und seit Runde 2 dieses
+    Umbaus vorübergehend auch der Excel-Knopf). Der PDF-Knopf nahm ein gewähltes Bild
+    nebenbei mit, und wer drei Designs vergleicht, klickt ihn dreimal: Danach waren
+    alle drei Plätze mit demselben Bild belegt, der vierte Klick überschrieb still das
+    Kopffoto. Am Excel-Zweig wäre es schlimmer geworden, weil dort der versteckte
+    Standardknopf des Blattes hängt – jedes Enter in einem Textfeld hätte ein Foto
+    abgelegt. Jetzt hinterlegt genau dieser Knopf das Bild, und nur er.
+
+    Der Knopf steht mitten im großen Formular, also kommt das ganze Blatt mit. Es wird
+    unverändert zurückgezeichnet – wie in `kunde_foto_aendern`, und aus demselben
+    Grund: Ein Klick auf einen Fotoknopf darf den halb geschriebenen Lebenslauf nicht
+    kosten."""
+    # Kommt das Blatt nicht mit (Aufruf ohne Formular), zeichnet die Seite den
+    # gespeicherten Stand - leere Felder waeren hier eine Verschlechterung.
+    blatt = LB.aus_formular(request.form) if "vorname" in request.form else None
+    design = request.form.get("design")
     if request.form.get("was") == "loeschen":
+        # Der alte Weg: alle Fotos des Kunden auf einmal. Kein Knopf im Blatt ruft ihn
+        # heute auf - die Karten entfernen einzeln über `kunde_foto_aendern` -, er
+        # bleibt aber gültig, solange ihn etwas ansprechen kann.
+        #
+        # **Er sagt, was er entfernt hat.** „Foto entfernt." stand hier in der Einzahl,
+        # während drei Bilder auf einmal fortgingen – ohne Rückfrage und ohne zu sagen,
+        # welche. Ein Aufruf von außen (ein altes Lesezeichen, ein Formular aus einer
+        # früheren Fassung) hätte damit stillschweigend den ganzen Fotobestand eines
+        # Kunden gekostet. Dieselbe Auskunftspflicht wie beim vierten Foto: Was fort
+        # ist, wird benannt.
+        weg = fotos.alle_fotos(kid)
         fotos.loeschen(kid)
-        notieren("Bewerbungsfoto entfernt", "lebenslauf", kid)
-        return _cv_seite(kid, meldung="Foto entfernt.")
+        notieren("Bewerbungsfoto entfernt", "lebenslauf", kid,
+                 "%d Bild(er): %s" % (len(weg), ", ".join(
+                     (z["dateiname"] or "ohne Dateinamen") for z in weg)))
+        if not weg:
+            return _cv_seite(kid, blatt, design=design,
+                             meldung="Es war kein Foto hinterlegt – nichts entfernt.")
+        platztext = dict(fotos.PLAETZE)
+        return _cv_seite(
+            kid, blatt, design=design,
+            meldung=("%d Fotos entfernt." % len(weg)) if len(weg) > 1 else "Foto entfernt.",
+            nachsatz="Entfernt wurden alle Fotos dieses Kunden und damit alle belegten "
+                     "Plätze: %s. Sie sind fort und lassen sich hier nicht zurückholen, "
+                     "nur aus einem Sicherungsstand über die Seite Betrieb. Soll künftig "
+                     "ein einzelnes Bild weichen, an seiner Karte auf entfernen klicken."
+                     % ", ".join("%s (%s)" % (platztext.get(z["platz"], z["platz"]),
+                                              z["dateiname"] or "ohne Dateinamen")
+                                 for z in weg))
     datei = request.files.get("foto")
     if not datei or not datei.filename:
-        return _cv_seite(kid, fehler="Keine Datei gewählt.")
+        return _cv_seite(kid, blatt, design=design,
+                         fehler="Keine Datei gewählt.",
+                         nachsatz="Bitte oben im Feld „Bewerbungsfoto wählen“ "
+                                  "eine Bilddatei aussuchen und dann noch einmal auf "
+                                  "„Foto hinterlegen“ klicken.")
     try:
         stand = fotos.speichern(kid, datei.read(), datei.filename)
+    except fotos.KeinBild as e:
+        # **Abgelehnt, laut und mit Grund - und ohne dass etwas ueberschrieben wurde.**
+        # Frueher behielt `fotos.verkleinern` in dieser Lage das Original und stempelte
+        # es auf `image/jpeg`: Eine Textdatei ersetzte damit das Bewerbungsfoto, und
+        # gemeldet wurde „Foto hinterlegt, 0 kB.". Der Grund steht jetzt an der
+        # Ausnahme; hier wird er nur weitergereicht, denn er sagt dem Coach, was zu tun
+        # ist (HEIC vom iPhone umstellen, Bild neu herunterladen).
+        return _cv_seite(kid, blatt, design=design,
+                         fehler="Das ist kein lesbares Bild – es wurde nichts "
+                                "hinterlegt und nichts überschrieben.",
+                         nachsatz=str(e))
     except Exception as e:
-        return _cv_seite(kid, fehler=f"Das Bild ließ sich nicht lesen: {e}")
+        # Alles andere (Datenbank, Platte): Auch hier wird der Grund gesagt, die Antwort
+        # ist eine Seite und hat Platz dafür.
+        return _cv_seite(kid, blatt, design=design,
+                         fehler=f"Das Bild ließ sich nicht hinterlegen: {e}")
     notieren("Bewerbungsfoto hinterlegt", "lebenslauf", kid, datei.filename)
-    return _cv_seite(kid, meldung=f"Foto hinterlegt, {stand['bytes'] // 1024} kB"
-                                  + (f", {stand['breite']}×{stand['hoehe']} Pixel"
-                                     if stand["breite"] else "") + ".")
+    # **Die Meldung sagt den Platz - und was dort vorher lag.** `fotos.freier_platz`
+    # gibt bei drei belegten Plaetzen wieder den Kopf zurueck; das vierte Foto ersetzt
+    # also das Bild von Seite 1. Das ist gewollt, aber vorher stand daneben nur „Foto
+    # hinterlegt, 2 kB" - im gelieferten Blatt kam das Wort „ersetzt" nicht ein einziges
+    # Mal vor. Im Bestand hat genau ein Kunde Fotos, und zwar alle drei Plaetze belegt:
+    # Der einzige echte Fall ist der, in dem der naechste Upload Seite 1 kostet.
+    meldung = ("Foto hinterlegt, %d kB%s – auf Platz „%s“."
+               % (stand["bytes"] // 1024,
+                  ", %d×%d Pixel" % (stand["breite"], stand["hoehe"])
+                  if stand["breite"] else "",
+                  stand["platz_text"]))
+    alt = stand["ersetzt"]
+    nachsatz = None
+    if alt:
+        nachsatz = (
+            "Achtung: Der Platz „%s“ war belegt. Das bisherige Bild (%s, %d kB, "
+            "hinterlegt am %s) wurde dabei ersetzt und ist fort. Alle Plätze sind "
+            "vergeben – das nächste Foto ersetzt wieder dasselbe. Soll ein bestimmtes "
+            "Bild weichen, erst an seiner Karte auf „entfernen“ klicken und dann "
+            "hinterlegen."
+            % (stand["platz_text"], alt["dateiname"] or "ohne Dateinamen",
+               (alt["bytes"] or 0) // 1024, (alt["geaendert"] or "?")[:16].replace("T", " ")))
+    return _cv_seite(kid, blatt, design=design, meldung=meldung, nachsatz=nachsatz)
 
 
 @app.route("/kunde/<int:kid>/foto.jpg")
@@ -763,6 +903,22 @@ def lebenslauf_foto_zeigen(kid):
         abort(404)
     from flask import Response
     return Response(roh, mimetype=mime or "image/jpeg")
+
+
+def _gruende_buendeln(paare):
+    """Gleiche Gründe zu einer Zeile zusammenfassen: erst die Dateien, dann der Grund.
+
+    Fehlt Pillow, wirft `fotos.verkleinern` bei **jeder** Datei denselben Satz von
+    rund 200 Zeichen. Bei zwanzig Bildern aus „CVs Köln" stand er zwanzigmal
+    untereinander, und zwischen den Wiederholungen war nicht mehr zu sehen, welche
+    Datei welchen Grund hatte. Gebündelt steht er einmal da, mit allen Namen davor.
+
+    Die Reihenfolge bleibt die des ersten Auftretens und damit die des Ordners –
+    sortiert stünde am Ende etwas anderes oben als im Ordner."""
+    gebuendelt = {}
+    for name, grund in paare:
+        gebuendelt.setdefault((grund or "").strip() or "ohne Grund", []).append(name)
+    return ["%s: %s" % (", ".join(namen), grund) for grund, namen in gebuendelt.items()]
 
 
 @app.route("/lebenslauf/fotos", methods=["GET", "POST"])
@@ -802,13 +958,44 @@ def lebenslauf_fotos():
                 zugeordnet, offen = fotos.aus_ordner(pfad)
                 # Was der Name nicht hergibt, wandert in den Eingang statt verloren zu
                 # gehen - dort ist es sichtbar und in zwei Klicks zugeordnet.
+                #
+                # **Ein unlesbares Bild kostet nur sich selbst.** `eingang_ablegen` ruft
+                # seit der Sperre gegen stilles Ueberschreiben `verkleinern` und wirft
+                # `KeinBild`; ungeschuetzt in dieser Schleife brach damit der ganze
+                # Durchgang beim ersten iPhone-Bild ab. Der Fall ist der Alltag: Ein
+                # Coach legt zwanzig Bilder aus „CVs Köln" in einen Ordner, eine
+                # IMG_4711.heic ist dabei - und alles, was alphabetisch dahinter kam,
+                # erreichte den Eingang nie, waehrend die Seite nur den HEIC-Rat zeigte.
+                # Jetzt wird je Datei gefangen, gezaehlt wird das wirklich Abgelegte,
+                # und jeder Grund steht am Ende auf der Seite.
+                eingelegt, nicht_lesbar = 0, []
                 for name in offen:
                     voll = os.path.join(pfad, name)
-                    if os.path.isfile(voll):
+                    if not os.path.isfile(voll):
+                        # `aus_ordner` haengt an gescheiterte Dateien den Grund in
+                        # Klammern - dazu gibt es keine Datei mehr zu oeffnen. Diese
+                        # Eintraege wurden bisher still uebersprungen, aber trotzdem als
+                        # „liegt im Eingang" gezaehlt: Die Seite meldete drei Bilder im
+                        # Eingang, und der Eingang war leer.
+                        # Getrennt in Name und Grund, damit gleiche Gründe unten zu
+                        # einer Zeile zusammenfallen. Gespalten wird am " (" von
+                        # `aus_ordner`; ein Dateiname mit derselben Zeichenfolge käme
+                        # hier nicht an, denn zu ihm gäbe es eine Datei.
+                        datei, _, grund = name.partition(" (")
+                        nicht_lesbar.append((datei, grund.rstrip(")")))
+                        continue
+                    try:
                         with open(voll, "rb") as f:
                             fotos.eingang_ablegen(f.read(), name, quelle="ordner")
-                notieren(f"{len(zugeordnet)} Fotos zugeordnet", "lebenslauf", None, pfad)
-                ergebnis = {"zugeordnet": zugeordnet, "eingang": len(offen), "ordner": pfad}
+                        eingelegt += 1
+                    except Exception as e:
+                        nicht_lesbar.append((name, str(e)))
+                notieren(f"{len(zugeordnet)} Fotos zugeordnet", "lebenslauf", None,
+                         f"{pfad} · {eingelegt} in den Eingang, "
+                         f"{len(nicht_lesbar)} nicht lesbar")
+                ergebnis = {"zugeordnet": zugeordnet, "eingang": eingelegt,
+                            "abgelehnt": _gruende_buendeln(nicht_lesbar),
+                            "ordner": pfad}
         except Exception as e:
             ergebnis = {"fehler": str(e), "ordner": request.form.get("ordner") or ""}
     return render_template("fotos.html", stand=fotos.stand(), ergebnis=ergebnis,
@@ -835,18 +1022,50 @@ def kunde_foto_bild(kid, fid):
 
 @app.route("/kunde/<int:kid>/foto/<int:fid>", methods=["POST"])
 def kunde_foto_aendern(kid, fid):
-    """Platz wechseln oder das Foto entfernen."""
+    """Platz wechseln oder das Foto entfernen - und dabei das Blatt behalten.
+
+    Die beiden Knoepfe stehen mitten im grossen Formular, also kommt alles Getippte
+    mit. Vorher leitete diese Route stattdessen auf die leere Seite um: Ein Klick auf
+    „entfernen" kostete den halb geschriebenen Lebenslauf. Jetzt wird dieselbe Seite
+    mit den uebermittelten Feldern neu gezeichnet - so, wie `lebenslauf_foto` es
+    weiter oben schon macht, **samt dessen Schutz**: Kommt das Blatt gar nicht mit
+    (ein Aufruf ohne Formular), zeichnet die Seite den gespeicherten Stand. Vorher
+    reichte diese Route das leere Formular durch und der Coach bekam leere Felder
+    zurueck. Im laufenden Blatt loest das kein Knopf aus - dann kostet der Schutz
+    auch nichts."""
+    # Ein im Dateifeld gewaehltes, aber noch nicht hinterlegtes Bild wird hier **nicht**
+    # abgelegt. Diese Route aendert genau ein vorhandenes Foto; ein Upload ist eine
+    # zweite, fremde Aenderung, und sie ginge schief: `fotos.freier_platz` gibt bei drei
+    # belegten Plaetzen wieder den Kopf zurueck, das neue Bild ueberschriebe also
+    # stillschweigend das Foto von Seite 1. Dazu legte jedes F5 auf dieser Antwort das
+    # Bild ein zweites Mal ab, und eine Umleitung dagegen (Post/Redirect/Get) wuerde das
+    # ausgefuellte Blatt wegwerfen - genau der Schaden, den diese Route behebt.
+    # Fuer das Bild ist der Knopf „Foto hinterlegen" neben dem Dateifeld zustaendig;
+    # damit die Auswahl nicht stumm verschwindet, steht sie in der Rueckmeldung - als
+    # eigener Absatz, nicht als Anhaengsel an „Foto entfernt.".
+    blatt = LB.aus_formular(request.form) if "vorname" in request.form else None
+    gewaehlt = request.files.get("foto")
+    nachsatz = ("Das im Dateifeld gewählte Bild wurde dabei nicht hinterlegt – diese"
+                " Karte ändert nur vorhandene Fotos. Bitte noch einmal auswählen und"
+                " auf „Foto hinterlegen“ klicken, den Knopf gleich neben dem Feld."
+                ) if gewaehlt and gewaehlt.filename else None
     try:
         if request.form.get("was") == "loeschen":
             fotos.foto_loeschen(fid)
             notieren("Bewerbungsfoto entfernt", "lebenslauf", kid, str(fid))
+            meldung = "Foto entfernt."
         else:
-            fotos.platz_setzen(fid, request.form.get("platz") or "")
-            notieren("Foto auf anderen Platz gelegt", "lebenslauf", kid,
-                     request.form.get("platz"))
+            # Der Name traegt die Bildnummer, weil auf dem Blatt mehrere Auswahlen
+            # stehen; `platz` bleibt als alter Weg daneben gueltig.
+            platz = request.form.get(f"platz_{fid}") or request.form.get("platz") or ""
+            fotos.platz_setzen(fid, platz)
+            notieren("Foto auf anderen Platz gelegt", "lebenslauf", kid, platz)
+            meldung = "Foto auf einen anderen Platz gelegt."
     except Exception as e:
-        return _cv_seite(kid, fehler=str(e))
-    return redirect(url_for("lebenslauf_uebersicht", kunde=kid))
+        return _cv_seite(kid, blatt, fehler=str(e),
+                         nachsatz=nachsatz, design=request.form.get("design"))
+    return _cv_seite(kid, blatt, meldung=meldung,
+                     nachsatz=nachsatz, design=request.form.get("design"))
 
 
 @app.route("/lebenslauf/eingang/<int:eid>.jpg")
@@ -882,7 +1101,11 @@ def _tf_seite(meldungen=None):
         meldungen = [request.args["meldung"]]
     """Die Tafel. Jeder Filter steht in der Adresse, damit man eine Ansicht teilen kann."""
     def zahl(name, typ=int):
-        return request.args.get(name, type=typ)
+        # Ganze Zahlen über `zahl_arg`: SQLite nimmt nur 64 Bit, und `/taskforce?kunde=`
+        # mit einer 20-stelligen Nummer endete sonst im 500er statt in der ungefilterten
+        # Tafel. Kommazahlen (Zimmer) sind davon nicht betroffen – sie gehen als REAL in
+        # die Abfrage und kennen diese Grenze nicht.
+        return zahl_arg(name) if typ is int else request.args.get(name, type=typ)
 
     f = {"kunde_id": zahl("kunde"), "art": request.args.get("art") or None,
          "quelle": request.args.get("quelle") or None,
@@ -983,11 +1206,31 @@ def sammelanlage_anlegen():
 
 @app.route("/taskforce/kunde")
 def taskforce_kunde_wahl():
-    return redirect(url_for("taskforce_kunde", kid=int(request.args.get("kid") or 0)))
+    """Der Sprung aus der Kundenauswahl - auch dann, wenn keine Nummer ankam.
+
+    Ohne `kid` stand hier `int(... or 0)`: leer und 0 landeten auf `/taskforce/kunde/0`
+    und damit in der rohen 404-Seite des Servers, ein getipptes Wort sogar in einem
+    Absturz. Beides ist keine Auskunft. Eine unbrauchbare Angabe fuehrt jetzt zurueck
+    zur Taskforce, mit dem Satz, was fehlt. Auch eine Zahl mit zwanzig Stellen ist
+    unbrauchbar: SQLite nimmt nur 64 Bit, darueber endete die Abfrage im 500er - deshalb
+    dieselbe Schranke wie in `kunde_detail` und `lebenslauf_uebersicht`.
+
+    `isdecimal` und nicht `isdigit`: Hochgestellte Ziffern wie „²" gelten fuer `isdigit`
+    als Ziffer, `int()` nimmt sie nicht. `?kid=²` kam damit bis zum `int()` und stuerzte
+    ab - genau die Antwort, die diese Sicht abschaffen soll."""
+    roh = (request.args.get("kid") or "").strip()
+    if roh.isdecimal() and 0 < int(roh) <= SQLITE_MAX:
+        return redirect(url_for("taskforce_kunde", kid=int(roh)))
+    return redirect(url_for("taskforce_seite", meldung="Bitte erst einen Kunden auswählen."))
 
 
 @app.route("/taskforce/kunde/<int:kid>")
 def taskforce_kunde(kid, fehler=None, meldung=None):
+    # Dieselbe Schranke wie in `kunde_detail`: Flask laesst fuer <int:kid> beliebig
+    # grosse Zahlen durch, SQLite nimmt nur 64 Bit. Eine getippte Riesenzahl in der
+    # Adresse endete sonst im Absturz statt in 404.
+    if kid > SQLITE_MAX:
+        abort(404)
     kunde = tf.kunden_info(kid)
     if not kunde:
         abort(404)
@@ -1061,7 +1304,7 @@ def taskforce_profil(pid, fehler=None, meldung=None):
     if not p:
         abort(404)
     status = request.args.get("status") or None
-    seite = max(1, request.args.get("seite", 1, type=int))
+    seite = max(1, zahl_arg("seite", 1) or 1)
     alle = tf.angebote(pid)
     gefiltert = [a for a in alle if (a["status"] == status if status else a["status"] != "doppelt")]
     je_seite = 60
@@ -1180,9 +1423,26 @@ def taskforce_status(aid):
 @app.route("/taskforce/api/angebote")
 def taskforce_api():
     """Schnittstelle fürs CRM: alle Angebote mit Kunde, Link und Stand als JSON.
-    Filter: ?kunde=<id> &status=<neu|gesehen|angeschrieben|antwort|erfolg|verworfen> &seit=YYYY-MM-DD"""
+    Filter: ?kunde=<id> &status=<neu|gesehen|angeschrieben|antwort|erfolg|verworfen> &seit=YYYY-MM-DD
+
+    **Dieselbe Ausnahme von der Filterregel wie im Export** – und hier wiegt sie
+    schwerer. Sonst gilt im Haus: Eine unbrauchbare Angabe lässt den Filter offen
+    (siehe `zahl_arg`). Auf der Tafel ist das richtig, weil der Coach die Tabelle vor
+    sich sieht und merkt, dass da mehr steht als erwartet. Eine Schnittstelle ist
+    keine Tafel: Hier sieht niemand etwas, und das CRM hängt an, was es bekommt.
+    Gemessen am 22.09.2026 gab `?kunde=²` glatte 200 mit 1304 Angeboten und 932 kB –
+    die Angebote **aller** Kunden, an einem einzigen Datensatz. Derselbe Aufruf im
+    Export daneben sagte längst 400. Eine gewünschte Einschränkung, die nicht zu lesen
+    war, wird deshalb gesagt statt übergangen."""
     from flask import jsonify
-    zeilen = tf.export_angebote(kunde_id=request.args.get("kunde", type=int),
+    roh_kunde = (request.args.get("kunde") or "").strip()
+    kunde_id = zahl_arg("kunde")
+    if roh_kunde and kunde_id is None:
+        return jsonify({"fehler": "Der Filter kunde=%s ist keine Kundennummer – es "
+                                  "wurden deshalb keine Angebote geliefert. Ohne "
+                                  "Angabe kommen alle Angebote, mit einer gültigen "
+                                  "Nummer die eines Kunden." % roh_kunde[:60]}), 400
+    zeilen = tf.export_angebote(kunde_id=kunde_id,
                                 status=request.args.get("status") or None,
                                 seit=request.args.get("seit") or None)
     return jsonify({"stand": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -1198,10 +1458,28 @@ def taskforce_api_kpi():
 
 @app.route("/taskforce/export.csv")
 def taskforce_export_csv():
+    """Die Angebote als Datei – **mit einer Ausnahme von der Filterregel.**
+
+    Sonst gilt im Haus: Eine unbrauchbare Angabe lässt den Filter offen, aussortiert
+    wird nur, was sicher nicht passt (siehe `zahl_arg`). Auf der Tafel ist das richtig –
+    der Coach sieht die Tabelle vor sich und merkt, dass da mehr steht als erwartet.
+    Hier nicht: `export.csv?kunde=²` lieferte 1305 Zeilen, 413 kB Angebote **aller**
+    Kunden, als Download in den Ordner – ungesehen, und ohne dass irgendwo ein Satz
+    gestanden hätte. Dazu kam eine Unlogik: `?kunde=999999` gab eine leere Datei,
+    `?kunde=²` die ganze. Eine gewünschte Einschränkung, die nicht zu lesen war, wird
+    deshalb gesagt statt übergangen – 400 mit einem Satz im Klartext."""
     import csv
     import io as _io
     from flask import Response
-    zeilen = tf.export_angebote(kunde_id=request.args.get("kunde", type=int),
+    roh_kunde = (request.args.get("kunde") or "").strip()
+    kunde_id = zahl_arg("kunde")
+    if roh_kunde and kunde_id is None:
+        return Response(
+            "Der Filter kunde=%s ist keine Kundennummer – der Export wurde deshalb "
+            "nicht erzeugt.\r\nOhne Angabe kommen alle Angebote, mit einer gültigen "
+            "Nummer die eines Kunden.\r\n" % roh_kunde[:60],
+            status=400, mimetype="text/plain; charset=utf-8")
+    zeilen = tf.export_angebote(kunde_id=kunde_id,
                                 status=request.args.get("status") or None)
     felder = ["kunde", "kundennummer", "art", "profil", "quelle", "titel", "anbieter", "ort",
               "url", "status", "bearbeiter", "notiz", "status_am", "gefunden_am", "veroeffentlicht",
@@ -1232,7 +1510,24 @@ def _zusatz(a):
 
 @app.route("/export/<art>")
 def export(art):
-    import exportieren
+    """Übersichten als Datei – **in diesem Repo gibt diese Route immer 404.**
+
+    Der Generator `exportieren` liegt allein im OS-Repo; hier ist er nicht vorhanden und
+    soll es auch nicht sein. Dass die Route trotzdem dasteht, hat einen Grund: Vorlagen
+    und Lesezeichen aus dem OS zeigen auf `/export/…`. Fiele sie hier weg, endete
+    derselbe Link in der rohen 404-Seite des Servers statt in der Antwort des Hauses.
+    Besser eine Route, die ehrlich „gibt es nicht" sagt, als eine, die abstürzt.
+    Wandert der Generator eines Tages mit, trägt sie sofort.
+
+    Hier stand einmal, beide Repos trügen dieselbe `app.py`. Das stimmt nicht:
+    nachgemessen am 22.09.2026 hat die Datei im OS-Repo 1278 Zeilen, diese rund 1400,
+    und `lebenslauf_foto` und `kunde_foto_aendern` kommen dort gar nicht vor. Die
+    beiden Dateien sind verwandt, nicht gleich – wer hier etwas ändert, hat es
+    deshalb nicht schon drüben geändert."""
+    try:
+        import exportieren
+    except ImportError:
+        abort(404)
     pfad = exportieren.baue(art)
     if not pfad:
         abort(404)
@@ -1248,17 +1543,6 @@ def _datum(iso):
         return datetime.date.fromisoformat(str(iso)[:10]).strftime("%d.%m.%Y")
     except ValueError:
         return iso
-
-
-@app.template_filter("tage_her")
-def _tage_her(iso):
-    """Wie lange liegt das zurück? Macht aus einem Datum einen Vorwurf."""
-    tage = k.alter_in_tagen(str(iso)[:10])
-    if tage is None:
-        return ""
-    if tage == 0:
-        return "heute"
-    return f"seit {tage} Tagen"
 
 
 @app.template_filter("zeit")

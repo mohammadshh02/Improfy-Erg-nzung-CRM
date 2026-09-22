@@ -29,14 +29,14 @@ Läuft gegen eine Kopie der Datenbank. Am Echtbestand ändert sich nichts.
 """
 import os
 import re
-import shutil
 import sys
-import tempfile
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
-KOPIE = os.path.join(tempfile.gettempdir(), "improfy_cv_serie.db")
-shutil.copy(os.path.join(HIER, "improfy_os.db"), KOPIE)
+import pruefkopie                # noqa: E402
+# Warum die Arbeitskopie über `sqlite3.backup` läuft und nicht über `shutil.copy`,
+# steht im Kopf von `pruefkopie.py`. Am Echtbestand ändert der Lauf nichts.
+KOPIE = pruefkopie.anlegen("improfy_cv_serie.db")
 os.environ["IMPROFY_OS_DB"] = KOPIE
 
 import app as A                     # noqa: E402

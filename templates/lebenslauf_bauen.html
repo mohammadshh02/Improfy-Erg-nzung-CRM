@@ -9,8 +9,13 @@
   · <a href="{{ url_for('lebenslauf_liste') }}">Überblick: wer hat schon einen</a>
   · <a href="{{ url_for('lebenslauf_fotos') }}">Bewerbungsfotos</a></p>
 
-{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+{# `nachsatz` steht als eigener Absatz und nicht hinter dem Punkt der Meldung:
+   „Foto entfernt. Das im Dateifeld gewählte Bild wurde dabei nicht hinterlegt …"
+   las sich als ein Satz und wurde ueberlesen - genau der Teil, auf den es ankommt. #}
+{% if meldung %}<div class="hinweis">{{ meldung }}
+  {% if nachsatz %}<p style="margin:8px 0 0">{{ nachsatz }}</p>{% endif %}</div>{% endif %}
 {% if fehler %}<div class="warnung"><h3>Das ging nicht</h3><p style="margin:0">{{ fehler }}</p>
+  {% if nachsatz %}<p style="margin:8px 0 0">{{ nachsatz }}</p>{% endif %}
   {% if hinweise %}<ul style="margin:6px 0 0 18px;padding:0">{% for h in hinweise %}<li>{{ h }}</li>{% endfor %}</ul>{% endif %}
 </div>{% endif %}
 
@@ -102,7 +107,15 @@
 <h2>Alte Unterlagen ablegen</h2>
 <div class="karte" style="margin-bottom:14px">
   <form method="post" action="{{ url_for('lebenslauf_lesen', kid=v.kunde_id) }}"
-        enctype="multipart/form-data">
+        enctype="multipart/form-data" id="ausleseform">
+    {# Die Vorlagenwahl steht weiter unten im **grossen** Formular. Der Browser schickt
+       immer nur das Formular ab, in dem der Knopf steht - von hier aus kam also nie
+       eine Vorlage mit, und die Seite kam nach dem Auslesen mit Nr. 1 zurueck. Wer
+       vorher Nr. 17 gewaehlt hatte, baute das PDF danach im falschen Design. Dieses
+       Feld traegt die Kennung mit; das Skript unten setzt vor dem Abschicken die
+       wirklich angeklickte Vorlage ein (die Filterung weiter unten kann die Wahl
+       verschieben, ohne dass ein Ereignis faellt). #}
+    <input type="hidden" name="design" id="designdurchreiche" value="{{ design or '' }}">
     <p class="marke" style="margin:0 0 10px">Alles ablegen, was von der Person schon da ist: der alte
       Lebenslauf, eine frühere Improfy-Vorlage, ein Zeugnis. Das OS liest die Dateien aus und füllt das
       Formular darunter. Nichts muss von Hand abgetippt werden.</p>
@@ -147,6 +160,20 @@
   });
   flaeche.addEventListener('drop', function (ev) { feld.files = ev.dataTransfer.files; zeigen(); });
 })();
+
+// Die angeklickte Vorlage ins versteckte Feld darueber schreiben, und zwar erst beim
+// Abschicken: dann stimmt sie auch dann, wenn der Vorlagenfilter die Wahl zwischendurch
+// verschoben hat. Ohne Skript bleibt der vom Server gelieferte Wert stehen - dann faehrt
+// wenigstens die zuletzt gebaute Vorlage mit.
+(function () {
+  var formular = document.getElementById('ausleseform'),
+      feld = document.getElementById('designdurchreiche');
+  if (!formular || !feld) return;
+  formular.addEventListener('submit', function () {
+    var gewaehlt = document.querySelector('input[name=design]:checked');
+    if (gewaehlt) feld.value = gewaehlt.value;
+  });
+})();
 </script>
 
 {% if v.kurzprofil or v.cv_text %}
@@ -159,6 +186,23 @@
 {% endif %}
 
 <form method="post" enctype="multipart/form-data">
+{# **Der erste Absende-Knopf eines Formulars ist der, den Enter drueckt.** Seit die
+   Fotokarten ihre Knoepfe im grossen Formular tragen, war das der „entfernen"-Knopf des
+   ersten Bildes: Ein Enter im Vornamen loeschte das Bewerbungsfoto des Kunden,
+   endgueltig und ohne Rueckfrage. Dieser Knopf steht deshalb ganz vorn und stellt den
+   Zustand von vorher wieder her - Enter baut die Excel.
+   Ohne `name` und ohne `value`: Ein Absende-Knopf schickt beides nur, wenn er der
+   Ausloeser war - hier also bei jedem Enter im Formular, und das ist der Regelfall
+   dieses Knopfes. `lebenslauf_erzeugen` bekaeme damit ein Feld, das ueber keinen
+   anderen Weg ankommt, und muesste es kennen; ohne `formnovalidate`, damit Enter wie
+   frueher an der Pflichtfeldpruefung haengen bleibt; und nicht `disabled`, weil ein
+   abgeschalteter Standardknopf Enter still wirkungslos machen wuerde. `hidden` nimmt ihn nur aus dem Blatt, nicht aus dem
+   Formular: Standardknopf bleibt er.
+   Dass `hidden` hier wirklich versteckt, haengt an der Regel `[hidden]{display:none
+   !important}` in `stil.css`: Ohne sie schlaegt die Knopfregel die Grundregel des
+   Browsers, und dieser Knopf stand als leere gruene Pille sichtbar im Blatt. #}
+<button type="submit" hidden
+        formaction="{{ url_for('lebenslauf_erzeugen', kid=v.kunde_id) }}"></button>
 <h2>Person</h2>
 <div class="karte">
   <dl class="paare">
@@ -318,7 +362,11 @@
     {% for k in vorlagen %}
     <label class="vorlage" data-form="{{ k.kopfform }}"
            data-suche="{{ (k.nummer ~ ' ' ~ k.name ~ ' ' ~ k.text)|lower }}">
-      <input type="radio" name="design" value="{{ k.kennung }}" {{ 'checked' if loop.first }}>
+      {# Gewaehlt bleibt, was der Coach gewaehlt hat. Vorher stand `checked` immer an
+         der ersten Vorlage - jedes Neuzeichnen (Fotowechsel, Fehler bei Excel oder PDF,
+         Unterlagen auslesen) sprang damit auf Nr. 1 zurueck. #}
+      {% set gewaehlt = (design and k.kennung == design) or (not design and loop.first) %}
+      <input type="radio" name="design" value="{{ k.kennung }}" {{ 'checked' if gewaehlt }}>
       <img src="{{ url_for('static', filename=k.eigen) }}" alt="Vorlage {{ k.nummer }}"
            loading="lazy">
       <span class="vorlage-fuss">
@@ -386,31 +434,90 @@
            alt="Bewerbungsfoto">
       <div class="marke" style="margin:6px 0 5px">{{ f.breite }}×{{ f.hoehe }} ·
         {{ (f.bytes / 1024)|round|int }} kB · {{ f.quelle }}</div>
-      {# `form="..."` verweist auf ein Formular weiter unten. In ein <form> darf kein
-         zweites hinein - HTML kennt das nicht -, und das ganze Blatt steckt schon in
-         einem. Das Attribut ist der vorgesehene Weg heraus. #}
-      <select name="platz" form="platz{{ f.id }}"
-              onchange="this.form.submit()" style="width:100%">
+      {# **Beide Knoepfe gehoeren zum grossen Formular**, in dem diese Karte steht.
+         Vorher hingen sie per `form="..."` an zwei leeren Formularen am Blattende.
+         Abgeschickt wird aber immer nur das Formular, an dem der Knopf haengt - und in
+         jenen beiden stand nichts. Die 114 ausgefuellten Steuerelemente blieben zurueck,
+         und der Coach fand nach einem Fotoklick ein leeres Blatt vor. Jetzt gehen sie
+         beim Fotoklick mit; `formaction` nennt das Ziel, `formnovalidate` haelt die
+         Pflichtfeldpruefung still - sonst koennte bei leerem Zielberuf kein Foto mehr
+         entfernt werden, und der Knopf taete wieder nichts.
+         Dass dieser Knopf loescht, ohne zu fragen, ist nur deshalb vertretbar, weil er
+         **nicht** der Standardknopf des Formulars ist: Ganz oben, gleich hinter dem
+         `<form>`, steht ein versteckter Knopf auf „Excel erzeugen" - der faengt jedes
+         Enter ab. Faellt der weg, loescht Enter im Vornamen wieder das Foto. #}
+      <select name="platz_{{ f.id }}" class="fotoplatz"
+              data-ziel="{{ url_for('kunde_foto_aendern', kid=v.kunde_id, fid=f.id) }}"
+              style="width:100%">
         {% for k, text in plaetze %}
         <option value="{{ k }}" {{ 'selected' if k == f.platz }}>{{ text }}</option>
         {% endfor %}
       </select>
-      <button type="submit" form="loesch{{ f.id }}" class="btn btn-sm"
-              style="margin-top:6px">entfernen</button>
+      <button type="submit" name="was" value="loeschen" formnovalidate
+              formaction="{{ url_for('kunde_foto_aendern', kid=v.kunde_id, fid=f.id) }}"
+              class="btn btn-sm" style="margin-top:6px">entfernen</button>
     </div>
     {% endfor %}
   </div>
+  <script>
+  /* Der Platzwechsel schickt dasselbe ab wie der Entfernen-Knopf daneben: das ganze
+     Formular. Das Ziel steht an der Auswahl, weil das grosse Formular kein `action`
+     traegt - ohne gesetztes Ziel ginge der Wechsel an die Adresse, auf der man gerade
+     steht, und `/lebenslauf?kunde=<id>` kennt kein POST: 405, Klick verpufft. Genau
+     daran hing schon einmal der Excel-Knopf (Kommentar weiter unten).
+     `submit()` mit Absicht statt `requestSubmit()`: es geht an der Pflichtfeldpruefung
+     vorbei, so wie `formnovalidate` am Knopf. */
+  (function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.fotoplatz'), function (feld) {
+      feld.addEventListener('change', function () {
+        var formular = feld.form;
+        if (!formular) { return; }
+        formular.action = feld.dataset.ziel;
+        formular.submit();
+      });
+    });
+  })();
+  </script>
   {% else %}
   <p class="marke" style="margin:0 0 10px;color:var(--gelb)">Noch kein Foto hinterlegt –
     der Lebenslauf bekommt an dieser Stelle nichts. Das Foto ist das Erste, was ein
     Arbeitgeber ansieht.</p>
   {% endif %}
 
+  {# **Die Beschriftung sagt, was wirklich passiert.** „Weiteres Foto hinzufügen" stand
+     auch dann da, wenn alle Plaetze belegt waren - dann kommt aber keines dazu, sondern
+     das erste wird ersetzt (`fotos.freier_platz` gibt bei drei belegten Plaetzen wieder
+     den Kopf zurueck). Der Coach las „hinzufügen" und verlor Seite 1. #}
+  {% set alle_belegt = kundenfotos and kundenfotos|length >= plaetze|length %}
   <div class="filter" style="margin:10px 0 0;align-items:center">
-    <label class="marke">{{ 'Weiteres Foto hinzufügen' if kundenfotos else 'Bewerbungsfoto wählen' }}
+    <label class="marke">{{ 'Foto austauschen' if alle_belegt
+                            else ('Weiteres Foto hinzufügen' if kundenfotos
+                                  else 'Bewerbungsfoto wählen') }}
       <input type="file" name="foto" accept="image/*" style="margin-left:8px"></label>
-    <span class="marke">wird verkleinert und am Kunden gemerkt – der nächste freie Platz
-      wird von selbst genommen ·
+    {# **Das Foto bekommt einen eigenen Knopf.** Vorher nahm der PDF-Knopf ein
+       gewaehltes Bild nebenbei mit: Wer drei Designs vergleicht, klickt ihn dreimal -
+       danach waren alle drei Plaetze mit demselben Bild belegt, der vierte Klick
+       ueberschrieb still den Kopf. Die Antwort war ein Download, der Coach sah nichts
+       davon. Am Excel-Zweig waere es schlimmer geworden: Dort haengt der versteckte
+       Standardknopf des Blattes, also haette **jedes** Enter in einem Textfeld ein
+       Foto abgelegt - der Zweig las das Feld `foto` urspruenglich gar nicht, erst
+       Runde 2 dieses Umbaus hatte den Upload dorthin gelegt.
+       Jetzt hinterlegt genau dieser Knopf das Bild, und nur er.
+       `formaction`, weil das Formular kein `action` traegt und diese Seite auch unter
+       `/lebenslauf?kunde=<id>` steht - ohne Ziel endete der Klick von dort in 405.
+       `formnovalidate` wie am Entfernen-Knopf: ein Foto muss sich auch hinterlegen
+       lassen, solange der Zielberuf noch leer ist. Und er steht weit hinter dem
+       versteckten Knopf oben, ist also nicht der Standardknopf fuer Enter. #}
+    <button type="submit" name="was" value="hinterlegen" formnovalidate
+            formaction="{{ url_for('lebenslauf_foto', kid=v.kunde_id) }}"
+            class="btn btn-sm">Foto hinterlegen</button>
+    <span class="marke">wird verkleinert und am Kunden gemerkt.
+      {% if alle_belegt %}<strong style="color:var(--gelb)">Alle {{ plaetze|length }} Plätze
+      sind belegt – das Bild ersetzt „{{ plaetze[0][1] }}“, und das dortige Foto ist
+      danach fort.</strong> Soll ein anderes weichen, erst an seiner Karte auf
+      „entfernen“ klicken.{% else %}Der nächste freie Platz wird von selbst genommen;
+      sind alle {{ plaetze|length }} belegt, ersetzt das nächste Bild „{{ plaetze[0][1] }}“.{% endif %}
+      Nur dieser Knopf legt das Bild ab; Excel und PDF nehmen, was hier schon hinterlegt ist ·
       <a href="{{ url_for('lebenslauf_fotos') }}">Fotos aus der Chat-Gruppe zuordnen</a></span>
   </div>
   {% else %}
@@ -424,7 +531,7 @@
      `action` und schickt damit an die Adresse, auf der man gerade steht - und diese
      Seite ist unter zweien zu erreichen: `/kunde/<id>/lebenslauf` kennt POST,
      `/lebenslauf?kunde=<id>` nicht. Der zweite Weg ist der normale: Die Kundenauswahl
-     zeigt dorthin, und nach jedem Fotowechsel springt es dorthin zurueck. Ohne
+     zeigt dorthin, und auch die Fotoknoepfe oben schicken von dort ab. Ohne
      `formaction` endete der Excel-Knopf von dort aus in „405 Method Not Allowed" - er
      sah aus wie immer und tat nichts. Der PDF-Knopf trug sein Ziel von Anfang an und
      war deshalb nie betroffen. #}
@@ -435,15 +542,6 @@
   <a class="btn btn-sm" href="{{ url_for('kunde_detail', kid=v.kunde_id) }}" style="margin-left:8px">zurück zur Akte</a>
 </p>
 </form>
-
-{% for f in kundenfotos %}
-<form method="post" id="platz{{ f.id }}" hidden
-      action="{{ url_for('kunde_foto_aendern', kid=v.kunde_id, fid=f.id) }}"></form>
-<form method="post" id="loesch{{ f.id }}" hidden
-      action="{{ url_for('kunde_foto_aendern', kid=v.kunde_id, fid=f.id) }}">
-  <input type="hidden" name="was" value="loeschen">
-</form>
-{% endfor %}
 
 {% if frueher %}
 <h2>Schon gebaut</h2>

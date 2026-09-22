@@ -26,6 +26,11 @@ import sys
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
+import pruefkopie                     # noqa: E402
+# Dieselben zwei Zeilen wie in den drei Selbsttests: `app` bindet seinen Datenbankpfad
+# beim Import. Ohne sie liefe die Vorlagenprobe auf `improfy_os.db` - heute schreibt sie
+# nichts, aber die erste Schreibzeile traefe den Echtbestand.
+os.environ["IMPROFY_OS_DB"] = pruefkopie.anlegen("improfy_cv_probe.db")
 
 import app as A                       # noqa: E402
 import cv_pdf                         # noqa: E402
