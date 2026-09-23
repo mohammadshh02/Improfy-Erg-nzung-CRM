@@ -22,22 +22,36 @@ sys.path.insert(0, HIER)
 import pruefkopie                # noqa: E402
 # Warum die Arbeitskopie über `sqlite3.backup` läuft und nicht über `shutil.copy`,
 # steht im Kopf von `pruefkopie.py`. Am Echtbestand ändert der Lauf nichts.
+# Prozessnummer und Aufräumen stecken ebenfalls dort – beides stand bis zur
+# Zusammenführung an jeder der sieben Stellen von Hand.
 kopie = pruefkopie.anlegen("improfy_os_gesamt_test.db")
 os.environ["IMPROFY_OS_DB"] = kopie
+
 # **Der Sicherungsordner gehört ebenfalls dem Lauf.** Abschnitt 7 drückt auf
 # `/betrieb/sichern`; `betrieb.SICHERUNGEN` zeigte dabei auf den echten Ordner des
 # Repos, und `betrieb.aufraeumen` warf dort den ältesten Stand weg. Die Prüfkette hat
 # sich so ihre eigene Historie überschrieben – am 22.09.2026 lagen sieben Stände aus
-# 86 Minuten im Ordner, alle aus Testläufen. Der Wert muss **vor** `import app` stehen,
-# `betrieb` bindet ihn beim Import.
+# 86 Minuten im Ordner, alle aus Testläufen. Wer daraus zurücksichert, holt sich
+# Testkonten in den Echtbestand, und schon das erste Konto schaltet die persönliche
+# Anmeldung scharf. Der Wert muss **vor** `import app` stehen, `betrieb` bindet ihn
+# beim Import.
 # Gesetzt wird **unbedingt**, nicht mit `setdefault`: Ein geerbter Wert aus der Umgebung
 # (eine `.env`, ein Startskript, ein Elternprozess) zeigt im Zweifel genau auf den
 # Ordner, den dieser Lauf nicht anfassen darf. Wer den Ordner steuern will, ruft den
 # Test aus einem eigenen Arbeitsbaum auf.
-os.environ["OS_SICHERUNG_ORDNER"] = os.path.join(os.path.dirname(kopie), "sicherungen")
+os.environ["OS_SICHERUNG_ORDNER"] = pruefkopie.papierkorb("sicherungen")
+
+# Dasselbe für die gebauten Unterlagen. Ohne diese Variable legt jeder Lauf zwei
+# echte Dateien in `ausgabe/lebenslaeufe/` des Live-Repos – belegt am 21.09.2026:
+# gelöscht, Test erneut gelaufen, beide wieder da. Der Dateiname trägt Kundennummer
+# und Datum, ein Testlauf überschreibt also ein am selben Tag echt gebautes Dokument
+# desselben Menschen. Gelesen wird die Variable beim Import von `lebenslauf_bauen`
+# und `cv_pdf`, sie muss darum vorher stehen.
+os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
 
 import app as A                     # noqa: E402
 import datenbank as db              # noqa: E402
+import taskforce as tf              # noqa: E402
 
 ergebnis = []
 
@@ -91,6 +105,16 @@ def _beispiel(regel):
 
 
 def main():
+    # **Die Datenbank wird vollständig vorbereitet, bevor die erste Seite drankommt.**
+    # `app.py` ruft `db.init()`, `konten.init()` und `tf.init()` nur unter
+    # `if __name__ == "__main__"` – also nur beim Start des Servers, nicht beim Import.
+    # Der Gesamttest importiert `app` aber bloss. Gemessen an einer leeren Kopie: ohne
+    # diese Zeile geben 20 Seiten 500 („no such table: tf_profil"), mit `db.init()`
+    # allein bleiben fünf übrig. `konten.init()` läuft beim Import von `app` schon mit.
+    # Was bis heute nicht auffiel, weil die Arbeitskopie jedes Mal einen gewachsenen
+    # Bestand mitbrachte – auf einem frisch geklonten Rechner bricht der Lauf dagegen
+    # schon in `pruefkopie.anlegen` ab, mit Auskunft statt mit einer SQLite-Meldung.
+    db.init(); tf.init()
     c = A.app.test_client()
     print("Gesamttest Improfy-OS\n")
 
@@ -123,6 +147,64 @@ def main():
     pruefe(f"{geprueft} Seiten antworten sauber", geprueft >= 25,
            f"{uebersprungen} bewusst ausgelassen (Außenzugriff oder eigene Datei)")
 
+    # **`/suche` ohne Suchbegriff prüft nichts.** Die Schleife oben ruft jede Route ohne
+    # Argumente auf. Bei `/suche` heißt das `q=""`, und dann baut die Seite ihre Gruppen
+    # gar nicht erst – der Rundlauf lief an zwei kaputten Links vorbei, die in zwei
+    # Gruppen steckten: `mitarbeiter_detail` und `leads` gibt es in `app.url_map` nicht.
+    # Gemessen vor der Reparatur: `/suche?q=a` 200, `/suche?q=Lager` 200, die Suche nach
+    # dem Namen einer Kollegin 500 (`BuildError`). Und `/suche` wird mit Echtdaten
+    # benutzt: ein Coach am Telefon tippt einen Namen.
+    #
+    # Gesucht wird deshalb mit einem Begriff, der JEDE der fünf Gruppen trifft – dafür
+    # wird er vorher in jede der fünf Tabellen gelegt und hinterher wieder entfernt. Auf
+    # Bestandsdaten ist kein Verlass: `lead` ist heute leer, die Leads-Gruppe wäre also
+    # auch mit einem echten Namen nie gebaut worden.
+    _suchwort = "Suchprobe-Zzyx"
+    _st = db.STANDORT_STANDARD
+    with db.offen() as con:
+        con.execute("INSERT INTO kunde (name, standort, status_code) VALUES (?,?,'H')",
+                    (_suchwort + " Kundin", _st))
+        _sk = con.execute("SELECT id FROM kunde WHERE name=?",
+                          (_suchwort + " Kundin",)).fetchone()[0]
+        con.execute("INSERT INTO mitarbeiter (name, standort, rolle) VALUES (?,?,'Coach')",
+                    (_suchwort + " Kollege", _st))
+        con.execute("INSERT INTO lead (name, standort, quelle, status) VALUES (?,?,'Online','neu')",
+                    (_suchwort + " Anfrage", _st))
+        con.execute("INSERT INTO lebenslauf (kunde_id, datei_id, name, quelle) VALUES (?,?,?,'os')",
+                    (_sk, "os:" + _suchwort, _suchwort + " Lebenslauf.pdf"))
+        con.execute("INSERT INTO tf_profil (kunde_id, art, titel, standort) VALUES (?,'job',?,?)",
+                    (_sk, _suchwort + " Profil", _st))
+        _sp = con.execute("SELECT MAX(id) FROM tf_profil").fetchone()[0]
+        con.execute("INSERT INTO tf_angebot (profil_id, quelle, extern_id, titel, ort, status)"
+                    " VALUES (?,'jobs.probe',?,?,'Köln','neu')",
+                    (_sp, _suchwort, _suchwort + " Stelle"))
+    try:
+        _antwort = c.get("/suche?q=" + _suchwort)
+        _seite = _antwort.get_data(as_text=True)
+        _gruppen = [g.strip() for g in re.findall(r"<h2>([^<]+)<", _seite)]
+        pruefe("Die Suche mit Suchbegriff baut jede der fünf Gruppen",
+               _antwort.status_code == 200
+               and {"Kunden", "Mitarbeiter", "Angebote der Taskforce", "Lebensläufe",
+                    "Leads"} <= set(_gruppen),
+               f"Status {_antwort.status_code}, Gruppen: {_gruppen}")
+        # Und jeder Treffer muss irgendwohin führen. Ein `url_for` auf einen Endpunkt,
+        # den es nicht gibt, fällt schon oben als 500 auf; ein Link auf eine Seite, die
+        # es nicht mehr gibt, erst hier.
+        _ziele = re.findall(r'<a href="(/[^"]+)"><strong>', _seite)
+        _kaputt = sorted({z for z in _ziele
+                          if c.get(z, follow_redirects=True).status_code >= 400})
+        pruefe("Jeder Treffer der Suche führt auf eine Seite, die es gibt",
+               len(_ziele) >= 5 and not _kaputt, _kaputt or f"{len(_ziele)} Treffer-Links")
+    finally:
+        # Der Bestand darf durch einen Testlauf nicht wachsen – auch nicht in der Kopie.
+        with db.offen() as con:
+            con.execute("DELETE FROM tf_angebot WHERE profil_id=?", (_sp,))
+            con.execute("DELETE FROM tf_profil WHERE id=?", (_sp,))
+            con.execute("DELETE FROM lebenslauf WHERE datei_id=?", ("os:" + _suchwort,))
+            con.execute("DELETE FROM lead WHERE name LIKE ?", (_suchwort + "%",))
+            con.execute("DELETE FROM mitarbeiter WHERE name LIKE ?", (_suchwort + "%",))
+            con.execute("DELETE FROM kunde WHERE name LIKE ?", (_suchwort + "%",))
+
     print("\n2. Gestaltung liegt vollständig vor")
     css = c.get("/static/stil.css")
     text = css.get_data(as_text=True)
@@ -140,6 +222,37 @@ def main():
                        ("IBM Plex Mono", "Schrift IBM Plex Mono"),
                        (".ablage{", "Ablagefläche für Unterlagen")):
         pruefe(f"CSS enthält {was}", marke in text)
+
+    # **Was der Kommentar in der Datei behauptet, wird hier nachgezählt.** Ab der Marke
+    # „Beide Zweige haben hier angebaut" stehen die Blöcke, die bei der Zusammenführung
+    # dazugekommen sind. Wiederholt einer von ihnen einen Selektor von weiter oben,
+    # überschreiben sich zwei Absichten gegenseitig, und heraus kommt eine Mischung, die
+    # niemand so gewollt hat: `.reglertitel` stand zweimal da – die Pille von oben, Farbe
+    # und Strichstärke von unten, also eine Pille mit grauer, dünner Schrift. Die
+    # Merge-Nachricht und der Kommentar behaupteten beide das Gegenteil; nachgemessen
+    # hatte es niemand.
+    # `@media`-Blöcke bleiben außen vor: dort ist die Wiederholung der Sinn der Sache.
+    def _selektoren(_css):
+        _css = re.sub(r"/\*.*?\*/", "", _css, flags=re.S)
+        _css = re.sub(r"@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", "", _css, flags=re.S)
+        _raus = set()
+        for _block in re.finditer(r"([^{}]+)\{[^{}]*\}", _css):
+            for _s in _block.group(1).split(","):
+                _s = " ".join(_s.split())
+                if _s and not _s.startswith("@"):
+                    _raus.add(_s)
+        return _raus
+
+    _marke = "Beide Zweige haben hier angebaut"
+    _stelle = text.find(_marke)
+    # Der Schnitt liegt hinter dem Ende des Marken-Kommentars, sonst stünde dessen
+    # Resttext im ersten Selektor des unteren Teils.
+    _unten = text[text.find("*/", _stelle) + 2:] if _stelle >= 0 else ""
+    _doppelt = sorted(_selektoren(text[:max(_stelle, 0)]) & _selektoren(_unten))
+    pruefe("Kein Selektor der angebauten Blöcke überschreibt einen von weiter oben",
+           _stelle >= 0 and not _doppelt,
+           _doppelt or f"{len(_selektoren(_unten))} Selektoren ab der Marke")
+
     start = c.get("/").get_data(as_text=True)
     pruefe("Jede Seite lädt die Schriften des CRM",
            "fontshare" in start and "fonts.googleapis" in start)
@@ -159,13 +272,19 @@ def main():
     for _p in ("/", "/kunden", "/coaches", "/lebenslauf", "/taskforce", "/trichter",
                "/aufgaben"):
         _wege |= set(re.findall('href="(/[^"?#]*)', c.get(_p).get_data(as_text=True)))
+    # /taskforce/tafel hat keinen Reiter: /taskforce zeigt jetzt den Einstieg. Die volle
+    # Tafel muss von dort aus verlinkt bleiben, sonst ist sie praktisch geloescht.
+    # Dasselbe gilt seit dem 21.09.2026 fuer die beiden Arbeitsplaetze /taskforce/arbeit
+    # und /taskforce/wohnung: sie bekommen keinen achten Reiter, also muss der
+    # Schnellzugriff des Einstiegs sie tragen.
     for _ziel in ("/nachrichten", "/aktivitaet", "/protokoll", "/konten", "/betrieb",
-                  "/anbindung", "/aussen", "/lebenslauf/liste"):
+                  "/anbindung", "/aussen", "/lebenslauf/liste", "/taskforce/tafel",
+                  "/taskforce/arbeit", "/taskforce/wohnung"):
         pruefe(f"{_ziel} ist ohne eigenen Reiter erreichbar", _ziel in _wege)
 
     print("\n4. Kein Platzhalter blieb stehen")
-    proben = ["/", "/kunden", "/taskforce", "/lebenslauf", "/trichter", "/aufgaben",
-              "/aktivitaet", "/betrieb"]
+    proben = ["/", "/kunden", "/taskforce", "/taskforce/tafel", "/taskforce/arbeit",
+              "/lebenslauf", "/trichter", "/aufgaben", "/aktivitaet", "/betrieb"]
     for pfad in proben:
         t = c.get(pfad).get_data(as_text=True)
         pruefe(f"{pfad} ohne offene Jinja-Stelle",
@@ -315,6 +434,13 @@ def main():
     print("\n7. Betrieb: Sicherung und Zeitsteuerung")
     import betrieb
     betrieb.init()
+    # Vor der ersten Sicherung festhalten, was im echten Ordner liegt. Ein Testlauf darf
+    # dort weder etwas hinlegen noch etwas herausdraengen: `betrieb.aufraeumen()` behaelt
+    # sieben Staende, jeder Test-Schnappschuss kostet also eine echte Nachtsicherung. Wer
+    # aus so einem Stand zurueckholt, hat die Testkonten im Echtbestand - und schon das
+    # erste Konto schaltet die persoenliche Anmeldung scharf.
+    _echter_ordner = os.path.join(HIER, "sicherungen")
+    _vorher = sorted(os.listdir(_echter_ordner)) if os.path.isdir(_echter_ordner) else []
     pruefe("Sicherung von Hand legt einen Stand an",
            c.post("/betrieb/sichern").status_code == 302 and len(betrieb.staende()) >= 1,
            [s["name"] for s in betrieb.staende()][:2])
@@ -325,6 +451,54 @@ def main():
     pruefe("Der Selbsttest sichert nicht in den Ordner des Repos",
            os.path.abspath(betrieb.SICHERUNGEN)
            != os.path.abspath(os.path.join(HIER, "sicherungen")), betrieb.SICHERUNGEN)
+    # Beide Zweige hatten dieselbe Sorge und haben sie verschieden gemessen; beide Reihen
+    # bleiben stehen. Die obere fragt, **wohin** gesichert wird, die untere zaehlt den
+    # echten Ordner vorher und nachher ab. Ein umgebogener Pfad, der trotzdem in den
+    # echten Ordner schreibt (Verknuepfung, relativer Rest), faellt nur der unteren auf.
+    _nachher = sorted(os.listdir(_echter_ordner)) if os.path.isdir(_echter_ordner) else []
+    pruefe("Der Testlauf sichert in den Papierkorb, nicht in den echten Ordner",
+           os.path.abspath(betrieb.SICHERUNGEN) != os.path.abspath(_echter_ordner)
+           and _vorher == _nachher and len(betrieb.staende()) >= 1,
+           f"{betrieb.SICHERUNGEN} · echter Ordner unveraendert: {_vorher == _nachher}")
+
+    # **Dieselbe Familie, dieselben zwei Reihen: der Ausgabeordner.** `lebenslauf_bauen`
+    # und `cv_pdf` leiten ihn genauso aus dem eigenen Verzeichnis ab, wenn
+    # `OS_AUSGABE_ORDNER` fehlt. Dann legt ein Testlauf Unterlagen mit Kundennummer und
+    # echtem Namen im Dateinamen ins Repo und ueberschreibt ein am selben Tag echt
+    # gebautes Dokument desselben Menschen - belegt am 21.09. und erneut am 23.09.2026,
+    # beide Male ohne dass eine einzige Pruefung rot wurde. Gebaut wird hier wirklich
+    # eines, sonst ist die zweite Reihe eine Aussage ueber nichts; die Namen sind
+    # erfunden, und der Vermerk am Kunden geht gleich wieder weg.
+    import lebenslauf_bauen as _LB
+    _echte_ausgabe = os.path.join(HIER, "ausgabe", "lebenslaeufe")
+    _vor_ausgabe = (sorted(os.listdir(_echte_ausgabe))
+                    if os.path.isdir(_echte_ausgabe) else [])
+    _kid_bau = db.wert("SELECT id FROM kunde ORDER BY id LIMIT 1")
+    _dok_vorher = db.eine("SELECT vorhanden, dateiname, geaendert, geprueft FROM dokument"
+                          " WHERE kunde_id=? AND schluessel='lebenslauf'", (_kid_bau,))
+    _, _, _cv_datei, _cv_pfad = _LB.bauen(
+        _kid_bau, {"vorname": "Quintus", "nachname": "Testbergmann"})
+    _nach_ausgabe = (sorted(os.listdir(_echte_ausgabe))
+                     if os.path.isdir(_echte_ausgabe) else [])
+    pruefe("Der Selbsttest baut Unterlagen nicht in den Ordner des Repos",
+           os.path.abspath(_LB.AUSGABE) != os.path.abspath(_echte_ausgabe), _LB.AUSGABE)
+    pruefe("Der Testlauf baut in den Papierkorb, nicht in den echten Ordner",
+           os.path.exists(_cv_pfad) and _vor_ausgabe == _nach_ausgabe,
+           f"{_cv_pfad} · echter Ordner unveraendert: {_vor_ausgabe == _nach_ausgabe}")
+    with db.offen() as con:
+        # Der gebaute Lebenslauf haengt jetzt am Kunden und zaehlt im Qualitaets-
+        # management als vorhanden. Beides war eine Minute alt und wird wieder
+        # zurueckgedreht - auch in der Kopie soll kein Testartefakt stehenbleiben.
+        con.execute("DELETE FROM lebenslauf WHERE datei_id=?", ("os:" + _cv_datei,))
+        if _dok_vorher:
+            con.execute("UPDATE dokument SET vorhanden=?, dateiname=?, geaendert=?,"
+                        " geprueft=? WHERE kunde_id=? AND schluessel='lebenslauf'",
+                        (_dok_vorher["vorhanden"], _dok_vorher["dateiname"],
+                         _dok_vorher["geaendert"], _dok_vorher["geprueft"], _kid_bau))
+        else:
+            con.execute("DELETE FROM dokument WHERE kunde_id=? AND schluessel='lebenslauf'",
+                        (_kid_bau,))
+
     _seite_betrieb = c.get("/betrieb").get_data(as_text=True)
     pruefe("Betriebsseite zeigt Uhrzeiten und Staende",
            all(x in _seite_betrieb
@@ -641,6 +815,24 @@ def main():
     pruefe("Das Kopieren läuft in eine Frist statt ins Endlose",
            bool(_frist) and "nicht durch" in _frist and time.monotonic() - _t0 < 5,
            (_frist.splitlines() or ["ohne Zeitlimit durchgelaufen"])[0][:90])
+    # **Und ein fehlender Bestand muss zu verstehen sein.** `*.db` ist gitignoriert: Auf
+    # einem frisch geklonten Rechner (dem MacBook etwa) ist die Kundendatenbank nicht da.
+    # Vorher meldete SQLite dazu „unable to open database file" - ohne Dateinamen, ohne
+    # Hinweis, und jede Pruefung danach fiel mit derselben Meldung um.
+    _fehlt = os.path.join(pruefkopie.ordner(), "gibtesnicht.db")
+    try:
+        pruefkopie.anlegen("os_test_ohne_bestand.db", quelle=_fehlt)
+        _ohne = ""
+    except pruefkopie.KeinBestand as _e:
+        _ohne = str(_e)
+    pruefe("Ein fehlender Bestand bricht mit Auskunft ab, nicht mit einer SQLite-Meldung",
+           "gibtesnicht.db" in _ohne and "gitignoriert" in _ohne,
+           (_ohne.splitlines() or ["ohne Fehler durchgelaufen"])[0][:90])
+    # Der zweite halbe Schritt derselben Sache: Ein blankes `sqlite3.connect` haette an
+    # dieser Stelle eine leere neue Datenbank angelegt, und der Lauf haette an Nichts
+    # gemessen - lauter gruene Reihen ueber einen leeren Bestand.
+    pruefe("Aus dem fehlenden Bestand entsteht keine leere neue Datenbank",
+           not os.path.exists(_fehlt), _fehlt)
     _reste = []
     for _weg in (_probe, os.path.join(pruefkopie.ordner(), "os_test_pruefkopie_frist.db")):
         try:
@@ -698,6 +890,158 @@ def main():
         _p = os.path.join(pruefkopie.SAMMELORDNER, _n)
         if os.path.isdir(_p):
             os.rmdir(_p)
+
+    # Beide Zweige hatten einen eigenen Abschnitt 10. Beide bleiben; der aus `taskforce`
+    # ist hier zur 11 geworden, damit die Nummern in der Ausgabe wieder eindeutig sind.
+    print("\n11. Einen Menschen erfassen, ohne das CRM nachzubauen")
+    # Angelegt wird ein Kunde eigentlich im CRM. Solange `CRM_BASIS` nicht in der .env
+    # steht, kommt von dort aber nichts zurueck – und fuer jemanden, den das OS nicht
+    # kennt, sucht die Taskforce nicht. Also geht es auch hier.
+    #
+    # Geprueft wird vor allem, was NICHT passieren darf: stilles Verdoppeln, stilles
+    # Zusammenfuehren, eine zweite Wahrheit unter derselben Kundennummer. Und die Grenze:
+    # erfasst wird, WER jemand ist – kein UE-Feld, kein Gutschein, kein Termin.
+    #
+    # Die Namen sind mit Absicht keine, die es geben kann. Ein echter Name im Testcode
+    # kollidiert eines Tages mit einem echten Kunden und steht dann unbemerkt zweimal da.
+    NAME = "Quintus Testbergmann"
+    NAME_B = "Radulf Prüfstein"
+    NAME_C = "Wendelin Ochsenfurt"
+    NUMMER = "IMP-TEST-0001"
+    testnamen = (NAME, NAME_B, NAME_C)
+
+    def anzahl():
+        return db.wert("SELECT COUNT(*) FROM kunde WHERE standort=?",
+                       (db.STANDORT_STANDARD,))
+
+    try:
+        vorher = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": "   "})
+        pruefe("Ohne Namen wird nichts angelegt",
+               r.status_code == 200 and anzahl() == vorher
+               and "Ohne Namen wird nichts angelegt" in r.get_data(as_text=True),
+               f"{vorher} Kunden vorher, {anzahl()} nachher")
+
+        r = c.post("/kunden/anlegen",
+                   data={"name": NAME, "telefon": "0221 000000", "stadt": "Köln"})
+        kid = db.wert("SELECT id FROM kunde WHERE name=?", (NAME,))
+        pruefe("Ein unbekannter Name wird ohne Rückfrage angelegt",
+               r.status_code == 302 and bool(kid) and anzahl() == vorher + 1
+               and r.headers.get("Location", "").endswith(f"/kunde/{kid}"),
+               r.headers.get("Location", ""))
+
+        # Herkunft und Status: „K – Lead ohne Antrag" ist der einzige Code, der heisst
+        # „ist da, noch nichts passiert". Leere Felder bleiben leer – nichts erfunden.
+        satz = db.eine("SELECT * FROM kunde WHERE id=?", (kid,)) or {}
+        pruefe("Der angelegte Kunde trägt seine Herkunft und den Lead-Status",
+               satz.get("quelle_stand") == A.ANLAGE_QUELLE
+               and satz.get("status_code") == "K" and satz.get("stadt") == "Köln"
+               and satz.get("sprache") is None and satz.get("kundennummer") is None,
+               f"{satz.get('quelle_stand')} / {satz.get('status_code')}")
+        pruefe("Die Plakette „vorläufig“ steht in Liste und Akte",
+               "vorläufig" in c.get("/kunden?q=Testbergmann").get_data(as_text=True)
+               and "vorläufig" in c.get(f"/kunde/{kid}").get_data(as_text=True))
+        pruefe("Das Anlegeformular steht offen, wenn der Schnellzugriff danach fragt",
+               '<details id="neu"' in c.get("/kunden?neu=1").get_data(as_text=True))
+
+        # Die Personensuche ist der Weg, auf dem die Taskforce ihn wiederfindet. Wer
+        # angelegt ist und nicht gefunden wird, ist so gut wie nicht angelegt.
+        gefunden = c.get("/api/kunden-suche?q=testbergmann").get_json() or {}
+        pruefe("Der angelegte Kunde ist über die Personensuche findbar",
+               any(k["id"] == kid for k in gefunden.get("kunden", [])),
+               [k["name"] for k in gefunden.get("kunden", [])][:3])
+
+        # Rueckfragen, nicht sperren: derselbe Name fuehrt zur Rueckfrage, nicht zum
+        # zweiten Datensatz – und „trotzdem anlegen" bleibt erreichbar. Verglichen wird
+        # unscharf (`tf.kunden_suchen`), weil ein exakter Vergleich zwei Namensteile
+        # nicht wiederfindet, wenn im Bestand drei stehen oder die zweite Schreibweise
+        # in Klammern dahinter.
+        zwischen = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": NAME.lower()})
+        text = r.get_data(as_text=True)
+        pruefe("Ein ähnlicher Name führt zur Rückfrage statt zum Datensatz",
+               r.status_code == 200 and anzahl() == zwischen
+               and "ähnliche Namen stehen schon im Bestand" in text
+               and "trotzdem anlegen" in text and NAME in text,
+               f"{zwischen} Kunden, unverändert: {anzahl() == zwischen}")
+        r = c.post("/kunden/anlegen", data={"name": NAME.lower(), "bestaetigt": "1"})
+        pruefe("„trotzdem anlegen“ legt den zweiten Datensatz wirklich an",
+               r.status_code == 302 and anzahl() == zwischen + 1,
+               f"{zwischen} → {anzahl()}")
+
+        # Eine Kundennummer gibt es einmal – dieselbe Regel wie in `api.py`. Hier gilt
+        # kein „trotzdem": zwei Datensaetze unter einer Nummer waeren im QM ein Befund.
+        c.post("/kunden/anlegen", data={"name": NAME_B, "kundennummer": NUMMER})
+        bid = db.wert("SELECT id FROM kunde WHERE kundennummer=?", (NUMMER,))
+        vor_dublette = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": NAME_C, "kundennummer": NUMMER})
+        text = r.get_data(as_text=True)
+        pruefe("Eine schon vergebene Kundennummer wird abgewiesen, mit Weg zum Vorhandenen",
+               r.status_code == 200 and anzahl() == vor_dublette
+               and NUMMER in text and f'/kunde/{bid}' in text
+               and not db.wert("SELECT COUNT(*) FROM kunde WHERE name=?", (NAME_C,)),
+               f"{vor_dublette} Kunden, unverändert: {anzahl() == vor_dublette}")
+
+        # Die Grenze aus docs/wissen/crm-abgleich-was-gehoert-wohin.md: das Formular
+        # erfasst, WER jemand ist. Alles, was das CRM verbindlich fuehrt, bleibt draussen –
+        # sonst gibt es zwei Wahrheiten und jemand muss spaeter entscheiden, welche gilt.
+        # Gemessen an den Feldern, die das Formular abschickt – nicht am Fliesstext.
+        # Am Wortlaut gemessen schlaegt jede Statusbezeichnung an, in der „Gutschein"
+        # vorkommt (G, H, I), und die Pruefung meldet Rot fuer eine Regel, die niemand
+        # gebrochen hat. Ein Test, der aus der eigenen Aufschrift einen Befund macht,
+        # wird abgeschaltet.
+        formular = c.get("/kunden?neu=1").get_data(as_text=True)
+        block = formular.split('<details id="neu"')[1].split("</details>")[0]
+        felder = set(re.findall(r'name="([a-z_]+)"', block))
+        pruefe("Das Formular erfasst nur, WER jemand ist – kein Stück der Akte aus dem CRM",
+               felder <= {"name", "telefon", "stadt", "sprache", "kundennummer",
+                          "status_code", "bestaetigt"},
+               sorted(felder))
+
+        # Die Feldnamen allein sind die halbe Regel. `status_code` steht erlaubt in der
+        # Liste – was er tragen DARF, entscheidet `ANLAGE_STATUS`, und genau das war
+        # bisher ungeprueft. Zwoelf Codes zur Auswahl waeren wieder die Akte: wer hier
+        # „H – Gutschein da, Massnahme laeuft" waehlen koennte, zaehlte ab dem naechsten
+        # Seitenaufruf als laufende Massnahme – ohne Gutschein, ohne Akte, ohne dass das
+        # CRM davon weiss.
+        angeboten = set(re.findall(r'<option value="([A-L])"', block))
+        pruefe("Zur Wahl stehen nur Status, die ohne Akte wahr sein können",
+               angeboten == set(A.ANLAGE_STATUS),
+               f"angeboten {sorted(angeboten)}, erlaubt {sorted(A.ANLAGE_STATUS)}")
+
+        # Und die Auswahlliste einzuengen reicht nicht: ein untergeschobenes Feld geht
+        # an ihr vorbei. Geprueft wird deshalb der Weg, den ein Angreifer nimmt – POST
+        # mit einem Code, den das Formular nie anbietet.
+        c.post("/kunden/anlegen", data={"name": NAME_C, "status_code": "H",
+                                        "bestaetigt": "1"})
+        geschmuggelt = db.eine("SELECT status_code FROM kunde WHERE name=?", (NAME_C,))
+        pruefe("Ein untergeschobener Status fällt auf den Lead-Status zurück",
+               bool(geschmuggelt) and geschmuggelt["status_code"] == "K",
+               (geschmuggelt or {}).get("status_code"))
+
+        # Der UNIQUE-Fall. `kunde` traegt UNIQUE(name, standort); bei exakt gleicher
+        # Schreibweise hilft „trotzdem anlegen" nicht, die Datenbank laesst den zweiten
+        # Satz nicht zu. Ohne Abfangen endete genau das auf einer 500er-Seite: kein
+        # Hinweis, kein Protokolleintrag, alles Eingetippte weg.
+        #
+        # Bisher lief der Test daran vorbei: die Rueckfrage-Pruefung oben nimmt
+        # `NAME.lower()`, und das ist fuer SQLite ein anderer Name. Der Griff, der
+        # wirklich kracht, ist die BUCHSTABENGLEICHE Wiederholung.
+        vor_unique = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": NAME_B, "bestaetigt": "1"})
+        text = r.get_data(as_text=True)
+        pruefe("Derselbe Name buchstabengleich: abgewiesen mit Weg zum Vorhandenen,"
+               " nicht mit 500",
+               r.status_code == 200 and anzahl() == vor_unique
+               and "nicht möglich" in text and f'/kunde/{bid}' in text
+               and NAME_B in text,
+               f"{r.status_code}, {vor_unique} Kunden, unverändert:"
+               f" {anzahl() == vor_unique}")
+    finally:
+        # Der Bestand darf durch einen Testlauf nicht wachsen – auch nicht in der Kopie.
+        with db.offen() as con:
+            for n in testnamen:
+                con.execute("DELETE FROM kunde WHERE name=? COLLATE NOCASE", (n,))
 
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

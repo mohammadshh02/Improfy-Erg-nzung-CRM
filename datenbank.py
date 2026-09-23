@@ -18,6 +18,12 @@ DB_DATEI = os.environ.get("IMPROFY_OS_DB", os.path.join(HIER, "improfy_os.db"))
 
 STANDORT_STANDARD = "Köln"
 
+# SQLite bindet ganze Zahlen mit 64 Bit; darueber wirft `sqlite3` einen `OverflowError` -
+# und zwar mitten in der Transaktion, es faellt also ein ganzer Stapel zurueck. Die Grenze
+# steht hier, weil sie eine Eigenschaft der Datenbank ist und nicht die einer Seite:
+# `app.py` misst Adressbestandteile daran, `taskforce.py` die Zahlen eines Treffers.
+SQLITE_MAX = 2 ** 63 - 1
+
 # Die Statuscodes stammen aus der bestehenden Gesamtuebersicht. Sie sind bewusst
 # unveraendert uebernommen, damit alte und neue Auswertungen vergleichbar bleiben.
 STATUS = {

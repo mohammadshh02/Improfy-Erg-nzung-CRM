@@ -32,11 +32,29 @@ import pruefkopie                     # noqa: E402
 # nichts, aber die erste Schreibzeile traefe den Echtbestand.
 os.environ["IMPROFY_OS_DB"] = pruefkopie.anlegen("improfy_cv_probe.db")
 
+# Diese Datei LAS `OS_AUSGABE_ORDNER`, setzte es aber nie – als eigenständiges
+# Werkzeug schrieb sie damit weiter ins Live-Repo, während der Kommentar unten das
+# Gegenteil behauptete. Gelesen wird die Variable beim Import von `cv_pdf`, sie muss
+# darum vorher stehen.
+# Gesetzt wird **unbedingt**, nicht mit `setdefault`: Ein geerbter Wert aus der Umgebung
+# (eine `.env`, ein Startskript, ein Elternprozess) zeigt im Zweifel genau auf den
+# Ordner, den dieser Lauf nicht anfassen darf. Dieselbe Hausregel wie in den drei
+# Selbsttests; hier stand sie bis zur Zusammenführung anders herum.
+# Der Papierkorb kommt aus `pruefkopie` – derselbe Ordner wie die Arbeitskopie, dieselbe
+# Prozessnummer, dasselbe Aufräumen am Programmende.
+os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
+
 import app as A                       # noqa: E402
 import cv_pdf                         # noqa: E402
 from flask import render_template     # noqa: E402
 
-AUSGABE = os.path.join(HIER, "ausgabe", "vorlagenpruefung")
+# Wohin gebaute Unterlagen gehen. Ableitbar aus dem eigenen Verzeichnis – aber dann
+# schreibt jeder Testlauf ins Live-Repo. Der Dateiname trägt Kundennummer und Datum,
+# also überschreibt ein Test ein am selben Tag echt gebautes Dokument desselben
+# Menschen. Dieselbe Fehlerklasse wie bei `sicherungen/`, darum dieselbe Lösung:
+# `OS_AUSGABE_ORDNER` setzen die Selbsttests auf einen Papierkorb.
+AUSGABE = os.path.join(os.environ.get("OS_AUSGABE_ORDNER")
+                       or os.path.join(HIER, "ausgabe"), "vorlagenpruefung")
 
 
 def _beruf(n):

@@ -1,0 +1,323 @@
+{% extends "basis.html" %}
+{% block titel %}{{ 'Arbeitssuche' if art == 'job' else 'Wohnungssuche' }} – Taskforce{% endblock %}
+{% block inhalt %}
+{% from "_pfad.html" import pfad %}
+
+{#  Der Arbeitsplatz einer Art. Von oben nach unten:
+
+    Moduswechsel    Arbeit · Wohnung · beides – und der Weg auf die Tafel dieser Art.
+    Spezifikation   Wonach gesucht wird. Offen, nicht eingeklappt: das ist der Zweck der Seite.
+    Für wen         Erst wer ohne Profil dasteht, dann wer eins hat.
+    Vier Zahlen     Profile, neue Treffer, angeschrieben, Wiedervorlage – alle dieser Art.
+    Kostprobe       Acht neue Treffer, der Rest liegt auf der Tafel.
+    Fuß             Agentenlauf dieser Art und der Weg zurück zum Einstieg.
+
+    **Warum diese Seite.** /taskforce/arbeit war bis zum 21.09.2026 die Tafel mit gesetztem
+    Filter – dieselbe Wand aus Treffern, nur halbiert. Was fehlte, war die Stelle, an der
+    steht, *wonach* in dieser Art gesucht wird und *für wen nicht*. Die Tafel ist deshalb
+    nicht weg, sie ist einen Klick entfernt: /taskforce/tafel?art=… und oben rechts verlinkt.
+
+    **Die Klasse `tf-dashboard` unten ist ein Erkennungsmerkmal, kein Stil.** Der Selbsttest
+    muss auseinanderhalten können, welche der drei Taskforce-Ansichten er vor sich hat; die
+    Tafel erkennt er an „alle Filter zurücksetzen", den Einstieg an `class="kette"`. An einer
+    Überschrift zu erkennen, welche Seite man vor sich hat, hält keinen Umbau aus.
+
+    Gerechnet wird hier nichts: jede Zahl kommt aus derselben Funktion wie auf der Tafel,
+    nur mit `art` davor. #}
+
+{% set andere = 'wohnung' if art == 'job' else 'job' %}
+{% set titel = 'Arbeitssuche' if art == 'job' else 'Wohnungssuche' %}
+{% set gesucht_wird = 'Arbeit' if art == 'job' else 'eine Wohnung' %}
+{% set aktive = profile|selectattr('aktiv')|list %}
+
+{{ pfad([("Taskforce", url_for('taskforce_seite')), (titel, None)]) }}
+
+<div class="tf-dashboard">
+
+<p class="unterzeile">
+  {%- if art == 'job' %}Wonach gesucht wird, für wen gesucht wird – und was die Arbeits-Agenten
+    bei den acht Jobportalen gefunden haben.
+  {%- else %}Wonach gesucht wird, für wen gesucht wird – und was die Wohnungs-Agenten aus den
+    ImmoScout24-Suchaufträgen und von Kleinanzeigen gebracht haben.{% endif %}</p>
+
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+
+{# Der Moduswechsel bleibt, wo er auf jeder Taskforce-Seite steht. „beides" führt auf die
+   Tafel: ein Gesamtbild ist keine Spezifikation, es ist ein Blick auf alle Treffer.
+   Der gestrichelte Knopf rechts ist das Auffangnetz für alle, die /taskforce/arbeit als
+   Tafel im Lesezeichen hatten – dort steht sie weiter, verengt auf diese Art. #}
+<nav class="modus" aria-label="Was gesucht wird">
+  <a class="modus-knopf{{ ' an' if art == 'job' }}" href="{{ url_for('taskforce_arbeit') }}">
+    <strong>Arbeitssuche</strong><span>Stellen, Arbeitgeber, Gehalt</span></a>
+  <a class="modus-knopf{{ ' an' if art == 'wohnung' }}" href="{{ url_for('taskforce_wohnung') }}">
+    <strong>Wohnungssuche</strong><span>Miete, Zimmer, Fläche</span></a>
+  <a class="modus-knopf" href="{{ url_for('taskforce_tafel') }}">
+    <strong>beides</strong><span>Gesamtbild auf der Tafel</span></a>
+  <a class="modus-knopf modus-suchen" href="{{ url_for('taskforce_tafel', art=art) }}">
+    <strong>zur Tafel dieser Art →</strong>
+    <span>alle Treffer der {{ titel }}, mit allen Reglern</span></a>
+</nav>
+
+{# ------------------------------------------------------- 1. Was gesucht wird
+
+   Offen und nicht in einem <details>: das ist der Zweck dieser Seite. Eingeklappt bleibt
+   nur die Quellenliste – zehn Kästchen sind Einrichtung, keine Spezifikation.
+
+   Dieselben Feldnamen wie in `taskforce_suchen.html` (art, was, wo, km, arbeitszeit,
+   gehalt, quereinstieg, miete, zimmer, flaeche, wbs, quelle). Weichen sie ab, sucht man
+   von zwei Stellen verschieden, ohne dass es auffällt.
+
+   Zwei Knöpfe an einem Formular: „jetzt suchen" schickt es als GET an die Direktsuche,
+   „als Suchprofil anlegen" per `formmethod` als POST an die vorhandene Route
+   /taskforce/suchen/als-profil. Ein zweites Formular daneben hätte dieselben Felder ein
+   zweites Mal gebraucht – und die beiden wären beim nächsten Umbau auseinandergelaufen. #}
+<section class="tf-abschnitt">
+  <h2>Wonach gesucht wird
+    <span class="marke">– sofort suchen, oder daraus ein Suchprofil für einen Menschen machen</span></h2>
+  <form class="reglerbank" id="spezifikation" method="get"
+        action="{{ url_for('taskforce_suchen') }}">
+    <input type="hidden" name="art" value="{{ art }}">
+    <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+    <div class="reglerreihe">
+      {% if art == 'job' %}
+      <label style="flex:2;min-width:240px">Beruf oder Stichworte
+        <input type="text" name="was" value="{{ f.was or '' }}"
+               placeholder="Reinigungskraft, Lagerhelfer, Sicherheitsmitarbeiter"></label>
+      {% else %}
+      <label style="flex:2;min-width:240px">Stichworte <span class="marke">(freilassen = alle)</span>
+        <input type="text" name="was" value="{{ f.was or '' }}" placeholder="WBS, Altbau, möbliert"></label>
+      {% endif %}
+      <label style="flex:1;min-width:150px">Ort
+        <input type="text" name="wo" value="{{ f.wo or '' }}" placeholder="Köln"></label>
+      <label>Umkreis
+        <select name="km">
+          {% for v in [5, 10, 15, 25, 50, 100] %}<option value="{{ v }}" {{ 'selected' if f.km==v }}>{{ v }} km</option>{% endfor %}</select></label>
+    </div>
+
+    <div class="reglerreihe">
+      {% if art == 'job' %}
+      <label>Arbeitszeit
+        <select name="arbeitszeit"><option value="">egal</option>
+          {% for code, name in arbeitszeiten %}<option value="{{ code }}" {{ 'selected' if f.arbeitszeit==code }}>{{ name }}</option>{% endfor %}</select></label>
+      <label>Gehalt ab
+        <select name="gehalt"><option value="">egal</option>
+          {% for v in [1800, 2200, 2600, 3000, 3500] %}<option value="{{ v }}" {{ 'selected' if f.gehalt==v }}>{{ v }} €</option>{% endfor %}</select></label>
+      <label class="reglerhaken"><input type="checkbox" name="quereinstieg" value="1" {{ 'checked' if f.quereinstieg }}> nur Quereinstieg</label>
+      {% else %}
+      <label>Miete bis
+        <select name="miete"><option value="">egal</option>
+          {% for v in [500, 700, 900, 1100, 1400] %}<option value="{{ v }}" {{ 'selected' if f.miete==v }}>{{ v }} €</option>{% endfor %}</select></label>
+      <label>Zimmer ab
+        <select name="zimmer"><option value="">egal</option>
+          {% for v in [1, 2, 3, 4, 5] %}<option value="{{ v }}" {{ 'selected' if f.zimmer==v }}>{{ v }}</option>{% endfor %}</select></label>
+      <label>Fläche ab
+        <select name="flaeche"><option value="">egal</option>
+          {% for v in [40, 55, 70, 85, 100] %}<option value="{{ v }}" {{ 'selected' if f.flaeche==v }}>{{ v }} m²</option>{% endfor %}</select></label>
+      <label class="reglerhaken"><input type="checkbox" name="wbs" value="1" {{ 'checked' if f.wbs }}> nur mit WBS</label>
+      {% endif %}
+    </div>
+
+    {# Für wen das Profil gelten soll. Optional: ohne Namen ist das hier eine Suche wie
+       jede andere, und der zweite Knopf meldet zurück, dass niemand gewählt war. Der
+       Marker `data-nicht-abschicken` verhindert, dass die Namenswahl das Formular sofort
+       abschickt – gewählt wird ein Mensch, gesucht wird erst auf Knopfdruck. #}
+    <div class="reglerreihe">
+      <div class="ksuche ksuche-klein" data-ziel="filter" style="flex:1;min-width:260px"
+           data-api="{{ url_for('api_kunden_suche') }}">
+        <input type="search" class="ksuche-feld" autocomplete="off" data-nicht-abschicken="1"
+               placeholder="Für wen? Namen tippen – nur nötig zum Anlegen eines Suchprofils">
+        <input type="hidden" name="kunde">
+        <div class="ksuche-liste" hidden></div>
+      </div>
+      <button type="submit" class="btn btn-primary">jetzt suchen</button>
+      <button type="submit" class="btn" formmethod="post"
+              formaction="{{ url_for('taskforce_suche_als_profil') }}">als Suchprofil anlegen</button>
+      <span class="marke" style="flex-basis:100%">„jetzt suchen" fragt die Portale sofort und
+        speichert nichts. „als Suchprofil anlegen" braucht einen Namen – dann sucht der Agent
+        das ab jetzt täglich von selbst, mit genau diesen Reglern.</span>
+    </div>
+
+    {# Eingeklappt, mit Absicht: welche Portale gefragt werden, ist Einrichtung. Wer sie
+       anfasst, sucht etwas Bestimmtes – wer spezifiziert, will Beruf, Ort und Umkreis. #}
+    <details class="tf-mehr">
+      <summary>Quellen <span class="marke">– welche Portale gefragt werden</span></summary>
+      <div class="reglerreihe">
+        {% for q in quellen %}
+        <label class="reglerhaken" {{ 'style=opacity:.5' if not q.bereit }}>
+          <input type="checkbox" name="quelle" value="{{ q.schluessel }}"
+                 {{ 'checked' if not f.quellen or q.schluessel in f.quellen }} {{ 'disabled' if not q.bereit }}>
+          {{ q.name }}{% if not q.bereit %} (nicht verbunden){% endif %}</label>
+        {% endfor %}
+      </div>
+    </details>
+  </form>
+</section>
+
+{# --------------------------------------------------- 2. Für wen wird gesucht
+
+   Erst die Lücke, dann der Bestand. Wer kein Profil dieser Art hat, steht oben: für ihn
+   sucht kein Agent, und das ist die teuerste Stelle der ganzen Taskforce – eine Maschine,
+   die niemand eingeschaltet hat.
+
+   Jede Zeile führt auf den Stand dieses Menschen, verengt auf diese Art (`?art=…`): wer
+   aus der Arbeitssuche auf einen Namen klickt, will dessen Arbeitssuche sehen.
+
+   **Gezählt werden durchgehend Menschen, und jeder steht genau einmal.** Wer ein
+   pausiertes Profil hat, gehört nach unten und nicht nach oben: er hat eins, es steht
+   nur still. Oben stand er, solange die obere Liste nach *aktiven* Profilen fragte und
+   die untere jedes zeigte – derselbe Mensch zweimal, rot und grau, und der Knopf daneben
+   hätte ihm ein zweites Profil angelegt. #}
+{% set was_gesucht = 'die Arbeitssuche' if art == 'job' else 'die Wohnungssuche' %}
+<section class="tf-abschnitt">
+  <h2>Für wen wird gesucht
+    <span class="marke">– {{ leute_mit }} Mensch{{ 'en' if leute_mit != 1 }} mit Suchprofil{% if ohne_profil_gesamt %},
+      {{ ohne_profil_gesamt }} ohne{% endif %}{% if pausiert %} · bei {{ pausiert }} steht das Profil still{% endif %}</span></h2>
+  <div class="karte" style="padding:0">
+    <div class="listenkopf">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        {% if not laufend_gesamt %}
+        {# Ohne laufende Maßnahme wäre „jede hat ein Profil" eine Aussage über niemanden –
+           dieselbe Art Grün, die der Einstieg gerade abgeschafft hat. #}
+        <span class="marke">Zurzeit läuft keine Maßnahme – das ist kein voller Stand, sondern kein Betrieb.</span>
+        <a class="btn" href="{{ url_for('kunden') }}">Kundenliste öffnen →</a>
+        {% elif ohne_profil %}
+        <span><strong>{{ ohne_profil|length }} von {{ laufend_gesamt }} laufenden Maßnahmen
+          haben kein Profil für {{ was_gesucht }}</strong>
+          – für diese Menschen sucht der Agent nichts.</span>
+        <a class="btn btn-primary" href="{{ url_for('sammelanlage_seite', art=art) }}">Profile in einem Schritt anlegen →</a>
+        {% else %}
+        <span class="marke">alle {{ laufend_gesamt }} laufenden Maßnahmen haben ein Profil für {{ was_gesucht }}</span>
+        <a class="btn" href="{{ url_for('sammelanlage_seite', art=art) }}">Profile anlegen →</a>
+        {% endif %}
+      </div>
+      {# Derselbe Platzhalter wie auf dem Einstieg: das Ziel endet nicht auf die
+         Kundennummer, sondern auf „/stand?art=…". #}
+      <div class="ksuche ksuche-klein" data-ziel="seite" style="min-width:260px"
+           data-url="{{ url_for('taskforce_stand', kid=0, art=art)|replace('/kunde/0/', '/kunde/{id}/') }}"
+           data-api="{{ url_for('api_kunden_suche') }}">
+        <input type="search" class="ksuche-feld" autocomplete="off"
+               placeholder="Namen tippen – führt zu seiner {{ titel }}">
+        <div class="ksuche-liste" hidden></div>
+      </div>
+    </div>
+
+    {# Dasselbe Muster wie auf dem Stand eines Kunden (`taskforce_stand.html`): die
+       ersten acht, die Gesamtzahl danebengeschrieben, der Rest einen Klick weiter
+       unter `?alle=1`. Ungeschnitten waren das 19 Zeilen à rund 40 px, bevor die
+       erste Zeile kam, für die jemand schon etwas eingestellt hat. #}
+    {% if not zeige_alle and ohne_profil_gesamt > ohne_profil|length %}
+    <p class="unterzeile" style="margin:10px 16px 0">Nach Namen sortiert – die ersten
+      {{ ohne_profil|length }} von {{ ohne_profil_gesamt }}.
+      <a href="{{ url_for('taskforce_arbeit' if art == 'job' else 'taskforce_wohnung', alle=1) }}">alle {{ ohne_profil_gesamt }} anzeigen →</a></p>
+    {% endif %}
+    {% for z in ohne_profil %}
+    <div class="handgriff">
+      <span class="plakette p-rot">kein Profil</span>
+      <a class="handgriff-name" href="{{ url_for('taskforce_stand', kid=z.id, art=art) }}">{{ z.name }}</a>
+      <span class="marke" style="min-width:110px">{{ z.coach or 'ohne Coach' }}</span>
+      <span class="handgriff-fehlt">
+        {%- if art == 'job' and z.begriff %}Vorschlag: {{ z.begriff }}, {{ z.ort }}
+        {%- elif art == 'job' %}kein Beruf im Kurzprofil – der Suchbegriff muss von Hand kommen
+        {%- else %}Ort {{ z.ort }}{% if z.ort_geraten %} (geraten){% endif %}{% endif %}</span>
+      {# Hier stand je Zeile ein Knopf „Profil anlegen →". Sein `href` war
+         `url_for('sammelanlage_seite', art=art)` – **zeichengleich mit dem Knopf im
+         Listenkopf darüber**, derselbe Ausdruck, dieselbe Adresse, bei 19 Zeilen also
+         zwanzigmal dasselbe Ziel auf einem Bildschirm. Wer ihn zurückbaut, baut keinen
+         zweiten Weg, sondern denselben Weg ein zwanzigstes Mal. Der Weg steht oben. #}
+    </div>
+    {% endfor %}
+
+    {% for p in profile %}
+    <div class="handgriff">
+      {# „pausiert" heisst: es gibt ein Profil, aber der Agent fasst es nicht an. Das steht
+         ausdrücklich da – sonst liest man Grau als Nebensache. #}
+      <span class="plakette {{ 'p-gruen' if p.aktiv else 'p-grau' }}">{{ 'sucht' if p.aktiv else 'pausiert – sucht nicht' }}</span>
+      <a class="handgriff-name" href="{{ url_for('taskforce_stand', kid=p.kunde_id, art=art) }}">{{ p.kunde }}</a>
+      <span class="marke" style="min-width:110px">{{ p.coach or 'ohne Coach' }}</span>
+      <span class="handgriff-fehlt">{{ p.titel }}{% if p.ort %} · {{ p.ort }}{% if p.umkreis_km %} {{ p.umkreis_km }} km{% endif %}{% endif %}
+        {%- if p.letzter_lauf %} · zuletzt gesucht {{ p.letzter_lauf|zeit }}{% else %} · noch kein Lauf{% endif %}</span>
+      <span class="handgriff-marken">
+        {%- if p.neu %}<span class="plakette p-teal">{{ p.neu }} neu</span>{% endif %}
+        {%- if p.angeschrieben %}<span class="plakette p-grau">{{ p.angeschrieben }} angeschrieben</span>{% endif %}
+      </span>
+      <a class="btn btn-sm" href="{{ url_for('taskforce_profil', pid=p.id) }}">Profil →</a>
+    </div>
+    {% endfor %}
+  </div>
+  {% if not profile %}
+  {# Der Leerfall wird benannt. Eine leere Liste ohne Satz liest sich als Ruhe – und Ruhe
+     ist hier genau die Unwahrheit: es sucht niemand. #}
+  <p class="leer">Für niemanden wird gerade {{ gesucht_wird }} gesucht – es gibt kein einziges
+    Suchprofil dieser Art. Die Agenten laufen dann zwar, fragen aber nichts ab.</p>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------- 3. Vier Zahlen #}
+<section class="tf-abschnitt">
+  <h2>Stand der {{ titel }}</h2>
+  <div class="gitter g4">
+    <div class="karte"><h3>Suchprofile</h3><div class="zahl">{{ aktive|length }}</div>
+      <div class="marke">aktiv{% if profile|length != aktive|length %} · {{ profile|length - aktive|length }} pausiert{% endif %}</div></div>
+    <div class="karte"><h3>Neue Treffer</h3><div class="zahl">{{ neu }}</div>
+      <div class="marke">{{ 'Stellen' if art == 'job' else 'Wohnungen' }}, die noch niemand angefasst hat</div></div>
+    <div class="karte"><h3>Angeschrieben</h3>
+      <div class="zahl" {% if not angeschrieben %}style="color:var(--rot)"{% endif %}>{{ angeschrieben }}</div>
+      <div class="marke">{{ 'Arbeitgeber' if art == 'job' else 'Vermieter' }} · {{ mit_antwort }} mit Antwort</div></div>
+    <div class="karte"><h3>Wiedervorlage</h3>
+      <div class="zahl" {% if wiedervorlage %}style="color:var(--rot)"{% endif %}>{{ wiedervorlage }}</div>
+      <div class="marke">seit über {{ wv_tage }} Tagen ohne Rückmeldung</div></div>
+  </div>
+</section>
+
+{# --------------------------------------------- 4. Kostprobe der neuen Treffer
+
+   Acht Zeilen, nicht hundert. Diese Seite ist der Arbeitsplatz einer Art, keine zweite
+   Tafel – wer die Treffer abarbeiten will, geht auf die Tafel dieser Art. #}
+<section class="tf-abschnitt">
+  <h2>Was zuletzt gefunden wurde
+    <span class="marke">– die bestbewerteten neuen Treffer der {{ titel }}</span></h2>
+  {% if not neue %}
+  <p class="leer">Kein neuer Treffer offen.
+    {% if not aktive %}Das liegt nicht an den Portalen: es ist kein aktives Suchprofil dieser
+      Art angelegt.{% else %}Entweder ist alles abgearbeitet, oder der letzte Lauf hat nichts
+      Neues gebracht.{% endif %}</p>
+  {% else %}
+  <div class="tabellenkasten">
+  <table>
+    <tr><th>Rel.</th><th>Angebot</th><th>Anbieter · Ort</th><th>für wen</th><th>gefunden</th></tr>
+    {% for a in neue %}
+    <tr>
+      <td><span class="plakette {{ 'p-gruen' if (a.score or 0) >= 6 else ('p-gelb' if (a.score or 0) >= 3 else 'p-grau') }}" title="Relevanz 0–10">{{ (a.score or 0)|round(0)|int }}</span></td>
+      <td><a href="{{ a.url }}" target="_blank" rel="noopener"><strong>{{ a.titel }}</strong></a>
+        <div class="marke">{% set z = a|zusatz %}{{ [z.arbeitszeit, z.vertrag, z.gehalt, z.preis, z.zimmer and z.zimmer ~ ' Zi.', z.flaeche, a.quelle]|select|join(' · ') }}</div></td>
+      <td>{{ a.anbieter or '—' }}<div class="marke">{{ a.ort or '' }}{% if a.entfernung_km is not none %} · {{ a.entfernung_km }} km{% endif %}</div></td>
+      <td><a href="{{ url_for('taskforce_stand', kid=a.kunde_id, art=art) }}">{{ a.kunde }}</a></td>
+      <td class="marke">{{ a.gefunden_am|zeit }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <p class="marke" style="margin-top:8px">
+    <a href="{{ url_for('taskforce_tafel', art=art) }}">alle {{ neu }} neuen Treffer auf der Tafel →</a>
+    {% if wiedervorlage %}· <a href="{{ url_for('taskforce_tafel', art=art, status='angeschrieben') }}">{{ wiedervorlage }} warten auf Nachfassen →</a>{% endif %}</p>
+  {% endif %}
+</section>
+
+{# --------------------------------------------------------------------- 5. Fuß #}
+<div class="karte" style="margin-top:22px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+  <form method="post" action="{{ url_for('taskforce_lauf') }}" style="margin:0">
+    <input type="hidden" name="art" value="{{ art }}">
+    <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+    <button type="submit" {{ 'disabled' if not aktive or (lauf and lauf.laeuft) }}>
+      {%- if lauf and lauf.laeuft %}läuft gerade …{% else %}{{ 'Arbeits' if art == 'job' else 'Wohnungs' }}-Agenten jetzt laufen lassen{% endif %}</button>
+  </form>
+  <span class="marke">
+    {%- if lauf and lauf.laeuft %}Gestartet {{ lauf.seit|zeit }} – bis zu zwei Minuten. Seite neu laden, um das Ergebnis zu sehen.
+    {%- elif lauf and lauf.fehler %}Der letzte Lauf ist gescheitert: {{ lauf.fehler }}
+    {%- elif lauf and lauf.ergebnis %}Letzter Lauf: {{ lauf.ergebnis }}
+    {%- else %}Fragt nur die Quellen dieser Art, für alle aktiven Suchprofile dieser Art.{% endif %}</span>
+  <a href="{{ url_for('taskforce_seite') }}" style="margin-left:auto">zum Einstieg mit dem Leerlaufband →</a>
+</div>
+
+</div>
+{% endblock %}

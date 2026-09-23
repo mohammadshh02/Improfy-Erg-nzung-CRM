@@ -1,7 +1,15 @@
 {% extends "basis.html" %}
 {% block titel %}Suchprofile anlegen – Improfy-Ergänzung{% endblock %}
 {% block inhalt %}
-<p class="marke"><a href="{{ url_for('taskforce_seite') }}">← Taskforce</a></p>
+{% from "_pfad.html" import pfad %}
+{# Hier stand ein handgemachter Rücklink. Der Weg bleibt derselbe, er sieht jetzt nur aus
+   wie auf den anderen Taskforce-Seiten. #}
+{{ pfad([("Taskforce", url_for('taskforce_seite')), ("Suchprofile anlegen", None)]) }}
+{# Diese Ueberschrift war am 21.09.2026 kurz gestrichen – zu Unrecht. Sie wiederholte
+   den Topbar-Titel NICHT: `sammelanlage_seite` beginnt nicht mit `taskforce`, die
+   Regel in `basis.html:51` greift hier also nicht, und `ns.titel` faellt auf die
+   Vorgabe „Improfy-Ergänzung" zurueck. Ohne sie hatte die Seite gar keine
+   Ueberschrift. Wer sie wieder streichen will, muss vorher den Reiter zuordnen. #}
 <h1>Suchprofile in einem Schritt anlegen</h1>
 <p class="unterzeile">Die Taskforce sucht nur für Kunden, die ein Suchprofil haben. Hier stehen
   alle laufenden Maßnahmen, für die noch keines angelegt ist – mit einem Vorschlag aus dem,

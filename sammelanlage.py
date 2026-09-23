@@ -50,7 +50,17 @@ def beruf_vorschlag(text):
 
 
 def vorschlaege(standort=db.STANDORT_STANDARD, art="job"):
-    """Alle laufenden Kunden ohne Profil dieser Art, mit Vorschlag für Begriff und Ort."""
+    """Alle laufenden Kunden ohne Profil dieser Art, mit Vorschlag für Begriff und Ort.
+
+    **Ohne Profil heisst: ohne JEDES Profil dieser Art, auch ohne pausiertes** – genau
+    die Bedingung, mit der `anlegen()` weiter unten entscheidet. Hier stand `aktiv=1`,
+    und damit zaehlten die beiden Stellen verschieden: die Sammelanlage bot eine Zeile
+    an, die `anlegen()` anschliessend mit „hat ein Profil, es ist pausiert" liegen
+    liess. Gemessen am 21.09.2026: Arbeitsplatz „18 ohne", Sammelanlage „19 ohne",
+    und die neunzehnte Zeile liess sich nicht anlegen.
+
+    Pausiert heisst nicht „nichts da", sondern „steht still"; die Antwort darauf ist
+    einschalten, nicht ein zweites Profil."""
     zeilen = db.hole(
         "SELECT k.id, k.name, k.stadt, k.plz, k.massnahme, m.name AS coach,"
         "       p.kurzprofil, p.cv_text,"
@@ -59,7 +69,7 @@ def vorschlaege(standort=db.STANDORT_STANDARD, art="job"):
         "  LEFT JOIN kunde_profil p ON p.kunde_id=k.id"
         " WHERE k.standort=? AND k.status_code IN ('H','I')"
         "   AND NOT EXISTS (SELECT 1 FROM tf_profil t WHERE t.kunde_id=k.id"
-        "                     AND t.art=? AND t.aktiv=1)"
+        "                     AND t.art=?)"
         " ORDER BY k.name", (standort, art))
     for z in zeilen:
         z["begriff"] = beruf_vorschlag(z["kurzprofil"]) or beruf_vorschlag(z["cv_text"])
@@ -82,11 +92,22 @@ def anlegen(auswahl, art="job", umkreis=25, standort=db.STANDORT_STANDARD):
         if art == "job" and not begriff:
             uebersprungen.append((kunde_id, "kein Suchbegriff"))
             continue
-        vorhanden = db.wert(
-            "SELECT COUNT(*) FROM tf_profil WHERE kunde_id=? AND art=? AND aktiv=1",
-            (kunde_id, art))
+        # Gezählt wird JEDES Profil dieser Art, auch ein pausiertes – die eine Zählweise
+        # des Hauses, dieselbe wie in `vorschlaege()` und in `aufgaben.
+        # laufende_massnahmen()`. Wer pausiert hat, bekommt hier kein zweites Profil;
+        # die Antwort auf ein stillstehendes Profil ist einschalten.
+        #
+        # **Die Meldung „hat ein Profil, es ist pausiert" erreicht man über die
+        # Oberfläche nicht mehr**, seit `vorschlaege()` dieselbe Bedingung fragt – sie
+        # bleibt als Riegel für den direkten Aufruf stehen (Skript, Schnittstelle) und
+        # sagt dann, WARUM eine Zeile liegen blieb.
+        aktiv = db.wert("SELECT COUNT(*) FROM tf_profil WHERE kunde_id=? AND art=?"
+                        " AND aktiv=1", (kunde_id, art))
+        vorhanden = db.wert("SELECT COUNT(*) FROM tf_profil WHERE kunde_id=? AND art=?",
+                            (kunde_id, art))
         if vorhanden:
-            uebersprungen.append((kunde_id, "hat schon ein Profil"))
+            uebersprungen.append((kunde_id, "hat schon ein Profil" if aktiv
+                                  else "hat ein Profil, es ist pausiert"))
             continue
         name = db.wert("SELECT name FROM kunde WHERE id=?", (kunde_id,), "") or ""
         daten = {"kunde_id": kunde_id, "art": art, "formular": "1", "aktiv": "1",

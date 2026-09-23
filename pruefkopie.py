@@ -3,6 +3,8 @@
 
     import pruefkopie
     os.environ["IMPROFY_OS_DB"] = pruefkopie.anlegen("improfy_os_cv_test.db")
+    os.environ["OS_SICHERUNG_ORDNER"] = pruefkopie.papierkorb("sicherungen")
+    os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
 
 **Warum nicht `shutil.copy`.** Eine SQLite-Datei, die gerade geschrieben wird, kopiert
 sich als Datei in einem Zwischenzustand: halbe Seiten, ein Journal, das nicht dazu passt.
@@ -17,7 +19,9 @@ zieht `datenbank` mit herein, und das bindet seinen Pfad beim Import – der Sel
 liefe dann gegen den Echtbestand. Dieses Modul kennt nur die Standardbibliothek.
 
 Die Quelle wird ausdrücklich **nur lesend** geöffnet (`mode=ro`): `improfy_os.db` darf
-von keinem Testlauf angefasst werden, auch nicht versehentlich.
+von keinem Testlauf angefasst werden, auch nicht versehentlich. Fehlt sie ganz, bricht
+`anlegen` mit `KeinBestand` ab und sagt, was zu tun ist – ein blankes `sqlite3.connect`
+legte an dieser Stelle eine leere neue Datei an, und der Lauf lief auf Nichts.
 
 **Jeder Lauf bekommt seine eigene Zieldatei.** Vorher lag die Kopie unter ihrem blanken
 Namen im Temp-Ordner, für jeden Arbeitsbaum derselbe. Zwei Läufe gleichzeitig – der
@@ -37,6 +41,17 @@ Stück mit 46 MB Kundendaten. Zwei Wege räumen das jetzt ab: Der eigene Ordner 
 Programmende (`atexit`), und beim Anlegen werden die Ordner weggeräumt, deren
 Prozessnummer nicht mehr lebt. Ordner **laufender** Läufe bleiben stehen – sonst
 zieht ein Lauf dem anderen die Datenbank unter den Füßen weg.
+
+**Nicht nur die Datenbank muss umgelenkt werden.** Zwei weitere Ordner leitet das OS
+aus seinem eigenen Verzeichnis ab, und beide treffen echte Daten: `sicherungen/` –
+ein Testlauf, der sichert, legt einen Schnappschuss der Testdatenbank dorthin, und
+`aufraeumen()` wirft bei sieben Ständen je eine echte Nachtsicherung heraus – und
+`ausgabe/lebenslaeufe/`, wo jeder Lauf zwei Dateien mit echtem Kundennamen ablegte
+(belegt am 21.09.2026: Riegel entfernt, Test gelaufen, beide Dateien wieder da). Weil
+der Dateiname Kundennummer und Datum trägt, überschreibt ein Testlauf ein am selben
+Tag echt gebautes Dokument desselben Menschen. `OS_SICHERUNG_ORDNER` und
+`OS_AUSGABE_ORDNER` zeigen deshalb über `papierkorb()` in den Ordner dieses Laufs –
+dieselbe Prozessnummer, dasselbe Aufräumen, eine Stelle statt sieben.
 """
 import atexit
 import hashlib
@@ -74,6 +89,17 @@ class Zeitueberschreitung(RuntimeError):
     """Die Kopie kam nicht durch – meist hält ein anderer Lauf die Zieldatei."""
 
 
+class KeinBestand(RuntimeError):
+    """Es gibt keine Datenbank, von der eine Arbeitskopie zu ziehen wäre.
+
+    Ein eigener Fehler, weil die nackte SQLite-Meldung an dieser Stelle in die Irre
+    führt: `sqlite3.connect` auf eine fehlende Datei legt **ohne** `mode=ro` eine leere
+    neue an – der Lauf läuft dann auf Nichts, statt zu scheitern –, und **mit** `mode=ro`
+    sagt sie nur „unable to open database file", ohne zu verraten, welche Datei gemeint
+    ist und warum sie fehlt. Der Fall tritt auf einem frisch geklonten Rechner sofort
+    ein: `*.db` ist gitignoriert, die Kundendatenbank kommt also nicht mit dem Repo."""
+
+
 def leseadresse(quelle=None):
     """Die URI, mit der die Quelle geöffnet wird – **nur lesend**.
 
@@ -92,6 +118,22 @@ def ordner():
     kurze Prüfsumme kommt dazu, weil zwei Arbeitsbäume gleich heißen können, wenn sie
     in verschiedenen Ordnern liegen."""
     ziel = _eigener_pfad()
+    os.makedirs(ziel, exist_ok=True)
+    return ziel
+
+
+def papierkorb(name):
+    """Ein Unterordner dieses Laufs für alles, was ein Testlauf schreibt – Pfad zurück.
+
+    Gedacht für `OS_SICHERUNG_ORDNER` und `OS_AUSGABE_ORDNER` (siehe Modulkopf). Beide
+    Variablen werden beim Import von `betrieb` bzw. `lebenslauf_bauen` und `cv_pdf`
+    gelesen, sie müssen also **vor** dem Import von `app` gesetzt sein – genau wie
+    `IMPROFY_OS_DB`.
+
+    Der Ordner liegt unter `ordner()`, trägt damit Arbeitsbaum und Prozessnummer im
+    Pfad und geht mit ihm am Programmende weg. Ein eigenes `atexit` je Aufrufer
+    braucht es deshalb nicht; das stand vorher siebenmal einzeln im Repo."""
+    ziel = os.path.join(ordner(), name)
     os.makedirs(ziel, exist_ok=True)
     return ziel
 
@@ -191,6 +233,17 @@ def anlegen(name, quelle=None, zeitgrenze=ZEITGRENZE):
     `ordner`) oder ein ganzer Pfad. Ein alter Stand wird vorher weggeräumt, damit nichts
     von einem früheren Lauf durchscheint."""
     quelle = quelle or QUELLE
+    # **Fehlt der Bestand, wird hier abgebrochen – mit Auskunft.** Weiter unten stünde
+    # sonst „unable to open database file" ohne Dateinamen, und jede Prüfung des Laufs
+    # fiele danach mit derselben Meldung um. Auf einem frisch geklonten Rechner ist das
+    # der Normalfall, nicht die Ausnahme.
+    if not os.path.isfile(quelle):
+        raise KeinBestand(
+            "Die Datenbank %s gibt es nicht – ohne sie gibt es nichts zu kopieren.\n"
+            "  `*.db` ist gitignoriert: Auf einem frisch geklonten Rechner muss die\n"
+            "  Datenbank erst dazugelegt werden (Sicherung aus `sicherungen/` oder\n"
+            "  Kopie vom Arbeitsrechner). Ein leerer Bestand ist kein Ersatz: Die\n"
+            "  Selbsttests messen an echten Zeilen." % quelle)
     # Beim ersten Anlegen dieses Laufs die Hinterlassenschaften beendeter Läufe wegräumen.
     # Einmal reicht; zwischendurch stirbt kein Lauf, und ein Verzeichnislauf je Kopie
     # wäre nur Arbeit ohne Ertrag.
