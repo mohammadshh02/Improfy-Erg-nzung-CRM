@@ -636,17 +636,24 @@ SQLITE_MAX = db.SQLITE_MAX
 def zu_viel_auf_einmal(_):
     """Der Rumpf war größer, als Werkzeug annimmt (`max_form_memory_size`, 500.000 B).
 
-    Getroffen wird das beim Übernehmen: die Treffer reisen im Formular mit, und mit
-    echten Treffergrößen liegt die Grenze bei rund 575 Stück. Heute unerreichbar, weil
-    `tf.direktsuche` bei 200 abschneidet – aber genau eine Zahl entfernt, und ohne
-    diesen Griff bekam man die nackte englische Werkzeug-Seite: keine Erklärung, kein
-    Weg zurück, alles Angehakte weg."""
+    Getroffen wird das beim Übernehmen: die Treffer reisen im Formular mit. **Die
+    Grenze zählt Bytes, nicht Stück** – wie viele Treffer hineinpassen, hängt davon ab,
+    wie groß sie sind. Zwei Messungen vom 23.09.2026, beide an echten Treffern: mit
+    großen Sätzen (Ø 681 B) gingen 731 durch und 732 nicht (499.691 / 500.211 B), mit
+    den kleineren aus `pruefdaten/adapter_beispiele.json` 914 und 915 (499.662 /
+    500.209 B). Die Byte-Grenze ist dieselbe, die Stückzahl nicht – hier stand „rund
+    575" aus einer noch älteren Messung, und diese eine Zahl hat drei Dateien in die
+    Irre geführt. `taskforce_test.py` misst die Wand bei jedem Lauf neu.
+
+    Heute unerreichbar, weil `tf.direktsuche` bei 200 abschneidet – aber genau eine
+    Zahl entfernt, und ohne diesen Griff bekam man die nackte englische Werkzeug-Seite:
+    keine Erklärung, kein Weg zurück, alles Angehakte weg."""
     return render_template(
         "fehler.html", titel="Zu viel auf einmal",
         text="Es wurden mehr Treffer auf einmal abgeschickt, als in einen Aufruf passen"
-             " (Grenze rund 575). Es wurde nichts übernommen. Bitte die Suche enger"
-             " fassen – Ort, Umkreis oder Stichworte – und die Treffer in zwei"
-             " Durchgängen anhaken."), 413
+             " (700 bis 900, je nachdem wie ausführlich die Anzeigen sind). Es wurde"
+             " nichts übernommen. Bitte die Suche enger fassen – Ort, Umkreis oder"
+             " Stichworte – und die Treffer in zwei Durchgängen anhaken."), 413
 CRM_URL = os.environ.get("CRM_URL", "https://crm.improfy.de")
 
 # Woher ein Datensatz kommt, steht in `kunde.quelle_stand`. Was hier in der Oberfläche

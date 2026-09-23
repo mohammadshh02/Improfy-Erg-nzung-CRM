@@ -41,7 +41,10 @@ import functools
 import hmac
 import json
 import os
+import socket
+import sqlite3
 import time
+import urllib.error
 
 from flask import Blueprint, abort, jsonify, request
 
@@ -168,6 +171,64 @@ def _int(name):
 
 def _text(name):
     return (request.args.get(name) or "").strip() or None
+
+
+# ----------------------------------------------------- Felder aus dem Körper
+# `_int` und `_text` holen Werte aus der ABFRAGE (`?kunde=7`); dort kann nur Text
+# ankommen, und eine unbrauchbare Angabe gilt als nicht angegeben. Im KÖRPER steht
+# JSON, und dort kann in jedem Feld alles stehen: eine Liste, ein Objekt, eine Zahl
+# mit dreissig Stellen. `eingang()` sorgt seit dem 23.09.2026 dafür, dass der Körper
+# überhaupt eine Abbildung ist – ein Feld tiefer war es bis heute offen. Zehn
+# gemessene 500er, alle mit gültigem JSON-Objekt, also an `eingang()` vorbei:
+#
+#   /taskforce/angebote/status     ids ["abc"] · "12,abc" · 5 · [{"a":1}] · [10^20]
+#   /taskforce/angebot/<id>/status bearbeiter {"x":1} · notiz {"x":1}
+#   /taskforce/profil              profil "abc" · profil [1] · kunde {"x":1}
+#
+# Die 64-Bit-Grenze ist dieselbe, die `_int` für Abfrageparameter längst zieht: SQLite
+# bindet nicht mehr, und der `OverflowError` fällt mitten in die Transaktion. Beide
+# Regeln stehen deshalb **hier** und nicht je Route – die nächste Schreibroute erbt
+# sie, ohne dass jemand daran denken muss.
+
+def feld_zahl(wert):
+    """Aus einem Körperfeld eine Nummer, die SQLite binden kann – sonst `None`.
+
+    `None` heisst „unbrauchbar", nicht „nicht angegeben": Die Routen zählen das mit und
+    sagen dem Aufrufer, wie viele Angaben sie nicht lesen konnten. An einer
+    Schreibschnittstelle darf nichts stillschweigend verschwinden.
+
+    `bool` fällt heraus, obwohl Python ihn als `int` führt: `true` ist keine Nummer
+    eines Angebots, und `1` wäre eine erfundene Antwort auf eine unsinnige Frage."""
+    if wert is None or isinstance(wert, bool):
+        return None
+    if isinstance(wert, int):
+        return wert if abs(wert) <= db.SQLITE_MAX else None
+    if isinstance(wert, float):
+        return int(wert) if wert.is_integer() and abs(wert) <= db.SQLITE_MAX else None
+    if isinstance(wert, str) and wert.strip().lstrip("-").isdecimal():
+        zahl = int(wert.strip())
+        return zahl if abs(zahl) <= db.SQLITE_MAX else None
+    return None
+
+
+def feld_text(daten, name, standard=None):
+    """Ein Textfeld aus dem Körper – Text oder Zahl, niemals Liste oder Objekt.
+
+    Eine Zahl wird zu Text: Ein CRM, das `phone: 2211234` schickt, meint eine
+    Rufnummer. Eine Liste oder ein Objekt wird dagegen **abgewiesen** statt umgewandelt.
+    `str({"mobil": "0170"})` ergäbe `{'mobil': '0170'}` – eine Python-Zeile, die als
+    Rufnummer in den Stammdaten steht und die echte überschreibt. Gemessen am
+    23.09.2026 auf `/api/kunde`: `name = "['Vorname', 'Nachname']"`, HTTP 200.
+
+    400 statt stillem Übergehen, weil es um Stammdaten geht: Der Aufrufer muss
+    erfahren, dass sein Wert nicht angekommen ist."""
+    if name not in daten or daten[name] is None:
+        return standard
+    wert = daten[name]
+    if isinstance(wert, (list, tuple, dict)):
+        abort(400, "Feld '%s' muss Text sein, kein %s – verschachtelte Werte werden"
+                   " nicht umgewandelt." % (name, type(wert).__name__))
+    return str(wert).strip() or standard
 
 
 @api.errorhandler(400)
@@ -399,20 +460,50 @@ def kunde_schreiben():
     übersetzt; unsere eigenen ebenso. Der Status kommt als CRM-Wort („aktiv") und wird auf
     unseren Buchstaben abgebildet."""
     d = eingang()
-    if not str(d.get("name") or "").strip() and not str(d.get("customer_number") or "").strip():
-        return jsonify({"fehler": "name oder customer_number wird gebraucht"}), 400
-
+    # Jedes Stammdatenfeld geht durch `feld_text`: Eine Liste oder ein Objekt wird
+    # abgewiesen und nicht in eine Python-Zeile umgewandelt (siehe dort).
     felder = {}
     for crm_feld, unser in CRM_AUF_UNS.items():
         for quelle in (crm_feld, unser):
-            if quelle in d and str(d.get(quelle) or "").strip():
-                felder[unser] = str(d[quelle]).strip()
+            wert = feld_text(d, quelle)
+            if wert:
+                felder[unser] = wert
                 break
-    status = str(d.get("status") or "").strip().lower()
+    if not felder.get("name") and not felder.get("kundennummer"):
+        return jsonify({"fehler": "name oder customer_number wird gebraucht"}), 400
+
+    # **Ein unbekanntes Statuswort überschreibt nichts.** Hier stand
+    # `crm_karte.STATUS.get(status, …)` mit `None` als Rückfall: Jedes Wort, das nicht
+    # in den acht bekannten steht, schrieb `status_code = NULL` in den VORHANDENEN
+    # Satz. Gemessen am 23.09.2026 an Kunde 7: `{"status": "in Massnahme"}` → HTTP 200,
+    # `geaendert: ["kundennummer", "status_code"]`, Statuscode von 'G' auf leer.
+    # Heute haben 120 von 120 Kunden einen Statuscode; wer seinen verliert, fällt aus
+    # jeder Auswertung, die danach filtert – ohne Fehler, ohne Meldung, ohne Spur.
+    #
+    # Abgewiesen wird mit 400 und nicht still übergangen, obwohl das den ganzen Aufruf
+    # kostet: Der Status entscheidet, ob ein Mensch als „Maßnahme läuft" zählt. Ein
+    # Abgleich, der Namen und Telefon übernimmt und den Status heimlich liegen lässt,
+    # hinterlässt zwei Systeme, die sich über denselben Kunden uneinig sind – und
+    # niemand liest ein `hinweis`-Feld in einer 200er-Antwort. Die Antwort nennt die
+    # acht Wörter, damit die Gegenseite in fünf Minuten weiss, was erwartet wird.
+    status = (feld_text(d, "status") or "").lower()
     if status:
-        felder["status_code"] = crm_karte.STATUS.get(status, d.get("status_code") or None)
-    if d.get("status_code"):
-        felder["status_code"] = d["status_code"]
+        if status not in crm_karte.STATUS:
+            return jsonify({"fehler": "unbekannter Status",
+                            "bekommen": status,
+                            "erlaubt": sorted(crm_karte.STATUS),
+                            "hinweis": "der vorhandene Statuscode wurde NICHT"
+                                       " überschrieben; es wurde nichts gespeichert"}), 400
+        felder["status_code"] = crm_karte.STATUS[status]
+    # Unser eigener Buchstabe darf auch direkt kommen – aber nur einer, den es gibt.
+    # Ein erfundener Buchstabe richtet denselben Schaden an wie ein leerer.
+    eigener = feld_text(d, "status_code")
+    if eigener:
+        if eigener.upper() not in db.STATUS:
+            return jsonify({"fehler": "unbekannter status_code",
+                            "bekommen": eigener, "erlaubt": sorted(db.STATUS),
+                            "hinweis": "es wurde nichts gespeichert"}), 400
+        felder["status_code"] = eigener.upper()
 
     nummer = felder.get("kundennummer")
     vorhanden = None
@@ -493,23 +584,41 @@ def tf_profil_schreiben():
     Aufruf abzuweisen. Wer ein bestehendes Profil ändert, schickt `profil` mit; dann
     bleibt stehen, was nicht mitgeschickt wird."""
     d = dict(eingang())
-    pid = d.get("profil") or d.get("id")
+    # Erst die Typen, dann die Fachlogik. `tf.profil_speichern` ruft auf Titel, Ort,
+    # Suchbegriffen, Arbeitszeit, Suchauftrag und Notiz `.strip()` und bindet `kunde_id`
+    # an SQLite – ein Objekt oder eine Liste fiel dort ungefangen um. `art` steht mit
+    # dabei, weil es gleich verglichen wird.
+    for _feld in ("titel", "art", "suchbegriffe", "ort", "arbeitszeit", "suchauftrag",
+                  "notiz", "standort"):
+        if _feld in d:
+            d[_feld] = feld_text(d, _feld)
+    roh_pid = d.get("profil") or d.get("id")
+    pid = feld_zahl(roh_pid)
+    if roh_pid is not None and pid is None:
+        return jsonify({"fehler": "profil muss die Nummer eines Suchprofils sein",
+                        "bekommen": repr(roh_pid)[:80]}), 400
     if not pid:
         fehlt = _fehlt("kunde", "art")
         if fehlt:
             return jsonify({"fehler": "Pflichtfelder fehlen", "felder": fehlt}), 400
         if str(d.get("art")) not in ("job", "wohnung"):
             return jsonify({"fehler": "art muss 'job' oder 'wohnung' sein"}), 400
+        kid = feld_zahl(d.get("kunde_id") or d.get("kunde"))
+        if kid is None:
+            return jsonify({"fehler": "kunde muss die Nummer eines Kunden sein",
+                            "bekommen": repr(d.get("kunde_id") or d.get("kunde"))[:80],
+                            "hinweis": "die Nummer aus /api/kunden oder aus der Antwort"
+                                       " von POST /api/kunde"}), 400
         d.setdefault("titel", "Arbeitssuche" if d["art"] == "job" else "Wohnungssuche")
         d.setdefault("ort", "Köln")
         d.setdefault("umkreis_km", 25)
         d.setdefault("standort", db.STANDORT_STANDARD)
-        d["kunde_id"] = d.get("kunde_id") or d.get("kunde")
+        d["kunde_id"] = kid
     # Kriterien dürfen als verschachteltes Objekt kommen – das Formular kennt nur Text.
     if isinstance(d.get("kriterien"), dict):
         d["kriterien"] = json.dumps(d["kriterien"], ensure_ascii=False)
-    neu = tf.profil_speichern(d, pid=int(pid) if pid else None)
-    return jsonify({"stand": jetzt(), "profil": neu or int(pid), "angelegt": not pid})
+    neu = tf.profil_speichern(d, pid=pid)
+    return jsonify({"stand": jetzt(), "profil": neu or pid, "angelegt": not pid})
 
 
 @api.route("/taskforce/profil/<int:pid>", methods=["DELETE"])
@@ -591,32 +700,54 @@ def tf_angebot_status(aid):
     """Status eines Angebots setzen – das ist die Rückmeldung, auf die es ankommt.
 
     `bearbeiter` gehört dazu: Ohne Namen zählen die Zahlen je Mitarbeiter nicht, und
-    „jemand hat angeschrieben" hilft niemandem beim Nachfassen."""
+    „jemand hat angeschrieben" hilft niemandem beim Nachfassen.
+
+    `bearbeiter` und `notiz` gehen durch `feld_text`: `tf.angebot_status` ruft darauf
+    `.strip()`, und ein Objekt (ein CRM, das den Bearbeiter als `{"name":…,"id":…}`
+    führt) fiel dort ungefangen um."""
     d = eingang()
-    status = str(d.get("status") or "").strip()
+    status = feld_text(d, "status", "")
     if status not in tf.STATUS:
         return jsonify({"fehler": "unbekannter Status", "erlaubt": list(tf.STATUS)}), 400
+    # Vor dem Schreiben ausgelesen, nicht im Aufruf: Ein unbrauchbarer Wert soll die
+    # 400 werfen, bevor irgendetwas angefasst wird, und das soll man hier sehen.
+    bearbeiter = feld_text(d, "bearbeiter")
+    notiz = feld_text(d, "notiz")
     if not db.eine("SELECT id FROM tf_angebot WHERE id=?", (aid,)):
         return jsonify({"fehler": "Angebot nicht gefunden"}), 404
-    tf.angebot_status(aid, status, bearbeiter=d.get("bearbeiter"), notiz=d.get("notiz"))
+    tf.angebot_status(aid, status, bearbeiter=bearbeiter, notiz=notiz)
     return jsonify({"stand": jetzt(), "angebot": aid, "status": status})
 
 
 @api.route("/taskforce/angebote/status", methods=["POST"])
 @schreibend("Angebotsstatus für mehrere gesetzt")
 def tf_angebote_status():
+    """Mehrere Angebote auf einmal auf denselben Stand setzen.
+
+    `ids` darf eine Liste von Nummern sein oder eine Aufzählung als Text („12,13").
+    Was keine Nummer ist, wird gezählt und in `abgewiesen` genannt – dieselbe Zusage
+    wie beim Übernehmen: die brauchbaren Sätze werden ausgeführt, und der Aufrufer
+    erfährt, wie viele nicht lesbar waren. `[int(i) for i in ids]` stand hier ohne
+    Fang, und fünf Formen fielen in einen 500er (siehe `feld_zahl`)."""
     d = eingang()
-    status = str(d.get("status") or "").strip()
-    ids = d.get("ids") or d.get("angebote") or []
-    if isinstance(ids, str):
-        ids = [t for t in ids.replace(";", ",").split(",") if t.strip()]
-    ids = [int(i) for i in ids]
+    status = feld_text(d, "status", "")
+    roh = d.get("ids") or d.get("angebote") or []
+    if isinstance(roh, str):
+        roh = [t for t in roh.replace(";", ",").split(",") if t.strip()]
+    elif not isinstance(roh, (list, tuple)):
+        roh = [roh]                    # eine einzelne Nummer ist auch eine Angabe
+    ids = [z for z in (feld_zahl(x) for x in roh) if z is not None]
+    abgewiesen = len(roh) - len(ids)
     if status not in tf.STATUS:
         return jsonify({"fehler": "unbekannter Status", "erlaubt": list(tf.STATUS)}), 400
     if not ids:
-        return jsonify({"fehler": "ids fehlen"}), 400
-    tf.angebote_status(ids, status, bearbeiter=d.get("bearbeiter"))
-    return jsonify({"stand": jetzt(), "anzahl": len(ids), "status": status})
+        return jsonify({"fehler": "ids fehlen", "abgewiesen": abgewiesen,
+                        "hinweis": "ids sind Nummern von Angeboten – als Liste"
+                                   " [12, 13] oder als Text \"12,13\""}), 400
+    bearbeiter = feld_text(d, "bearbeiter")     # vor dem Schreiben, siehe Schwesterroute
+    tf.angebote_status(ids, status, bearbeiter=bearbeiter)
+    return jsonify({"stand": jetzt(), "anzahl": len(ids), "status": status,
+                    "abgewiesen": abgewiesen})
 
 
 @api.route("/taskforce/angebot/<int:aid>/abgleich", methods=["POST"])
@@ -633,16 +764,37 @@ def tf_angebot_abgleich(aid):
     Gemessen am 23.09.2026 mit einer StepStone-Adresse, die es nicht gibt: Bildschirm
     302 mit Meldung, Schnittstelle 500.
 
-    Gleiche Behandlung, nur maschinenlesbar: 400 mit `grund`. Der Aufrufer hat die
-    Adresse mitgebracht, und die Antwort soll ihm sagen, woran es lag – nicht, dass
-    dieses Haus kaputt ist."""
+    Gleiche Behandlung, nur maschinenlesbar – aber **nicht alles ist ein 400**. Für
+    einen Maschinenaufrufer heisst 400 „wiederhol es nicht, so wie du fragst, geht es
+    nie". Das stimmt für eine tote Adresse, und nur dafür:
+
+        Netz (`URLError`, `HTTPError`, `TimeoutError`)   400 – die Adresse trägt der
+                                                         Aufrufer, sie führt ins Leere
+        Datenbank belegt (`OperationalError`)            503 – trifft sich der Nachtlauf
+                                                         mit einem CRM-Aufruf, ist es
+                                                         in Sekunden vorbei; wer hier
+                                                         400 bekäme, verwürfe den
+                                                         Auftrag für immer
+        alles übrige                                     502 – das Portal hat etwas
+                                                         geliefert, das wir nicht lesen
+                                                         konnten. Unsere Seite, nicht
+                                                         seine Frage."""
     if not db.eine("SELECT id FROM tf_angebot WHERE id=?", (aid,)):
         return jsonify({"fehler": "Angebot nicht gefunden"}), 404
     try:
         ergebnis = tf.abgleich(aid)
-    except Exception as e:
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as e:
         return jsonify({"fehler": "Abgleich nicht möglich",
                         "grund": f"{type(e).__name__}: {e}"[:200]}), 400
+    except sqlite3.OperationalError as e:
+        return jsonify({"fehler": "gerade nicht möglich",
+                        "grund": f"{type(e).__name__}: {e}"[:200],
+                        "hinweis": "die Datenbank ist belegt – in einer Minute erneut"
+                                   " versuchen"}), 503
+    except Exception as e:
+        return jsonify({"fehler": "Abgleich fehlgeschlagen",
+                        "grund": f"{type(e).__name__}: {e}"[:200],
+                        "hinweis": "die Antwort des Portals war nicht lesbar"}), 502
     if not ergebnis:
         return jsonify({"fehler": "Abgleich nicht möglich"}), 400
     abgleich, match = ergebnis
@@ -725,21 +877,31 @@ def tf_suche():
                  sekunden=round(time.time() - begonnen, 1))
 
 
-# Wie viele Treffer ein Aufruf mitbringen darf. Der Bildschirmweg hat diese Grenze
+# Wie viele Treffer ein Aufruf mitbringen darf. Der Bildschirmweg hat seine Grenze
 # geschenkt bekommen: Die Treffer reisen dort im Formular mit, und Werkzeug weist ab
-# 500.000 Bytes (`max_form_memory_size`) mit **413** ab – gemessen bei rund 1.370
-# echten Treffern, und es entsteht keine einzige Zeile. Die Schnittstelle hatte gar
-# keine: `MAX_CONTENT_LENGTH` ist `None`, und 100.000 Sätze in einem 36-MB-Körper
-# liefen am 23.09.2026 mit HTTP 200 in 4,2 Sekunden durch – 100.000 Zeilen auf der
-# Tafel eines Kunden, ohne Fehler, ohne Meldung. Ein verirrter CRM-Aufruf schüttet so
-# eine Tafel zu, und gesehen hätte es erst, wer sie öffnet.
+# 500.000 Bytes (`max_form_memory_size`) mit **413** ab, ohne dass eine Zeile entsteht.
+# Die Schnittstelle hatte gar keine: `MAX_CONTENT_LENGTH` ist `None`, und 100.000 Sätze
+# in einem 36-MB-Körper liefen am 23.09.2026 mit HTTP 200 in 4,2 Sekunden durch –
+# 100.000 Zeilen auf der Tafel eines Kunden, ohne Fehler, ohne Meldung. Ein verirrter
+# CRM-Aufruf schüttet so eine Tafel zu, und gesehen hätte es erst, wer sie öffnet.
 #
-# 1.000 ist gemessen, nicht geraten: `tf.direktsuche` schneidet bei 200 Treffern ab
-# (bei „beides" 100 je Art), mehr kann aus einer Suche gar nicht kommen – die Grenze
-# liegt also beim Fünffachen dessen, was der Normalfall hergibt, und unter der des
-# Formularwegs, damit beide Wege dieselbe Zusage machen. Der Bestand der größten Tafel
-# im Echtbestand: 1.424 Zeilen, gewachsen über viele Läufe, nie über einen Aufruf.
-# Wer wirklich mehr hat, schickt zwei Aufrufe; die Antwort nennt die Zahl.
+# **Die beiden Grenzen können sich nicht treffen, und das ist in Ordnung.** Der
+# Formularweg zählt BYTES: wie viele Treffer hineinpassen, hängt davon ab, wie groß sie
+# sind – am 23.09.2026 zweimal gemessen, mit großen Sätzen (Ø 681 B) gingen 731 durch
+# und 732 nicht, mit kleineren 914 und 915. Hier wird STÜCK gezählt, weil hier die
+# Stückzahl der Schaden ist: Es geht
+# um die Zahl der Zeilen, die auf einer Tafel landen, nicht um die Länge des Körpers.
+# Eine Zahl, die beides gleichzeitig trifft, gibt es nicht; wer sie behauptet, hat eine
+# der beiden Messungen nicht gemacht. Beide Wege sagen dasselbe ZU – „zu viel auf
+# einmal wird abgewiesen, und es wird nichts geschrieben" –, nur eben an verschiedenen
+# Maßen.
+#
+# 1.000 ist die Zahl für dieses Maß: `tf.direktsuche` schneidet bei 200 Treffern ab
+# (bei „beides" 100 je Art), der Normalfall bringt also höchstens 200 mit. Die größte
+# gewachsene Tafel im Echtbestand hat 1.424 Zeilen – über viele Läufe entstanden, nie
+# über einen Aufruf. 1.000 liegt über allem, was aus einer Suche kommen kann, und weit
+# unter dem, was eine Tafel unbrauchbar macht. Wer wirklich mehr hat, schickt zwei
+# Aufrufe; die Antwort nennt die Grenze und die bekommene Zahl.
 TREFFER_JE_AUFRUF = 1000
 
 
@@ -776,8 +938,10 @@ def tf_uebernehmen(pid):
     Meldung auf einer Seite nicht lesen – eine Zahl im Körper schon.
 
     **Und es geht nur eine Handvoll auf einmal** (`TREFFER_JE_AUFRUF`, siehe dort):
-    darüber 413 mit der Grenze und der bekommenen Zahl, und es wird nichts abgelegt –
-    dieselbe Antwort, die der Formularweg an seiner Grenze gibt."""
+    darüber 413 mit der Grenze und der bekommenen Zahl, und es wird nichts abgelegt.
+    Der Formularweg antwortet an seiner Grenze ebenso mit 413 – er misst aber die
+    Größe des Rumpfes, dieser Weg die Stückzahl. Zwei Maße, eine Zusage: zu viel auf
+    einmal wird laut abgewiesen, und es wird nichts geschrieben."""
     if not tf.profil(pid):
         return jsonify({"fehler": "Profil nicht gefunden"}), 404
     # Ein Körper, der gar keine Abbildung ist, endet in `eingang()` mit 400 – dort und

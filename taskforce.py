@@ -2196,8 +2196,10 @@ def direktsuche(p, quellen=None, grenze=200):
     # nirgends: wer 340 Treffer hatte, sah 200 und hielt das für alles. Sortiert ist
     # nach Relevanz, oben steht also das Beste – aber das muss dastehen, nicht geraten
     # werden. **Wer `grenze` anhebt, hebt auch den POST-Rumpf beim Übernehmen an**;
-    # ab rund 575 Treffern greift `max_form_memory_size` (siehe `zu_viel_auf_einmal`
-    # in `app.py`).
+    # `max_form_memory_size` greift bei 500.000 BYTES, nicht bei einer Stückzahl – am
+    # 23.09.2026 waren das je nach Größe der Treffer 732 oder 914 Stück (siehe
+    # `zu_viel_auf_einmal` in `app.py`; „rund 575" stand hier aus einer älteren
+    # Messung und galt nicht mehr).
     if len(einmalig) > grenze:
         meldungen.append(f"{len(einmalig) - grenze} weitere Treffer abgeschnitten"
                          f" – gezeigt werden die {grenze} bestbewerteten")
@@ -2375,8 +2377,17 @@ def beschreibung_laden(a):
         _, body = _get(f"https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobdetails/{h}",
                        {"X-API-Key": BA_KEY, "Accept": "application/json"})
         d = json.loads(body)
-        if d.get("eintrittszeitraum"):
-            z["eintritt"] = str(d["eintrittszeitraum"])[:10]
+        # `eintrittszeitraum` ist bei der BA ein Objekt (`{"von": …, "bis": …}`), kein
+        # Datum. `str(…)[:10]` machte daraus `{'von': '2` – und genau so stand es am
+        # 23.09.2026 in ALLEN 49 Zeilen mit `eintritt` im Bestand, und so zeigt es
+        # `taskforce_profil.html` auch: „ab {'von': '2". Gelesen wird jetzt der Beginn;
+        # gibt es keinen, bleibt das Feld leer statt falsch. Ein Datum, das schon als
+        # Text kommt, geht weiter durch – die BA hat das Feld schon einmal umgestellt.
+        eintritt = d.get("eintrittszeitraum")
+        if isinstance(eintritt, dict):
+            eintritt = eintritt.get("von") or eintritt.get("bis")
+        if isinstance(eintritt, str) and eintritt.strip():
+            z["eintritt"] = eintritt.strip()[:10]
         return d.get("stellenangebotsBeschreibung") or "", z
     if q in ("jobs.kleinanzeigen", "wohnung.kleinanzeigen"):
         _, body = _get(url)

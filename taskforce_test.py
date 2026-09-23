@@ -1555,10 +1555,18 @@ def main():
 
     # --- Die 413-Wand sagt, was los ist ----------------------------------------------
     # Die Treffer reisen im Formular mit, also hat der Rumpf eine Grenze:
-    # `max_form_memory_size` (500.000 B), mit echten Treffergroessen rund 575 Stueck.
-    # Heute unerreichbar, weil `tf.direktsuche` bei 200 abschneidet – aber genau eine
-    # Zahl entfernt. Ohne Griff kam die nackte englische Werkzeug-Seite: keine
-    # Erklaerung, kein Weg zurueck, alles Angehakte weg.
+    # `max_form_memory_size` (500.000 B). Die Grenze zaehlt BYTES, nicht Stueck – wie
+    # viele Treffer hineinpassen, haengt von ihrer Groesse ab; am 23.09.2026 gemessen
+    # waren es 732 mit grossen und 914 mit kleineren echten Treffern (die Zahl „rund
+    # 575" stand hier aus einer aelteren Messung und galt nicht mehr).
+    # Heute unerreichbar, weil `tf.direktsuche` bei 200 abschneidet – aber
+    # genau eine Zahl entfernt. Ohne Griff kam die nackte englische Werkzeug-Seite:
+    # keine Erklaerung, kein Weg zurueck, alles Angehakte weg.
+    #
+    # Diese Reihe hier erzwingt die Wand mit EINEM riesigen Feld – sie prueft die Seite,
+    # nicht die Grenze. Womit die Grenze wirklich liegt, misst Abschnitt 16 mit echten
+    # Treffergroessen; ohne diese zweite Messung konnten 575, 732 und 1.370 nebeneinander
+    # in drei Dateien stehen, ohne dass eine Pruefung rot wurde.
     _zu_gross = c.post("/taskforce/suchen/uebernehmen",
                        data={"profil": str(_pid_g), "zurueck": "/taskforce/suchen",
                              "treffer": "0",
@@ -2324,6 +2332,113 @@ def main():
            "; ".join(_koerper_kaputt)
            or f"{len(_formen) * len(_routen)} Aufrufe, je 400 mit Begründung")
 
+    # **Und ein Feld tiefer.** Die Reihe oben ruft genau diese Routen auf und bekommt
+    # 400 – der Absturzweg lag trotzdem offen, nur eine Ebene weiter innen: Der Körper
+    # war eine gültige Abbildung, das FELD darin aber eine Liste, ein Objekt oder eine
+    # Zahl mit dreissig Stellen. Zehn gemessene 500er am 23.09.2026, alle drei
+    # Schreibrouten. Eine Route, die im Testprotokoll abgedeckt aussieht und an der
+    # Stelle daneben umfällt, ist schlimmer als eine ungeprüfte.
+    _aid_status = db.wert("SELECT id FROM tf_angebot ORDER BY id LIMIT 1")
+    _tiefer = [
+        # Form, Weg, Körper, erwarteter Status, erwartete Zahl in `abgewiesen`
+        ("ids als Text-Liste", "/api/taskforce/angebote/status",
+         {"status": "gesehen", "ids": ["abc"]}, 400, 1),
+        ("ids als Aufzählung mit Text", "/api/taskforce/angebote/status",
+         {"status": "gesehen", "ids": "%d,abc" % _aid_status}, 200, 1),
+        ("ids als einzelne Zahl", "/api/taskforce/angebote/status",
+         {"status": "gesehen", "ids": _aid_status}, 200, 0),
+        ("ids mit Objekt darin", "/api/taskforce/angebote/status",
+         {"status": "gesehen", "ids": [{"a": 1}]}, 400, 1),
+        ("id jenseits von 64 Bit", "/api/taskforce/angebote/status",
+         {"status": "gesehen", "ids": [99999999999999999999]}, 400, 1),
+        ("bearbeiter als Objekt", f"/api/taskforce/angebot/{_aid_status}/status",
+         {"status": "gesehen", "bearbeiter": {"x": 1}}, 400, None),
+        ("notiz als Objekt", f"/api/taskforce/angebot/{_aid_status}/status",
+         {"status": "gesehen", "notiz": {"x": 1}}, 400, None),
+        ("profil als Wort", "/api/taskforce/profil", {"profil": "abc"}, 400, None),
+        ("profil als Liste", "/api/taskforce/profil", {"profil": [1]}, 400, None),
+        ("kunde als Objekt", "/api/taskforce/profil",
+         {"kunde": {"x": 1}, "art": "job"}, 400, None),
+        # Dieselbe Klasse an den Stammdaten: ein verschachtelter Wert darf nicht als
+        # Python-Zeile in der Kundenakte landen.
+        ("name als Liste", "/api/kunde", {"name": ["Vorname", "Nachname"]}, 400, None),
+        ("phone als Objekt", "/api/kunde",
+         {"customer_number": "API-1", "phone": {"mobil": "0170"}}, 400, None),
+    ]
+    # Erwartet wird je Form, was die Route zusagt: Wo gar nichts Brauchbares steht, ist
+    # es ein 400 mit Begründung; wo eine Angabe brauchbar ist und eine nicht, wird die
+    # brauchbare ausgeführt und die andere in `abgewiesen` gezählt – dieselbe Zusage wie
+    # beim Übernehmen. Stillschweigend verschwinden darf nichts, und 500 nie.
+    _tiefer_kaputt = []
+    _vor_tiefer = db.wert("SELECT COUNT(*) FROM tf_angebot")
+    _profile_vor = db.wert("SELECT COUNT(*) FROM tf_profil")
+    for _name_t, _weg_t, _koerper_t, _soll_t, _soll_abgewiesen in _tiefer:
+        _r_t = c.post(_weg_t, json=_koerper_t)
+        _j_t = _r_t.get_json() or {}
+        _fehler_t = None
+        if _r_t.status_code != _soll_t:
+            _fehler_t = f"Status {_r_t.status_code} statt {_soll_t}"
+        elif _soll_t == 400 and not _j_t.get("fehler"):
+            _fehler_t = "400 ohne Begründung"
+        elif _soll_abgewiesen is not None and _j_t.get("abgewiesen") != _soll_abgewiesen:
+            _fehler_t = f"abgewiesen {_j_t.get('abgewiesen')} statt {_soll_abgewiesen}"
+        if _fehler_t:
+            _tiefer_kaputt.append(f"{_name_t}: {_fehler_t}")
+    pruefe(f"{len(_tiefer)} unbrauchbare FELDER in gültigen Körpern fällen keine der"
+           " drei Schreibrouten – jede sagt, was sie nicht lesen konnte",
+           not _tiefer_kaputt
+           and db.wert("SELECT COUNT(*) FROM tf_angebot") == _vor_tiefer
+           and db.wert("SELECT COUNT(*) FROM tf_profil") == _profile_vor,
+           "; ".join(_tiefer_kaputt) or f"{len(_tiefer)} Formen geprüft, nichts angelegt")
+
+    # Die Gegenrichtung zu den Feldtypen: Was brauchbar ist, muss weiter durchgehen –
+    # eine Nummer als Text („12"), eine Zahl an einem Textfeld (Telefonnummern kommen
+    # aus manchen Systemen als Zahl), und der Sammelstatus über mehrere Angebote.
+    _ids_echt = [r["id"] for r in db.hole(
+        "SELECT id FROM tf_angebot WHERE profil_id=? ORDER BY id LIMIT 2", (_pid_j_api,))]
+    _r_sammel = c.post("/api/taskforce/angebote/status",
+                       json={"status": "gesehen", "ids": [str(_ids_echt[0]), _ids_echt[1]],
+                             "bearbeiter": "Api Kraft"})
+    _gesetzt = db.wert("SELECT COUNT(*) FROM tf_angebot WHERE id IN (?,?) AND status='gesehen'",
+                       tuple(_ids_echt))
+    pruefe("Brauchbare Angaben kommen weiterhin durch – Nummer als Text, Zahl als Text,"
+           " Sammelstatus",
+           _r_sammel.status_code == 200 and _gesetzt == 2
+           and not (_r_sammel.get_json() or {}).get("abgewiesen"),
+           f"{_r_sammel.status_code} · {_gesetzt} von 2 gesetzt"
+           f" · {(_r_sammel.get_json() or {}).get('abgewiesen')} abgewiesen")
+
+    # **Ein unbekanntes Statuswort loescht keinen Statuscode.** Gemessen an einem
+    # echten Kunden: `{"status": "in Massnahme"}` gab HTTP 200 und schrieb
+    # `status_code = NULL` in den vorhandenen Satz – der Mensch faellt danach aus jeder
+    # Auswertung, die nach Status filtert, ohne Fehler und ohne Spur. Heute haben
+    # 120 von 120 Kunden einen Statuscode.
+    _kunde_st = db.eine("SELECT id, kundennummer, status_code, quelle_stand, stand_am"
+                        " FROM kunde WHERE kundennummer IS NOT NULL AND kundennummer<>''"
+                        "   AND status_code IS NOT NULL LIMIT 1")
+    _r_status = c.post("/api/kunde", json={"customer_number": _kunde_st["kundennummer"],
+                                           "status": "in Massnahme"})
+    _danach = db.wert("SELECT status_code FROM kunde WHERE id=?", (_kunde_st["id"],), None)
+    _json_status = _r_status.get_json() or {}
+    pruefe("Ein unbekanntes Statuswort wird abgewiesen und überschreibt den"
+           " vorhandenen Statuscode nicht",
+           _r_status.status_code == 400 and _danach == _kunde_st["status_code"]
+           and len(_json_status.get("erlaubt") or []) == 8,
+           f"{_r_status.status_code} · Status {_kunde_st['status_code']!r} → {_danach!r}"
+           f" · erlaubt {_json_status.get('erlaubt')}")
+    # Und die Gegenrichtung: ein bekanntes Wort setzt den Status weiterhin.
+    _r_gut = c.post("/api/kunde", json={"customer_number": _kunde_st["kundennummer"],
+                                        "status": "aktiv"})
+    _nach_gut = db.wert("SELECT status_code FROM kunde WHERE id=?", (_kunde_st["id"],), None)
+    with db.offen() as _con:          # den Kunden wieder so hinterlassen, wie er war
+        _con.execute("UPDATE kunde SET status_code=?, quelle_stand=?, stand_am=?"
+                     " WHERE id=?",
+                     (_kunde_st["status_code"], _kunde_st["quelle_stand"],
+                      _kunde_st["stand_am"], _kunde_st["id"]))
+    pruefe("Ein bekanntes Statuswort kommt weiterhin an",
+           _r_gut.status_code == 200 and _nach_gut == "H",
+           f"{_r_gut.status_code} · aktiv → {_nach_gut!r}")
+
     # **Der Griff nach draussen faellt nicht mehr ins Haus.** Die Adresse eines Angebots
     # kommt vom Aufrufer und ist zu Recht nur auf „Text" geprueft. Eine abgelaufene
     # Anzeige, ein Portal in Wartung, ein Tippfehler – `tf.abgleich` wirft, und
@@ -2379,6 +2494,67 @@ def main():
            _r_genau.status_code == 200 and not (_r_genau.get_json() or {}).get("abgewiesen")
            and _drin_genau == len(_genau),
            f"{_r_genau.status_code} · {_drin_genau} von {len(_genau)} auf der Tafel")
+
+    # **Wo die Grenze des Formularwegs wirklich liegt – mit echten Treffergrößen.**
+    # Die Reihe in Abschnitt 13 erzwingt die 413 mit einem einzigen 600.000-Zeichen-Feld;
+    # das prueft die Seite, nicht die Grenze. Genau deshalb konnten „rund 575" (drei
+    # Dateien), „732" (gemessen) und „rund 1.370" (behauptet) nebeneinander stehen, ohne
+    # dass eine Pruefung rot wurde. Hier wird mit echten Treffern gerechnet: ein Satz
+    # wird so verpackt, wie das Formular ihn schickt, seine Groesse gemessen und daraus
+    # die Menge bestimmt, die knapp drueber und knapp drunter liegt.
+    from werkzeug.test import EnvironBuilder
+
+    def _stapel(anzahl, marke):
+        """Einen Stapel echter Treffer so verpacken, wie das Formular ihn schickt."""
+        felder = [("profil", str(_pid_w_api)), ("zurueck", "/taskforce/suchen")]
+        for i in range(anzahl):
+            felder.append(("treffer", str(i)))
+            felder.append(("t%d" % i, json.dumps(dict(_beispiele["jobs.stepstone"],
+                                                      extern_id="%s-%d" % (marke, i)),
+                                                 ensure_ascii=False)))
+        return MultiDict(felder)
+
+    def _rumpflaenge(daten):
+        """Die Länge des Rumpfes, den der Browser wirklich schickt.
+
+        Gemessen mit dem Werkzeug, das ihn auch baut – `urlencode` von Hand liegt rund
+        zehn Prozent daneben (es maskiert `/` und `:`, die in jeder Treffer-URL
+        stehen), und genau daran ist der erste Anlauf dieser Reihe gescheitert:
+        850 Sätze galten als „zu viel", kamen aber durch. Verglichen wird gegen
+        `max_form_memory_size`, und Werkzeug vergleicht dort die **Rumpflänge**
+        (`formparser.py`, `_parse_urlencoded`)."""
+        bau = EnvironBuilder(method="POST", data=daten)
+        try:
+            return int(bau.get_environ().get("CONTENT_LENGTH") or 0)
+        finally:
+            bau.close()
+
+    # Die Menge wird gesucht, nicht gerechnet: Ein Satz wird mit steigender Nummer ein
+    # paar Zeichen länger, eine Hochrechnung aus hundert Sätzen liegt deshalb daneben.
+    _unter, _ueber = 10, 2000
+    while _unter + 1 < _ueber:
+        _mitte = (_unter + _ueber) // 2
+        if _rumpflaenge(_stapel(_mitte, "UNTER")) > 500000:
+            _ueber = _mitte
+        else:
+            _unter = _mitte
+    _daten_unter = _stapel(_unter, "UNTER")
+    _daten_ueber = _stapel(_ueber, "UEBER")
+    _bytes_unter, _bytes_ueber = _rumpflaenge(_daten_unter), _rumpflaenge(_daten_ueber)
+    _r_unter = c.post("/taskforce/suchen/uebernehmen", data=_daten_unter)
+    _drin_unter = db.wert("SELECT COUNT(*) FROM tf_angebot WHERE extern_id LIKE 'UNTER-%'")
+    _nach_unter = db.wert("SELECT COUNT(*) FROM tf_angebot")
+    _r_ueber = c.post("/taskforce/suchen/uebernehmen", data=_daten_ueber)
+    _drin_ueber = db.wert("SELECT COUNT(*) FROM tf_angebot WHERE extern_id LIKE 'UEBER-%'")
+    pruefe("Die Grenze des Formularwegs zählt Bytes: knapp unter 500.000 kommt jeder"
+           " echte Treffer durch, ein Satz mehr gibt 413 und keine einzige Zeile",
+           _bytes_unter <= 500000 < _bytes_ueber and _ueber == _unter + 1
+           and _r_unter.status_code == 302 and _drin_unter == _unter
+           and _r_ueber.status_code == 413 and _drin_ueber == 0
+           and db.wert("SELECT COUNT(*) FROM tf_angebot") == _nach_unter,
+           f"{_unter} Sätze = {_bytes_unter} B → {_r_unter.status_code},"
+           f" {_drin_unter} Zeilen · {_ueber} Sätze = {_bytes_ueber} B →"
+           f" {_r_ueber.status_code}, {_drin_ueber} Zeilen")
 
     fehl = [n for n, ok, _ in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")
