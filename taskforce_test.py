@@ -919,20 +919,21 @@ def main():
     pruefe("Ohne Anfrage wird weiterhin jedes Mal frisch gerechnet",
            aufgaben.laufende_massnahmen() is not aufgaben.laufende_massnahmen())
 
-    # Kein Kundenname im PRODUKTCODE: die Kunden kommen später aus dem CRM, der Bestand
-    # hier ist Baumaterial. Ein Sonderfall für einen Menschen überlebt den Umzug nicht –
-    # er fällt nur nicht auf, weil er dann für niemanden mehr greift.
+    # Kein Kundenname im versionierten Code: die Kunden kommen später aus dem CRM, der
+    # Bestand hier ist Baumaterial. Ein Sonderfall für einen Menschen überlebt den Umzug
+    # nicht – er fällt nur nicht auf, weil er dann für niemanden mehr greift. Und das
+    # Repo ist privat, aber es ist ein Repo: Was hier steht, liegt auf jedem Rechner,
+    # auf den es geklont wird.
     #
-    # Zwei Grenzen, beide bewusst, und beide stehen im Namen der Prüfung:
-    #
-    # **Der ganze Produktcode**, nicht eine Handvoll Module: jede `.py` in der Wurzel und
-    # in `quellen/`, dazu jede Vorlage. Ausgenommen sind allein die Prüfwerkzeuge, und die
-    # Ausnahmeliste steht hier im Code, nicht im Kopf des Schreibers. Ein Test, der fünf
-    # Dateien liest und „im Produktcode" behauptet, meldet Grün für eine Regel, die
-    # nebenan gebrochen wird – das ist schlimmer als kein Test.
-    #
-    # Testdateien brauchen einen Beispielkunden: ohne ihn kann eine Prüfung nichts
-    # anfassen. Das ist kein Verstoß, sondern die Voraussetzung, und es steht im Namen.
+    # **Ohne jede Ausnahme.** Hier stand eine Liste von fünf „Prüfwerkzeugen", die
+    # übersprungen wurden – darunter `taskforce_backtest.py`, und genau dort stand ein
+    # echter Kunde mit vollem Namen in Zeile 83 und sein Nachname in Zeile 156. Ein
+    # Wächter mit einer Ausnahme für die Datei, in der der Name steht, ist keiner.
+    # „Ist ein Werkzeug" ist kein Grund: ein Werkzeug wird mitversioniert wie jede
+    # andere Datei. Gemessen nach dem Aufräumen: 120 Namen gegen 71 Dateien, kein
+    # Treffer – die Ausnahme war auch nirgends nötig. Ein Selbsttest, der wirklich
+    # einen Namen braucht, nimmt ihn aus der Datenbank (so wie `main` oben den Kunden
+    # mit den Suchprofilen sucht), nicht aus der Tastatur.
     #
     # **Nur vollständige Namen**, also mindestens zwei Namensteile. Einzelne Stücke
     # klingen scharf, treffen aber deutsche Wörter: im Bestand stehen Sammelzeilen und
@@ -940,27 +941,66 @@ def main():
     # in halb `app.py` vorkommen. Ein Test, den man mit der Wortwahl im nächsten
     # Kommentar besänftigen muss, wird abgeschaltet. Ein hart eingetragener Kunde steht
     # ohnehin praktisch nie mit nur einem Wort da.
-    _pruefwerkzeuge = {"bedienprobe.py", "taskforce_backtest.py", "cv_probe.py",
-                       "cv_serie.py", "seitenpruefung.py"}
-    _produktcode = sorted(n for n in os.listdir(HIER)
-                          if n.endswith(".py") and not n.endswith("_test.py")
-                          and n not in _pruefwerkzeuge)
-    _produktcode += sorted("quellen/" + n for n in os.listdir(os.path.join(HIER, "quellen"))
-                           if n.endswith(".py"))
-    _produktcode += sorted("templates/" + n for n in os.listdir(os.path.join(HIER, "templates"))
-                           if n.endswith(".html"))
+    _dateien = sorted(n for n in os.listdir(HIER) if n.endswith(".py"))
+    _dateien += sorted("quellen/" + n for n in os.listdir(os.path.join(HIER, "quellen"))
+                       if n.endswith(".py"))
+    _dateien += sorted("templates/" + n for n in os.listdir(os.path.join(HIER, "templates"))
+                       if n.endswith(".html"))
     _quellen = {n: open(os.path.join(HIER, n), encoding="utf-8").read()
-                for n in _produktcode if os.path.exists(os.path.join(HIER, n))}
+                for n in _dateien if os.path.exists(os.path.join(HIER, n))}
+    # **Gefragt wird der Echtbestand, nicht die Arbeitskopie.** Maßgeblich ist, wer
+    # wirklich Kunde ist – und in der Kopie legen die Selbsttests selbst Menschen an
+    # („Api Testperson", „Quintus Testbergmann"). Die Prüfung fände sonst die erfundenen
+    # Namen der eigenen Datei wieder und wäre genau dann rot, wenn alles richtig ist.
+    # Geöffnet wird über `pruefkopie.leseadresse()`, also nur lesend.
+    import sqlite3 as _sqlite
+    _bestand = _sqlite.connect(pruefkopie.leseadresse(), uri=True)
+    try:
+        _zeilen = [r[0] for r in _bestand.execute(
+            "SELECT name FROM kunde WHERE name IS NOT NULL AND name <> ''")]
+    finally:
+        _bestand.close()
     _namen = set()
-    for _z in db.hole("SELECT name FROM kunde WHERE name IS NOT NULL AND name <> ''"):
-        _voll = " ".join(_z["name"].split())
+    for _name in _zeilen:
+        _voll = " ".join(_name.split())
         if len([t for t in re.split(r"[^\wÄÖÜäöüß]+", _voll) if len(t) > 1]) >= 2:
             _namen.add(_voll)
     _gefunden = sorted({f"{n}: {w}" for n, t in _quellen.items() for w in _namen if w in t})
-    pruefe("Kein vollständiger Kundenname steht im Produktcode "
-           "(Selbsttests und Prüfwerkzeuge ausgenommen)",
+    pruefe("Kein vollständiger Kundenname steht im Code – Module, Vorlagen, "
+           "Prüfwerkzeuge und Selbsttests, ohne Ausnahme",
            not _gefunden,
            _gefunden or f"{len(_namen)} Namen gegen {len(_quellen)} Dateien geprüft")
+
+    # **Und kein Werkzeug schreibt am Papierkorb vorbei ins Repo.** Derselbe Fund,
+    # dieselbe Datei: `taskforce_backtest.py` setzte `OS_AUSGABE_ORDNER` auf einen
+    # Papierkorb und setzte den Pfad für seinen Bericht danach von Hand aus `HIER` und
+    # dem Ordnernamen zusammen – mit Klarnamen und Telefonnummer darin.
+    #
+    # Geprüft wird das **Schreiben**, nicht das Bauen des Pfades: Zwei Prüfreihen müssen
+    # den echten Ordner ausrechnen, um ihn vorher und nachher abzuzählen
+    # (`lebenslauf_test.py`, `os_test.py`) – das ist der Wächter selbst und kein Verstoß.
+    # Verboten ist, aus so einem Pfad einen Ordner anzulegen oder eine Datei darin zu
+    # beschreiben. Eine Ausnahmeliste braucht es dafür nicht, und eine hätte hier auch
+    # nichts zu suchen: An einer Ausnahmeliste ist der Wächter eine Reihe weiter oben
+    # schon einmal gescheitert.
+    _schreibt_ins_repo = []
+    for _n, _t in _quellen.items():
+        if not _n.endswith(".py"):
+            continue
+        _markiert = set()
+        for _tr in re.finditer(r"(\w+)\s*=\s*os\.path\.join\(\s*HIER\s*,\s*[\"']ausgabe[\"']", _t):
+            _markiert.add(_tr.group(1))
+        for _runde in range(3):     # daraus abgeleitete Pfade mitnehmen
+            for _tr in re.finditer(r"(\w+)\s*=\s*os\.path\.join\(\s*(\w+)\s*,", _t):
+                if _tr.group(2) in _markiert:
+                    _markiert.add(_tr.group(1))
+        for _v in sorted(_markiert):
+            if (re.search(r"makedirs\(\s*%s\b" % _v, _t)
+                    or re.search(r"open\(\s*%s\s*,\s*[\"']w" % _v, _t)):
+                _schreibt_ins_repo.append(f"{_n}: {_v}")
+    pruefe("Kein Werkzeug legt etwas im `ausgabe/` des Repos an – der Pfad darf dort "
+           "ausgerechnet werden, um ihn nachzuzählen, nicht um hineinzuschreiben",
+           not _schreibt_ins_repo, _schreibt_ins_repo)
 
     # Die Sammelanlage ist der Weg, der das Band schließt. Sie darf nicht genau dann von
     # der Seite verschwinden, wenn gerade keine Lücke offen ist – dann verliert auch die
@@ -2148,6 +2188,112 @@ def main():
     pruefe("Ein Wahrheitswert an `quereinstieg` bleibt erlaubt",
            A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "ok",
                               "zusatz": {"quereinstieg": True, "arbeitszeit": "Vollzeit"}}))
+
+    print("\n16. Derselbe Riegel auf beiden Wegen (23.09.2026)")
+    # Der Waechter sass in der Route des FORMULARS. Die Schwesterroute der Schnittstelle
+    # (`/api/taskforce/profil/<pid>/uebernehmen`) schreibt in dieselbe Tabelle und hatte
+    # keinen: `t.get("quelle") and t.get("extern_id")`, mehr nicht. Ueber das CRM haette
+    # damit jeder Satz durchgekonnt, den der Bildschirmweg laengst abwehrt.
+    #
+    # Gemessen wird wie oben die WIRKUNG: kein 500er, keine Zeile in `tf_angebot`. Dazu
+    # gehoert der Koerper selbst – kaputtes JSON und `null` in der Liste sind zwei
+    # eigene Wege in denselben Absturz.
+    _pid_j_api = db.wert("SELECT id FROM tf_profil WHERE art='job' ORDER BY id LIMIT 1")
+    _pid_w_api = db.wert("SELECT id FROM tf_profil WHERE art='wohnung' ORDER BY id LIMIT 1")
+    _vor_api = db.wert("SELECT COUNT(*) FROM tf_angebot")
+    _wege = [
+        ("A  dict an `preis` – `_score` ruft `.split` darauf", _pid_w_api,
+         {"treffer": [{"quelle": "wohnung.kleinanzeigen", "extern_id": "API-GIFT-A",
+                       "zusatz": {"preis": {"x": 1}}}]}),
+        ("B  `treffer` als Zeichenkette mit kaputtem JSON", _pid_j_api,
+         {"treffer": "[{\"quelle\": \"jobs.ba\", "}),
+        ("C  `null` in der Trefferliste", _pid_j_api, {"treffer": [None]}),
+        # Dazu, was der Bildschirmweg ebenfalls schon abwehrt und diese Route nicht:
+        ("D  Zahl jenseits von 64 Bit an `entfernung_km`", _pid_j_api,
+         {"treffer": [{"quelle": "jobs.ba", "extern_id": "API-GIFT-D",
+                       "entfernung_km": 2 ** 70}]}),
+        ("E  negative Entfernung – nagelt den Satz nach oben", _pid_j_api,
+         {"treffer": [{"quelle": "jobs.ba", "extern_id": "API-GIFT-E",
+                       "entfernung_km": -5}]}),
+        ("F  ueberlanger `preis` – `int(…)` wirft ab 4.300 Ziffern", _pid_w_api,
+         {"treffer": [{"quelle": "wohnung.kleinanzeigen", "extern_id": "API-GIFT-F",
+                       "zusatz": {"preis": "9" * 5000}}]}),
+        ("G  Quelle, die es nicht gibt", _pid_j_api,
+         {"treffer": [{"quelle": "boese.quelle", "extern_id": "API-GIFT-G"}]}),
+        ("H  `treffer` ist gar keine Liste", _pid_j_api, {"treffer": {"quelle": "jobs.ba"}}),
+    ]
+    _api_kaputt = []
+    for _name, _ziel, _koerper in _wege:
+        _r_a = c.post(f"/api/taskforce/profil/{_ziel}/uebernehmen", json=_koerper)
+        if _r_a.status_code != 400:
+            _api_kaputt.append(f"{_name} → {_r_a.status_code}")
+    _api_drin = db.wert("SELECT COUNT(*) FROM tf_angebot WHERE extern_id LIKE 'API-GIFT-%'")
+    pruefe(f"{len(_wege)} Wege in den 500er sind auf der Schnittstelle zu – sie antwortet"
+           " mit 400 und legt nichts ab",
+           not _api_kaputt and not _api_drin
+           and db.wert("SELECT COUNT(*) FROM tf_angebot") == _vor_api,
+           "; ".join(_api_kaputt) or f"{len(_wege)} Formen geprüft, {_api_drin} Zeilen")
+
+    # **Feldschmuggel.** `_ablegen` schreibt Profil, Status, Relevanz und die
+    # Dublettenmarke selbst. Wer sie im Treffer mitschickt, darf sie nicht setzen –
+    # sonst legt das CRM eine Zeile auf ein fremdes Profil, mit Relevanz 99 und dem
+    # Status „angeschrieben", den nie jemand angeschrieben hat.
+    _fremd = _pid_w_api if _pid_w_api != _pid_j_api else _pid_j_api
+    c.post(f"/api/taskforce/profil/{_pid_j_api}/uebernehmen", json={"treffer": [{
+        "quelle": "jobs.ba", "extern_id": "API-SCHMUGGEL", "titel": "Lagerhelfer (m/w/d)",
+        "profil_id": _fremd, "status": "angeschrieben", "score": 99, "doppelt_von": 7,
+        "bearbeiter": "Niemand"}]})
+    _zeile_s = db.eine("SELECT profil_id, status, score, doppelt_von, bearbeiter"
+                       " FROM tf_angebot WHERE extern_id='API-SCHMUGGEL'")
+    pruefe("Untergeschobene Felder werden vom Server gesetzt, nicht vom Aufrufer",
+           _zeile_s is not None and _zeile_s["profil_id"] == _pid_j_api
+           and _zeile_s["status"] in ("neu", "doppelt") and _zeile_s["score"] != 99
+           and _zeile_s["doppelt_von"] is None and _zeile_s["bearbeiter"] is None,
+           dict(_zeile_s) if _zeile_s else "keine Zeile abgelegt")
+
+    # **Die Gegenrichtung, und die ist die wichtigste.** Ein Riegel, den man auf eine
+    # zweite Route zieht, nimmt seinen Fehler mit: Auf dem Bildschirmweg hat genau
+    # diese Richtung 146 von 201 echten Treffern gekostet, weil `None` an einem
+    # Textfeld abgewiesen wurde. Also jeder echte Beispieltreffer einmal durch die
+    # Schnittstelle – und nachgesehen, ob die Zeile wirklich in `tf_angebot` steht.
+    _echte_api, _fehlend_api = 0, []
+    for _q, _beispiel in sorted(_beispiele.items()):
+        _ziel_p = _pid_w_api if _q.startswith("wohnung") else _pid_j_api
+        _eid = "API-ECHT-%d" % (_echte_api + 1)
+        _r_e = c.post(f"/api/taskforce/profil/{_ziel_p}/uebernehmen",
+                      json={"treffer": [dict(_beispiel, extern_id=_eid)]})
+        _echte_api += 1
+        if _r_e.status_code != 200 or (_r_e.get_json() or {}).get("abgewiesen"):
+            _fehlend_api.append(f"{_q} → {_r_e.status_code}")
+        elif not db.wert("SELECT COUNT(*) FROM tf_angebot WHERE profil_id=? AND extern_id=?",
+                         (_ziel_p, _eid)):
+            _fehlend_api.append(f"{_q} → keine Zeile")
+    pruefe(f"Alle {_echte_api} echten Beispieltreffer kommen über die Schnittstelle durch"
+           " und landen auf der Tafel",
+           _echte_api >= 5 and not _fehlend_api, _fehlend_api or sorted(_beispiele))
+
+    # **Und beide Wege benutzen wirklich DIESELBE Pruefung.** Ohne diese Reihe laufen sie
+    # beim naechsten Umbau wieder auseinander – dreimal in dieser Sitzung schon passiert
+    # (`quereinstieg` gegen `nur_quereinstieg`, `_slug` gegen die zweite Umschrift,
+    # `coaches.py` an zwei Stellen). Gemessen wird beides: dass es dieselbe Funktion ist
+    # (nicht nur eine gleichnamige), und dass derselbe vergiftete Satz auf beiden Wegen
+    # abprallt.
+    _api_quelltext = open(os.path.join(HIER, "api.py"), encoding="utf-8").read()
+    _app_quelltext = open(os.path.join(HIER, "app.py"), encoding="utf-8").read()
+    _giftsatz = {"quelle": "wohnung.kleinanzeigen", "extern_id": "BEIDE-WEGE-1",
+                 "zusatz": {"preis": {"x": 1}}}
+    _r_form = c.post("/taskforce/suchen/uebernehmen",
+                     data={"profil": str(_pid_w_api), "zurueck": "/taskforce/suchen",
+                           "treffer": "0", "t0": json.dumps(_giftsatz)})
+    _r_api = c.post(f"/api/taskforce/profil/{_pid_w_api}/uebernehmen",
+                    json={"treffer": [_giftsatz]})
+    pruefe("Beide Übernahmewege benutzen denselben Riegel – eine Stelle, nicht zwei",
+           A._treffer_sauber is tf.treffer_sauber
+           and "tf.treffer_sauber(" in _api_quelltext
+           and "def _treffer_sauber(" not in _app_quelltext
+           and _r_form.status_code < 500 and _r_api.status_code == 400
+           and not db.wert("SELECT COUNT(*) FROM tf_angebot WHERE extern_id='BEIDE-WEGE-1'"),
+           f"Formular {_r_form.status_code} · Schnittstelle {_r_api.status_code}")
 
     fehl = [n for n, ok, _ in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

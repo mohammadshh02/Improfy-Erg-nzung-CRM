@@ -19,7 +19,9 @@ zieht `datenbank` mit herein, und das bindet seinen Pfad beim Import – der Sel
 liefe dann gegen den Echtbestand. Dieses Modul kennt nur die Standardbibliothek.
 
 Die Quelle wird ausdrücklich **nur lesend** geöffnet (`mode=ro`): `improfy_os.db` darf
-von keinem Testlauf angefasst werden, auch nicht versehentlich.
+von keinem Testlauf angefasst werden, auch nicht versehentlich. Fehlt sie ganz, bricht
+`anlegen` mit `KeinBestand` ab und sagt, was zu tun ist – ein blankes `sqlite3.connect`
+legte an dieser Stelle eine leere neue Datei an, und der Lauf lief auf Nichts.
 
 **Jeder Lauf bekommt seine eigene Zieldatei.** Vorher lag die Kopie unter ihrem blanken
 Namen im Temp-Ordner, für jeden Arbeitsbaum derselbe. Zwei Läufe gleichzeitig – der
@@ -85,6 +87,17 @@ SAMMELORDNER = os.path.join(tempfile.gettempdir(), "improfy-pruefkopie")
 
 class Zeitueberschreitung(RuntimeError):
     """Die Kopie kam nicht durch – meist hält ein anderer Lauf die Zieldatei."""
+
+
+class KeinBestand(RuntimeError):
+    """Es gibt keine Datenbank, von der eine Arbeitskopie zu ziehen wäre.
+
+    Ein eigener Fehler, weil die nackte SQLite-Meldung an dieser Stelle in die Irre
+    führt: `sqlite3.connect` auf eine fehlende Datei legt **ohne** `mode=ro` eine leere
+    neue an – der Lauf läuft dann auf Nichts, statt zu scheitern –, und **mit** `mode=ro`
+    sagt sie nur „unable to open database file", ohne zu verraten, welche Datei gemeint
+    ist und warum sie fehlt. Der Fall tritt auf einem frisch geklonten Rechner sofort
+    ein: `*.db` ist gitignoriert, die Kundendatenbank kommt also nicht mit dem Repo."""
 
 
 def leseadresse(quelle=None):
@@ -220,6 +233,17 @@ def anlegen(name, quelle=None, zeitgrenze=ZEITGRENZE):
     `ordner`) oder ein ganzer Pfad. Ein alter Stand wird vorher weggeräumt, damit nichts
     von einem früheren Lauf durchscheint."""
     quelle = quelle or QUELLE
+    # **Fehlt der Bestand, wird hier abgebrochen – mit Auskunft.** Weiter unten stünde
+    # sonst „unable to open database file" ohne Dateinamen, und jede Prüfung des Laufs
+    # fiele danach mit derselben Meldung um. Auf einem frisch geklonten Rechner ist das
+    # der Normalfall, nicht die Ausnahme.
+    if not os.path.isfile(quelle):
+        raise KeinBestand(
+            "Die Datenbank %s gibt es nicht – ohne sie gibt es nichts zu kopieren.\n"
+            "  `*.db` ist gitignoriert: Auf einem frisch geklonten Rechner muss die\n"
+            "  Datenbank erst dazugelegt werden (Sicherung aus `sicherungen/` oder\n"
+            "  Kopie vom Arbeitsrechner). Ein leerer Bestand ist kein Ersatz: Die\n"
+            "  Selbsttests messen an echten Zeilen." % quelle)
     # Beim ersten Anlegen dieses Laufs die Hinterlassenschaften beendeter Läufe wegräumen.
     # Einmal reicht; zwischendurch stirbt kein Lauf, und ein Verzeichnislauf je Kopie
     # wäre nur Arbeit ohne Ertrag.

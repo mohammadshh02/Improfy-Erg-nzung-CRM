@@ -143,12 +143,35 @@ def main():
         "ss_eigenschaft": ["Zuverlässigkeit"], "ss_sterne": ["5"],
         "zusatzqual": "Sachkunde §34a", "hobbys": "Fußball", "ueber_mich": "Guten Tag, ...",
     }
+    # Vor dem Bauen festhalten, was im ECHTEN Ausgabeordner liegt. Gleich entsteht eine
+    # Datei mit Kundennummer und Namen im Dateinamen – sie darf dort weder dazukommen
+    # noch eine gleichnamige vom selben Tag überschreiben.
+    _echte_ausgabe = os.path.join(HIER, "ausgabe", "lebenslaeufe")
+    _vorher = sorted(os.listdir(_echte_ausgabe)) if os.path.isdir(_echte_ausgabe) else []
     r = c.post(f"/kunde/{kid}/lebenslauf", data=daten)
     pruefe("Excel kommt als Download zurück", r.status_code == 200 and len(r.data) > 20000,
            f"{len(r.data)} Bytes")
     dateiname = re.search(r'filename="([^"]+)"', r.headers.get("Content-Disposition", ""))
     dateiname = dateiname.group(1) if dateiname else ""
     pruefe("Dateiname trägt die Kunden-ID", dateiname.startswith(v["interne_id"]), dateiname)
+
+    # **Zwei Reihen auf den Ausgabeordner, wie sie für den Sicherungsordner längst in
+    # `os_test.py` stehen.** Ohne sie liess sich die Zuweisung von `OS_AUSGABE_ORDNER`
+    # ganz oben in dieser Datei loeschen, ohne dass eine Pruefung rot wurde – gemessen
+    # am 23.09.2026: 137 von 137 gruen, Rueckgabewert 0, und im Repo lagen prompt zwei
+    # frische Lebenslaeufe mit echtem Kundennamen im Dateinamen.
+    # Die obere Reihe fragt, **wohin** gebaut wird; die untere zaehlt den echten Ordner
+    # vorher und nachher ab. Ein umgebogener Pfad, der trotzdem im echten Ordner landet
+    # (Verknuepfung, relativer Rest), faellt nur der unteren auf – und `gebaut` haelt
+    # sie ehrlich: Eine Aussage ueber einen Lauf, der gar nichts gebaut hat, ist keine.
+    pruefe("Der Selbsttest baut nicht in den Ordner des Repos",
+           os.path.abspath(LB.AUSGABE) != os.path.abspath(_echte_ausgabe), LB.AUSGABE)
+    _gebaut = bool(dateiname) and os.path.exists(os.path.join(LB.AUSGABE, dateiname))
+    _nachher = sorted(os.listdir(_echte_ausgabe)) if os.path.isdir(_echte_ausgabe) else []
+    pruefe("Der Testlauf baut in den Papierkorb, nicht in den echten Ordner",
+           _gebaut and _vorher == _nachher,
+           f"{LB.AUSGABE} · gebaut: {_gebaut} · echter Ordner unveraendert:"
+           f" {_vorher == _nachher}")
 
     print("\n4. Inhalt der Datei")
     pfad = LB.datei(dateiname)

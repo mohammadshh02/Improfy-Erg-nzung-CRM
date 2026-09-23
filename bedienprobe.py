@@ -32,14 +32,10 @@ Acht Durchgänge:
 
 Läuft gegen eine Kopie der Datenbank und braucht kein Internet.
 """
-import atexit
 import json
 import os
 import re
-import shutil
-import sqlite3
 import sys
-import tempfile
 import urllib.parse
 
 import lxml.html
@@ -47,23 +43,21 @@ from werkzeug.datastructures import MultiDict
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
-kopie = os.path.join(tempfile.gettempdir(), "improfy_bedienprobe_%d.db" % os.getpid())
-atexit.register(lambda: os.path.exists(kopie) and os.remove(kopie))
-_quelle = sqlite3.connect(os.path.join(HIER, "improfy_os.db"))
-_ziel = sqlite3.connect(kopie)
-with _ziel:
-    _quelle.backup(_ziel)
-_ziel.close()
-_quelle.close()
+import pruefkopie                  # noqa: E402
+# Arbeitskopie, Sicherungs- und Ausgabeordner kommen aus `pruefkopie` – dieselbe Stelle
+# wie in den drei Selbsttests. Der Vorspann stand hier von Hand und ging an zwei Stellen
+# daneben: Die Quelle wurde SCHREIBEND geoeffnet (`sqlite3.connect` ohne `mode=ro`), und
+# fehlte `improfy_os.db`, legte genau dieser Aufruf eine leere neue Datei an – die Probe
+# liefe dann auf Nichts, statt zu scheitern. `pruefkopie` oeffnet nur lesend, sagt bei
+# fehlendem Bestand, was zu tun ist, und raeumt seinen Ordner am Programmende selbst weg.
+kopie = pruefkopie.anlegen("improfy_bedienprobe.db")
 os.environ["IMPROFY_OS_DB"] = kopie
 
 # Diese Probe drueckt jeden Knopf – auch „jetzt sichern". Ohne eigenen Sicherungsordner
 # landet der Schnappschuss der TESTdatenbank im echten `sicherungen/` und verdraengt dort
 # bei sieben Staenden eine echte Nachtsicherung. Gelesen wird die Variable beim Import
 # von `betrieb`, also muss sie vorher stehen.
-sicherungen = os.path.join(tempfile.gettempdir(),
-                           "improfy_bedienprobe_sicherungen_%d" % os.getpid())
-os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
+os.environ["OS_SICHERUNG_ORDNER"] = pruefkopie.papierkorb("sicherungen")
 
 # Dasselbe fuer die gebauten Unterlagen. Ohne diese Variable legt jeder Lauf zwei
 # echte Dateien in `ausgabe/lebenslaeufe/` des Live-Repos – belegt am 21.09.2026:
@@ -71,11 +65,7 @@ os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
 # und Datum, ein Testlauf ueberschreibt also ein am selben Tag echt gebautes Dokument
 # desselben Menschen. Gelesen wird die Variable beim Import von `lebenslauf_bauen`
 # und `cv_pdf`, sie muss darum vorher stehen.
-ausgabe_ordner = os.path.join(tempfile.gettempdir(),
-                              "improfy_bedienprobe_ausgabe_%d" % os.getpid())
-os.environ["OS_AUSGABE_ORDNER"] = ausgabe_ordner
-atexit.register(lambda: shutil.rmtree(ausgabe_ordner, ignore_errors=True))
-atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
+os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
 
 import app as A                    # noqa: E402
 import datenbank as db             # noqa: E402

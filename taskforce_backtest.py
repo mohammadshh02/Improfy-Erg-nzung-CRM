@@ -13,52 +13,45 @@ Was geprüft wird, Schritt für Schritt wie im Alltag:
   5. Wohnprofil mit WBS + Kriterien → Lauf → Abgleich → IS24-Link
   6. Taskforce arbeitet: Status setzen, KPI, JSON/CSV fürs CRM enthalten alles
   7. Aufgabenplanung: `taskforce.py --lauf` läuft durch
-Schreibt einen Bericht nach ../Ausgabe/Taskforce_Backtest_<Datum>.md
+
+Der Bericht steht vollständig auf der Konsole. Als Datei liegt er im Papierkorb dieses
+Laufs (`OS_AUSGABE_ORDNER`) und geht mit ihm am Programmende weg: Er trägt Namen und
+Telefonnummer eines echten Menschen, und die haben weder im Repo noch dauerhaft auf der
+Platte etwas zu suchen. Wer ihn behalten will, leitet die Ausgabe um.
 """
-import atexit
 import datetime
 import json
 import os
-import shutil
-import sqlite3
 import subprocess
 import sys
-import tempfile
 import time
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
-# Kopie ueber die SQLite-Sicherung statt ueber das Dateisystem, und je Lauf eine eigene
-# Datei: eine Datenbank, die gerade geschrieben wird (Entwicklungsserver nebenher, zweiter
-# Testlauf), kopiert sich sonst in einem Zwischenzustand. Dieselbe Stelle steht in
-# taskforce_test.py und os_test.py - dort hat genau das einen halben Nachmittag gekostet.
-kopie = os.path.join(tempfile.gettempdir(), "improfy_os_backtest_%d.db" % os.getpid())
-atexit.register(lambda: os.path.exists(kopie) and os.remove(kopie))
-_quelle = sqlite3.connect(os.path.join(HIER, "improfy_os.db"))
-_ziel = sqlite3.connect(kopie)
-with _ziel:
-    _quelle.backup(_ziel)
-_ziel.close()
-_quelle.close()
+import pruefkopie                  # noqa: E402
+# Arbeitskopie, Sicherungs- und Ausgabeordner kommen aus `pruefkopie` – dieselbe Stelle
+# wie in den drei Selbsttests. Der Vorspann stand hier von Hand und ging an zwei Stellen
+# daneben: Die Quelle wurde SCHREIBEND geoeffnet (`sqlite3.connect` ohne `mode=ro`), und
+# fehlte `improfy_os.db`, legte genau dieser Aufruf eine leere neue Datei an – der
+# Backtest liefe dann auf Nichts, statt zu scheitern. `pruefkopie` oeffnet nur lesend,
+# sagt bei fehlendem Bestand, was zu tun ist, bricht nach 30 Sekunden ab statt endlos zu
+# warten und raeumt seinen Ordner am Programmende selbst weg.
+kopie = pruefkopie.anlegen("improfy_os_backtest.db")
 os.environ["IMPROFY_OS_DB"] = kopie
 
 # Derselbe Griff fuer den Sicherungsordner: `betrieb.py` leitet ihn sonst aus seinem
 # eigenen Verzeichnis ab, und ein Testlauf schoebe seinen Schnappschuss in das echte
 # `sicherungen/`, wo er bei sieben Staenden eine echte Nachtsicherung verdraengt. Der
 # Unterprozess weiter unten erbt die Variable ueber `os.environ`.
-sicherungen = os.path.join(tempfile.gettempdir(),
-                           "improfy_os_backtest_sicherungen_%d" % os.getpid())
-os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
-atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
+os.environ["OS_SICHERUNG_ORDNER"] = pruefkopie.papierkorb("sicherungen")
 
-# Und der Ausgabeordner. Der Backtest baut heute keine Unterlagen – aber er startet
-# `app` und damit jede Route, und die siebte offene Tür ist genau die, durch die es
-# beim nächsten Mal geht. Sieben Dateien setzen `OS_SICHERUNG_ORDNER`, also setzen
-# sieben auch `OS_AUSGABE_ORDNER`.
-ausgabe_ordner = os.path.join(tempfile.gettempdir(),
-                              "improfy_os_backtest_ausgabe_%d" % os.getpid())
-os.environ["OS_AUSGABE_ORDNER"] = ausgabe_ordner
-atexit.register(lambda: shutil.rmtree(ausgabe_ordner, ignore_errors=True))
+# Und der Ausgabeordner. Der Backtest startet `app` und damit jede Route, die Unterlagen
+# baut – und er legt am Ende selbst etwas ab: den Bericht, mit Klarnamen und
+# Telefonnummer des geprueften Menschen darin. Beides gehoert in den Papierkorb dieses
+# Laufs. Die Variable stand hier zwar, der Bericht wurde aber an ihr vorbei ins
+# `ausgabe/` des Repos geschrieben – gitignoriert, aber auf der Platte.
+AUSGABE = pruefkopie.papierkorb("ausgabe")
+os.environ["OS_AUSGABE_ORDNER"] = AUSGABE
 
 import app as A                    # noqa: E402
 import datenbank as db             # noqa: E402
@@ -80,13 +73,22 @@ def pruefe(name, ok, detail=""):
 
 
 def main():
-    name = sys.argv[1] if len(sys.argv) > 1 else "Hilal Ragheed"
+    # Der Name kommt von der Kommandozeile. Hier stand ein echter Kunde als Vorgabe –
+    # in einer versionierten Datei hat der nichts zu suchen (Status J, Telefon im
+    # Bestand). Die Vorgabe ist jetzt der erfundene Name, den das Repo dafuer schon
+    # benutzt (`cv_serie.py`, `lebenslauf_bauen.py`, `quellen/lebenslauf.py`) – eine
+    # dritte Sorte Platzhalter braucht niemand. Findet er keinen Menschen, sagt der
+    # Aufruf unten, wie es richtig geht, statt still auf irgendjemandem zu laufen.
+    name = sys.argv[1] if len(sys.argv) > 1 else "Jan Wendisch"
     cv_pfad = sys.argv[2] if len(sys.argv) > 2 else None
     db.init(); tf.init()
     c = A.app.test_client()
     kid = db.wert("SELECT id FROM kunde WHERE name LIKE ?", (f"%{name}%",))
     if not kid:
-        print("Kunde nicht gefunden:", name); return 2
+        print("Kunde nicht gefunden:", name)
+        print("Aufruf: python -X utf8 taskforce_backtest.py \"Vorname Nachname\""
+              " [Pfad zur Lebenslauf-Textdatei]")
+        return 2
     kunde = tf.kunden_info(kid)
     z(f"# Taskforce-Backtest {datetime.date.today():%d.%m.%Y} – {kunde['name']}\n")
     z(f"Datenbankkopie: {kopie}\n")
@@ -152,8 +154,12 @@ def main():
         z(f"  - {a['quelle']} · {a['titel'][:60]} → {a['match'] if a['match'] is not None else '–'} % | passt {e.get('passt')} | fehlt {e.get('fehlt')} | unklar {e.get('unklar')} | plus {e.get('plus')}")
 
     z("\n## 5. Wohnprofil mit Kriterien")
+    # Der ImmoScout-Suchauftrag heisst im Haus „TF-<Nachname>" (so baut ihn auch
+    # `sammelanlage.vorschlaege`). Abgeleitet statt eingetragen: Hier stand der
+    # Nachname eines echten Kunden fest in der Datei.
+    suchauftrag = f"TF-{name.split()[-1]}" if name.split() else ""
     r = c.post(f"/taskforce/kunde/{kid}/profil", data={
-        "art": "wohnung", "titel": "Backtest Wohnung", "suchauftrag": "TF-Hilal", "ort": "Leverkusen", "umkreis_km": "10",
+        "art": "wohnung", "titel": "Backtest Wohnung", "suchauftrag": suchauftrag, "ort": "Leverkusen", "umkreis_km": "10",
         "max_miete": "550", "min_zimmer": "1", "k_wbs": "1", "k_etage_max": "3", "k_max_warmmiete": "750",
         "k_kein_tausch": "1", "k_wohnungstyp": ["apartment", "groundfloor"], "k_extra": "Kostenübernahme Jobcenter Leverkusen, Einzug ab 01.11."})
     pw = db.wert("SELECT MAX(id) FROM tf_profil WHERE art='wohnung' AND kunde_id=?", (kid,))
@@ -206,13 +212,14 @@ def main():
     z(f"\n## Ergebnis: {'alles bestanden' if not fehler else str(len(fehler)) + ' Fehler'}")
     for f in fehler:
         z(f"- {f}")
-    # Im Ergaenzungs-Repo heisst der Ausgabeordner klein und liegt im Repo selbst.
-    ordner = os.path.join(HIER, "ausgabe")
-    os.makedirs(ordner, exist_ok=True)
-    ziel = os.path.join(ordner, f"Taskforce_Backtest_{datetime.date.today():%Y-%m-%d}.md")
+    # Der Bericht geht dorthin, wohin `OS_AUSGABE_ORDNER` zeigt – nicht ins `ausgabe/`
+    # des Repos. Er nennt Namen und Telefonnummer eines echten Menschen; der Papierkorb
+    # dieses Laufs raeumt ihn am Programmende mit weg. Auf der Konsole steht er ganz.
+    ziel = os.path.join(AUSGABE, f"Taskforce_Backtest_{datetime.date.today():%Y-%m-%d}.md")
+    os.makedirs(os.path.dirname(ziel), exist_ok=True)
     with open(ziel, "w", encoding="utf-8") as fh:
         fh.write("\n".join(bericht) + "\n")
-    print("Bericht:", ziel)
+    print("Bericht:", ziel, "(Papierkorb dieses Laufs, geht am Programmende weg)")
     return 0 if not fehler else 1
 
 

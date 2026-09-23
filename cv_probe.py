@@ -36,13 +36,13 @@ os.environ["IMPROFY_OS_DB"] = pruefkopie.anlegen("improfy_cv_probe.db")
 # Werkzeug schrieb sie damit weiter ins Live-Repo, während der Kommentar unten das
 # Gegenteil behauptete. Gelesen wird die Variable beim Import von `cv_pdf`, sie muss
 # darum vorher stehen.
-import atexit                         # noqa: E402
-import shutil                         # noqa: E402
-import tempfile                       # noqa: E402
-
-_papierkorb = os.path.join(tempfile.gettempdir(), "improfy_cv_probe_%d" % os.getpid())
-os.environ.setdefault("OS_AUSGABE_ORDNER", _papierkorb)
-atexit.register(lambda: shutil.rmtree(_papierkorb, ignore_errors=True))
+# Gesetzt wird **unbedingt**, nicht mit `setdefault`: Ein geerbter Wert aus der Umgebung
+# (eine `.env`, ein Startskript, ein Elternprozess) zeigt im Zweifel genau auf den
+# Ordner, den dieser Lauf nicht anfassen darf. Dieselbe Hausregel wie in den drei
+# Selbsttests; hier stand sie bis zur Zusammenführung anders herum.
+# Der Papierkorb kommt aus `pruefkopie` – derselbe Ordner wie die Arbeitskopie, dieselbe
+# Prozessnummer, dasselbe Aufräumen am Programmende.
+os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
 
 import app as A                       # noqa: E402
 import cv_pdf                         # noqa: E402

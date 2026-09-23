@@ -265,9 +265,17 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
 .reglerreihe > label select,.reglerreihe > label input[type=text]{min-width:130px}
 .reglerreihe > label.reglerhaken{flex-direction:row;align-items:center;gap:6px;text-transform:none;
   letter-spacing:0;font-size:13px;font-weight:500;color:var(--ink);align-self:center}
+/* Der Titel einer Reglerreihe ("Stellen", "Wohnungen", "Quellen") ist eine Pille, keine
+   weitere Feldbeschriftung: Er benennt die ganze Reihe, und in Muted-Grau mit denselben
+   11 px saehe er aus wie das Feld daneben. Die Regel stand zweimal in dieser Datei -
+   hier und noch einmal im Taskforce-Teil weiter unten, dort in Muted-Grau. Beide haben
+   gegriffen: Pille von oben, Farbe und Strichstaerke von unten; herausgekommen ist eine
+   Pille mit grauer, duenner Schrift - halb die eine, halb die andere Absicht. Es gilt
+   die Pille; aus der zweiten Fassung bleibt die Mindestbreite, damit die Titel
+   verschieden langer Reihen gleich breit beginnen. */
 .reglertitel{align-self:center;font-size:11px;font-weight:700;letter-spacing:.1em;
   text-transform:uppercase;color:var(--heading);background:var(--accent-soft);
-  border-radius:var(--radius-pill);padding:4px 12px}
+  border-radius:var(--radius-pill);padding:4px 12px;min-width:78px}
 .reglerfuss{gap:10px;align-items:center;padding-top:12px}
 @media (max-width:760px){.reglerreihe > label{flex:1;min-width:140px}}
 
@@ -358,7 +366,10 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
 
 /* Beide Zweige haben hier angebaut, und die Bloecke gehen einander nichts an:
    oben der Fotoeingang aus dem Lebenslauf-Werkzeug, unten die Taskforce-Aufspaltung.
-   Kein Selektor kommt zweimal vor, deshalb bleiben beide unveraendert stehen. */
+   Kein Selektor ab dieser Marke wiederholt einen von weiter oben - das stand hier schon
+   als Begruendung, war aber nicht nachgemessen: `.reglertitel` kam zweimal vor und hat
+   sich selbst halb ueberschrieben. Die Behauptung steht jetzt als Reihe in `os_test.py`
+   (Abschnitt 2) und wird bei jedem Lauf nachgezaehlt. */
 
 /* ------------------------------------------- Aufspaltung der Taskforce (Arbeit / Wohnung)
    Die Wahl zwischen Arbeitssuche und Wohnungssuche ist die oberste Entscheidung der Seite,
@@ -416,8 +427,9 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
   transition:transform .15s;opacity:.6}
 .tf-mehr[open] > summary:before{transform:rotate(90deg)}
 .tf-mehr > summary .plakette{text-transform:none;letter-spacing:0}
-.reglertitel{align-self:center;font-size:11px;font-weight:600;letter-spacing:.08em;
-  text-transform:uppercase;color:var(--muted);min-width:78px}
+/* `.reglertitel` stand hier ein zweites Mal und hat die Pille von oben halb ueberschrieben.
+   Die Regel steht jetzt nur noch im Reglerbank-Teil dieser Datei; die Mindestbreite von
+   hier ist dort mit eingezogen. */
 
 /* ---------- Personensuche (tippen statt scrollen) */
 .ksuche{position:relative;min-width:320px}

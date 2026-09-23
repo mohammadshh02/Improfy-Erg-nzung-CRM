@@ -675,16 +675,61 @@ def tf_uebernehmen(pid):
     """Treffer einer Suche auf die Tafel eines Profils legen.
 
     Erwartet `treffer`: eine Liste, wie sie aus `/api/taskforce/suche` kommt. Was dort
-    schon liegt, kommt nicht doppelt – das Gedächtnis je Profil gilt auch hier."""
+    schon liegt, kommt nicht doppelt – das Gedächtnis je Profil gilt auch hier.
+
+    **Derselbe Riegel wie am Bildschirm, und zwar derselbe.** Geprüft wird jeder Satz
+    mit `tf.treffer_sauber` – der Funktion, die auch der Formularweg benutzt. Hier stand
+    stattdessen `t.get("quelle") and t.get("extern_id")`, und damit war diese Route über
+    jeden Weg zu fällen, den der Formularweg längst abwehrt. Drei davon gemessen:
+
+        {"treffer": [{"quelle": "wohnung.kleinanzeigen", "extern_id": "y",
+                      "zusatz": {"preis": {"x": 1}}}]}
+              `_score` ruft `.split` auf ein dict → `AttributeError` INNERHALB von
+              `with db.offen()`: 500, und der ganze Stapel fällt zurück
+        {"treffer": "{kaputtes JSON"}      `json.loads` → `ValueError` → 500
+        {"treffer": [null]}                `.get` auf `None` → 500
+
+    Dazu Feldschmuggel (`profil_id`, `status`, `score`, `doppelt_von` schreibt der
+    Server, nicht der Aufrufer – `_ablegen` liest nur die Felder aus `TREFFER_TEXT`
+    und `TREFFER_ZAHL`), Zahlen jenseits von 64 Bit, negative Werte, überlange
+    `zusatz`-Texte und `quelle` ausserhalb von `tf.QUELLEN`.
+
+    **Wo diese Route sich vom Bildschirmweg unterscheidet – bewusst:** Ein Mensch am
+    Bildschirm bekommt eine Meldung auf der Seite, an der er steht, und die verworfenen
+    Treffer fallen still weg. Das CRM bekommt stattdessen eine Zahl: `abgewiesen` sagt,
+    wie viele Sätze der Riegel aussortiert hat, und fällt gar nichts durch, kommt ein
+    400 mit Begründung statt einer stillen Weiterleitung. Ein Programm kann eine
+    Meldung auf einer Seite nicht lesen – eine Zahl im Körper schon."""
     if not tf.profil(pid):
         return jsonify({"fehler": "Profil nicht gefunden"}), 404
-    treffer = eingang().get("treffer") or []
+    # Der Körper selbst kann schon der Angriff sein: Tief verschachteltes JSON bricht
+    # im C-Scanner mit `RecursionError` ab, und das ist **kein** `ValueError` – der
+    # `silent=True`-Fang in `eingang()` greift dafür nicht.
+    try:
+        daten = eingang()
+    except (ValueError, RecursionError):
+        return jsonify({"fehler": "Der Körper der Anfrage ist kein lesbares JSON"}), 400
+    treffer = daten.get("treffer") or []
     if isinstance(treffer, str):
-        treffer = json.loads(treffer)
-    brauchbar = [t for t in treffer if t.get("quelle") and t.get("extern_id")]
+        # Als Formularfeld (`-d treffer=[…]`) kommt die Liste als Text an.
+        try:
+            treffer = json.loads(treffer)
+        except (ValueError, RecursionError):
+            return jsonify({"fehler": "'treffer' ist kein lesbares JSON",
+                            "hinweis": "eine Liste von Treffern, wie sie"
+                                       " /api/taskforce/suche liefert"}), 400
+    if not isinstance(treffer, list):
+        return jsonify({"fehler": "'treffer' muss eine Liste sein",
+                        "bekommen": type(treffer).__name__}), 400
+    brauchbar = [t for t in treffer if tf.treffer_sauber(t)]
+    abgewiesen = len(treffer) - len(brauchbar)
     if not brauchbar:
         return jsonify({"fehler": "keine brauchbaren Treffer",
-                        "hinweis": "jeder Treffer braucht mindestens 'quelle' und 'extern_id'"}), 400
+                        "abgewiesen": abgewiesen,
+                        "hinweis": "jeder Treffer braucht 'quelle' (ein Schlüssel aus"
+                                   " /api/quellen) und 'extern_id' als Text; Textfelder"
+                                   " bleiben Text oder null, Zahlen bleiben Zahlen,"
+                                   " 'zusatz' bleibt ein Objekt"}), 400
     neu = tf._ablegen(pid, brauchbar)
     return jsonify({"stand": jetzt(), "profil": pid, "uebergeben": len(brauchbar), "neu": neu,
-                    "schon_da": len(brauchbar) - neu})
+                    "schon_da": len(brauchbar) - neu, "abgewiesen": abgewiesen})

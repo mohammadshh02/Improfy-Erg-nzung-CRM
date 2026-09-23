@@ -11,7 +11,6 @@ import functools
 import hashlib
 import hmac
 import json
-import math
 import os
 import re
 import secrets
@@ -270,7 +269,13 @@ def suche_seite():
             "Mitarbeiter",
             "SELECT id, name, rolle, email FROM mitarbeiter WHERE name LIKE ? OR email LIKE ?"
             " ORDER BY name", [muster] * 2,
-            lambda z: {"titel": z["name"], "link": url_for("mitarbeiter_detail", mid=z["id"]),
+            # Die Seite eines Mitarbeiters ist die Coachseite: `/coaches?coach=<id>`.
+            # Hier stand `url_for("mitarbeiter_detail")` – ein Endpunkt, den es nie gab
+            # (die alte „Mitarbeiter-Spur" ist in `/coaches` aufgegangen). Jede Suche
+            # nach einem Kollegennamen endete deshalb in einem `BuildError` und damit
+            # in einer 500er-Seite; ohne Suchbegriff wird die Gruppe gar nicht gebaut,
+            # und genau so lief der Rundlauf bisher daran vorbei.
+            lambda z: {"titel": z["name"], "link": url_for("coaches_seite", coach=z["id"]),
                        "unter": z["email"] or "", "rechts": z["rolle"] or ""}, 6))
         gruppen.append(gruppe(
             "Angebote der Taskforce",
@@ -297,7 +302,12 @@ def suche_seite():
             "Leads",
             "SELECT id, name, quelle, status, eingang FROM lead WHERE name LIKE ?"
             " ORDER BY eingang DESC", [muster],
-            lambda z: {"titel": z["name"] or "(ohne Namen)", "link": url_for("leads"),
+            # Ein einzelner Lead hat keine eigene Seite – er steht im Vertriebstrichter,
+            # der Stufe „Anfrage". Hier stand `url_for("leads")`, ein Endpunkt, den es
+            # nicht gibt: dieselbe 500er-Falle wie eine Zeile weiter oben. Der Trichter
+            # ist das nächste echte Ziel; einen Weg auf gut Glück zu bauen, wäre
+            # schlimmer als der kurze Weg zur Liste.
+            lambda z: {"titel": z["name"] or "(ohne Namen)", "link": url_for("trichter_seite"),
                        "unter": " · ".join(x for x in (z["quelle"], z["status"]) if x),
                        "rechts": (z["eingang"] or "")[:10]}, 8))
     return render_template("suche.html", q=q, gruppen=gruppen,
@@ -617,7 +627,9 @@ def kunde_anlegen():
 
 # Flask lässt für <int:kid> beliebig große Zahlen durch; SQLite nimmt nur 64 Bit.
 # Eine getippte Riesenzahl in der Adresse endete deshalb in einem Absturz statt in 404.
-SQLITE_MAX = 2 ** 63 - 1
+# Die Zahl selbst steht in `datenbank.py`: Sie gehört der Datenbank, nicht dieser
+# Seite, und `taskforce.py` misst die Zahlen eines Treffers an derselben Grenze.
+SQLITE_MAX = db.SQLITE_MAX
 
 
 @app.errorhandler(413)
@@ -1715,170 +1727,22 @@ def taskforce_suchen():
                            meldung=request.args.get("meldung"))
 
 
-# Die Felder, die `tf._ablegen` und `tf._score` aus einem Treffer lesen, mit dem Typ,
-# den sie vertragen. Was nicht hier steht, wandert gar nicht erst in die Datenbank.
-TREFFER_TEXT = ("quelle", "extern_id", "titel", "anbieter", "ort", "url",
-                "veroeffentlicht", "beschreibung")
-TREFFER_ZAHL = ("entfernung_km", "score")
-
-# Die Schlüssel in `zusatz`, die weiter unten als TEXT gelesen werden – mit der Stelle,
-# die es tut. Sie vertragen nur Text oder nichts; eine Zahl, ein Wahrheitswert oder
-# eine Liste fällt dort mit `AttributeError` um, mitten in `_ablegen` und damit mitten
-# in der Transaktion – es geht dann ein ganzer Stapel verloren, nicht nur der
-# vergiftete Satz.
-#   suchbegriff   `tf._score`      .casefold()
-#   arbeitszeit   `tf._score`      .casefold()
-#   preis         `tf._score`      .split(",")
-# Alles übrige in `zusatz` wird über `str(…)`, `_zahl_aus` oder blosse Wahrheit
-# gelesen und darf deshalb auch `bool` sein – `quereinstieg` IST einer.
-ZUSATZ_TEXT = ("suchbegriff", "arbeitszeit", "preis")
-
-# Wie lang so ein Wert werden darf. `tf._score` macht aus `preis` mit `int(…)` eine
-# Zahl, und **Python 3.12 wirft bei mehr als 4.300 Ziffern** – ungefangen, mitten in
-# `_ablegen` und damit mitten in der Transaktion: `db.offen()` committet nur bei
-# sauberem Durchlauf, also fällt der GANZE Stapel zurück. Gemessen mit rund 5 kB
-# Nutzlast, weit unter der 500-kB-Grenze des Formulars.
+# Der Waechter fuer einen uebernommenen Treffer steht seit dem 23.09.2026 in
+# `taskforce.py`, neben `_ablegen` und `_score` - den beiden Stellen, deren Typannahmen
+# er schuetzt. Grund: Die Schwesterroute `/api/taskforce/profil/<pid>/uebernehmen`
+# schreibt in dieselbe Tabelle und hatte keinen; zwei Waechter laufen beim naechsten
+# Umbau auseinander.
 #
-# 200 ist gemessen, nicht geraten: der längste Wert dieser drei Schlüssel im echten
-# Bestand hat 17 Zeichen („Vollzeit, Schicht"), der längste Wert in `zusatz`
-# überhaupt 38; der Tester hat 561 echte Treffer aus sechs Portalen gemessen, der
-# längste Wert dort hatte 24 Zeichen. Die Grenze gilt **nur für diese drei**, weil
-# eine zu enge Grenze genau die Sorte Verlust erzeugt, die heute schon 146 Treffer
-# gekostet hat.
-#
-# ACHTUNG, hier stand bis zum 22.09.2026 „alles andere in `zusatz` bleibt unbegrenzt,
-# weil dort kein `int(…)` wartet". Das ist FALSCH. In `_abgleich_wohnung`
-# (`taskforce.py:2358` und `:2361`) warten zwei weitere: `warmmiete` und `etage`.
-# Beide sind hier NICHT begrenzt. Der Schaden ist milder – `app.py` und
-# `taskforce.py:2414` fangen dort je Satz, es gibt also keine 500er-Seite und keinen
-# Stapelverlust – aber der Satz bekommt `abgleich={"fehler": …}`, und
-# `abgleich_profil` sucht nur `WHERE abgleich IS NULL`: die Zeile wird nie wieder
-# angefasst. Wer `zusatz` um einen Schlüssel erweitert, der irgendwo in eine Zahl
-# umgewandelt wird, gehört in `ZUSATZ_TEXT` – nicht weil hier eine Regel steht,
-# sondern weil dort ein `int(…)` wartet.
-ZUSATZ_TEXT_MAX = 200
-
-
-def _einfacher_wert(w):
-    """Text, endliche Zahl, Wahrheitswert oder nichts – mehr verträgt keine Stelle,
-    die das später anfasst.
-
-    `Infinity` und `NaN` sind gültiges JSON für Pythons `json`-Leser. `inf` landete
-    als `inf` in `entfernung_km`, und die Tafel schrieb danach „inf km"; `NaN` wurde
-    still zu NULL. Beides ist kein Messwert, sondern ein Loch."""
-    if w is None or isinstance(w, (str, bool)):
-        return True
-    return isinstance(w, (int, float)) and math.isfinite(w)
-
-
-def _zahl_fuer_spalte(wert):
-    """Eine Zahl, die SQLite in ihre Spalte schreiben kann – und die etwas bedeutet.
-
-    Drei Dinge, jedes einzeln gemessen:
-
-    **Text ist keine Zahl.** `"abc"` kam durch und landete in einer INTEGER-Spalte: die
-    Tafel schrieb danach „abc km", und `entfernung_km <= ?` traf die Zeile nie wieder.
-
-    **Grenze bei 64 Bit.** Ein Python-`int` ist unbegrenzt, `math.isfinite(10**30)` ist
-    `True`, und `tf._ablegen` bindet den Wert ohne Umweg: `sqlite3` wirft dann
-    `OverflowError: Python int too large to convert to SQLite INTEGER`. Das ist kein
-    verlorener Satz, sondern ein verlorener STAPEL – `db.offen()` committet nur bei
-    sauberem Durchlauf, also sind auch die Zeilen weg, die davor schon eingefügt waren.
-    Genau der Schaden, gegen den dieser Wächter geschrieben ist. Abstürzen lässt
-    `sqlite3` nur an ganzen Zahlen – `1e308` bindet es klaglos –, und genau die
-    liefert `json.loads`. **Die Grenze unten gilt trotzdem für beide Typen:** auch
-    `1e308` wird abgewiesen, weil eine Entfernung von 10^308 km nichts bedeutet.
-    Kein Portal liefert so etwas; es kostet keinen Treffer. `SQLITE_MAX` steht seit
-    jeher in dieser Datei und wird an zwei anderen Stellen schon angewandt; hier
-    fehlte sie.
-
-    **Nicht unter null.** Weder eine Entfernung noch eine Relevanz kann negativ sein.
-    `{"entfernung_km": -5}` stürzt nichts ab, aber `tf._score` gibt dafür +2 („nah"),
-    jeder `max_km`-Filter nimmt die Zeile mit, und die Sortierung nach Nähe stellt sie
-    vor jeden echten Treffer. Ein Satz, der sich selbst nach oben nagelt."""
-    if isinstance(wert, bool) or not isinstance(wert, (int, float)):
-        return False
-    if not math.isfinite(wert):
-        return False
-    return 0 <= wert <= SQLITE_MAX
-
-
-def _treffer_sauber(satz):
-    """Ist das ein Treffer, wie ihn die Suchseite gebaut hat – oder etwas anderes?
-
-    `quelle` und `extern_id` bleiben Pflicht und müssen Text sein – `tf._ablegen` liest
-    beide ohne `get`, und sie sind der Schlüssel gegen Dubletten. Alle übrigen
-    Textfelder dürfen `None` sein; siehe unten.
-
-    **Geprüft wird bis in die zweite Ebene.** Dass `zusatz` ein Wörterbuch IST, reicht
-    nicht: `tf._score` liest daraus `suchbegriff` mit `.casefold()` und `preis` mit
-    `.split()`. Drei gemessene 500er, alle mit gültigem JSON und alle am alten
-    Wächter vorbei:
-        {"zusatz": {"suchbegriff": {"x": 1}}}  → dict hat kein .casefold (job)
-        {"zusatz": {"preis": {"x": 1}}}        → dict hat kein .split   (wohnung)
-        {"zusatz": {"preis": [1, 2]}}          → list hat kein .split   (wohnung)
-    Der erste Fall ist unbedingt: die Zeile läuft für jedes Jobprofil.
-
-    **Eine Liste ist nur für `arbeitszeit_codes` erlaubt**, und nur mit einfachen
-    Werten darin. Das ist das einzige Feld im ganzen Bestand, das eine Liste trägt
-    (`jobs_ba`), und `job_filter` baut daraus ein `set` – ein Wörterbuch darin wäre
-    nicht hashbar. Überall sonst wäre eine Liste ein Absturz: `{"preis": [1, 2]}`
-    kam durch einen Wert-nur-Test hindurch und fiel dann in `_score` auf `.split()`."""
-    if not isinstance(satz, dict):
-        return False
-    for pflicht in ("quelle", "extern_id"):
-        if not (isinstance(satz.get(pflicht), str) and satz[pflicht].strip()):
-            return False
-    # Und `quelle` muss eine Quelle sein, die dieses Haus kennt. Ein frei erfundener
-    # Schlüssel wurde sonst mit abgelegt, und auf der Tafel stünde danach eine
-    # Plakette, hinter der kein Portal steckt.
-    #
-    # Das gilt für DIESEN Weg – einen Treffer, der aus einer Portalsuche stammt. Es
-    # heisst nicht, dass jede Zeile in `tf_angebot` einen Schlüssel aus `tf.QUELLEN`
-    # trägt: `tf.wohnung_link_eintragen` legt von Hand eingetragene Exposés unter
-    # `wohnung.link` ab, und der steht dort mit Absicht nicht drin – es ist kein
-    # Portal, das man abfragen kann.
-    if satz["quelle"] not in tf.QUELLEN:
-        return False
-    # **`None` ist erlaubt, und zwar weil unsere eigenen Adapter es erzeugen.**
-    # `jobs_kleinanzeigen` und `wohnung_kleinanzeigen` setzen `veroeffentlicht`
-    # ausdruecklich auf `None` – bei jedem Treffer; meinestadt ebenso; `anbieter`
-    # fehlt bei anonymen Anzeigen. Die Suchseite gibt den Treffer vollstaendig weiter
-    # (`{{ x|tojson }}`), also steht `"veroeffentlicht": null` im Formular.
-    #
-    # Hier stand `isinstance(satz[f], str)` ohne den `None`-Fall. Gemessen an echten
-    # Treffern einer Koelner Suche am 22.09.2026, wie viele durch diesen Waechter
-    # kamen: BA 5/5, StepStone 50/50, **meinestadt 0/40, Kleinanzeigen 0/54,
-    # Wohnungen 0/52** – 146 von 201 Treffern waren unuebernehmbar, und die Meldung
-    # sagte dem Nutzer, er solle die Suche noch einmal starten. Eine Schleife, die
-    # nichts aendern konnte.
-    #
-    # Abgewehrt wird weiterhin alles, was KEIN Text und nicht `None` ist – Listen,
-    # Woerterbuecher, Zahlen an Textfeldern.
-    if any(f in satz and satz[f] is not None and not isinstance(satz[f], str)
-           for f in TREFFER_TEXT):
-        return False
-    if any(f in satz and satz[f] is not None and not _zahl_fuer_spalte(satz[f])
-           for f in TREFFER_ZAHL):
-        return False
-    zusatz = satz.get("zusatz")
-    if "zusatz" in satz:
-        if not isinstance(zusatz, dict):
-            return False
-        for name, wert in zusatz.items():
-            if isinstance(wert, list):
-                if name != "arbeitszeit_codes":
-                    return False
-                if not all(isinstance(x, str) for x in wert):
-                    return False
-            elif name in ZUSATZ_TEXT:
-                if wert is not None and not isinstance(wert, str):
-                    return False
-                if wert is not None and len(wert) > ZUSATZ_TEXT_MAX:
-                    return False
-            elif not _einfacher_wert(wert):
-                return False
-    return True
+# Die Namen bleiben hier stehen und zeigen dorthin. `app._treffer_sauber` ist die
+# Adresse, unter der die Selbsttests ihn seit drei Runden kennen (17 Reihen), und ein
+# Weg, den noch etwas aufruft, wird nicht weggenommen, sondern umgelegt.
+TREFFER_TEXT = tf.TREFFER_TEXT
+TREFFER_ZAHL = tf.TREFFER_ZAHL
+ZUSATZ_TEXT = tf.ZUSATZ_TEXT
+ZUSATZ_TEXT_MAX = tf.ZUSATZ_TEXT_MAX
+_einfacher_wert = tf._einfacher_wert
+_zahl_fuer_spalte = tf._zahl_fuer_spalte
+_treffer_sauber = tf.treffer_sauber
 
 
 @app.route("/taskforce/suchen/uebernehmen", methods=["POST"])
