@@ -25,8 +25,42 @@ ausdrücklich nicht nach. Doppelte Kundendaten sind im QM ein Befund, keine Funk
 
 ## 2 · Was zu tun ist, damit es andockt
 
-Das Modul liest die Kundendaten aus dem CRM, sobald zwei Werte gesetzt sind. Der Adapter
-dafür ist fertig: `quellen/crm.py`.
+**Es gibt zwei Richtungen. Eine ist fertig, die andere nicht — bitte hier genau lesen.**
+
+### Weg A: Sie schicken zu uns. Funktioniert heute, ohne eine Zeile Code.
+
+`POST /api/kunde` mit Token (`OS_API_TOKEN`). Die Route lebt, bildet Ihren Status auf unseren
+Statuscode ab, erkennt vorhandene Sätze über die Kundennummer und antwortet bei einer
+mehrdeutigen Nummer oder einer Namenskollision mit 409 statt still etwas zu überschreiben.
+Gemessen: 118 von 120 echten Sätzen gehen durch, 0 Statuscodes gehen verloren.
+
+Einzige bekannte Lücke: `coach_id` wird dabei nicht gesetzt — das Feld für den zuständigen
+Coach kennt die Route noch nicht. Sagen Sie uns, ob Sie je Kunde eine Nutzer-Kennung oder nur
+einen Namen liefern, dann ziehen wir es nach.
+
+### Weg B: Wir holen bei Ihnen. Vorbereitet, aber noch nicht angeschlossen.
+
+`quellen/crm.py` ist vollständig geschrieben und liest ausschließlich. **Aber: die Funktion
+`einlesen()` hat heute keinen Aufrufer** — es gibt keine Route, keinen Zeitplan und keinen
+Knopf, der sie startet. `CRM_BASIS` und `CRM_TOKEN` zu setzen ändert deshalb im Moment nichts,
+außer dass die Seite „Außenanbindung“ die Quelle als erreichbar meldet. Der Auslöser ist bei
+uns eingeplant, sobald feststeht, dass dieser Weg gewählt wird.
+
+Dazu ehrlich: `quellen/crm.py` liest zwölf Felder und schreibt davon sieben. Es schreibt
+**nicht** `status_code` und **nicht** `coach_id`. 19 Stellen im Code filtern auf `status_code`
+— ein rein über diesen Weg gefüllter Bestand hätte überall NULL, und Aufgabenliste,
+Coach-Seite und Sammelanlage wären leer, ohne eine einzige Fehlermeldung. Das ist vor dem
+ersten Einlesen nachzuziehen.
+
+### Was wir von Ihnen brauchen, um zu entscheiden
+
+**Welchen der beiden Wege wollen Sie?** Weg A kostet Sie einen Aufruf und uns nichts.
+Weg B kostet uns Auslöser, Zeitplan und die fehlenden Felder — dafür bleibt Ihr CRM passiv.
+
+Wenn Weg B: unter welcher Adresse und mit welcher Anmeldung geben Sie Kunden und Nutzer
+heraus? Wir haben Hinweise darauf, dass das CRM Laravel mit Inertia ist und seine JSON-Antworten
+am Sitzungscookie hängen, nicht an einem Token. Falls das stimmt, brauchen wir einen Lesezugang,
+der ohne Sitzung funktioniert. Die Konfiguration dafür:
 
 ```
 CRM_BASIS=https://crm.improfy.de
@@ -40,10 +74,8 @@ Fehlt der Zugang, ändert sich nichts — das Modul läuft mit seinen bisherigen
 Die Pfade sind einstellbar und die Feldnamen werden tolerant gelesen, weil wir nicht wissen,
 wie die Schnittstelle des CRM tatsächlich heißt.
 
-**Die einzige offene Frage an Sie:** Unter welcher Adresse und mit welcher Anmeldung gibt das
-CRM seine Kunden und Nutzer heraus, und wie sehen die Felder aus? `/api/kunden` ist eine
-Annahme von uns, keine Zusage von Ihnen. Sobald das feststeht, ist das Andocken eine
-Konfigurationsänderung, kein Umbau.
+`/api/kunden` ist eine **Annahme von uns, keine Zusage von Ihnen** — wir haben den Pfad nie
+geprüft, weil wir keinen CRM-Zugang haben. Die Pfade sind deshalb einstellbar.
 
 **Richtung: nur lesen.** Der Adapter schreibt nie ins CRM. Das ist die ganze
 Sicherheitszusage — eine lesende Anbindung kann Ihre Akte nicht beschädigen.
