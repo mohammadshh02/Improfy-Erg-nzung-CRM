@@ -22,6 +22,7 @@ import datetime
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
 import urllib.error
@@ -2359,8 +2360,42 @@ def main():
         ("profil als Liste", "/api/taskforce/profil", {"profil": [1]}, 400, None),
         ("kunde als Objekt", "/api/taskforce/profil",
          {"kunde": {"x": 1}, "art": "job"}, 400, None),
+        # **Der Wächter, der selbst umfiel.** `feld_zahl` prüfte mit
+        # `lstrip("-").isdecimal()` vor und rief danach `int()`: „--5" kam durch den
+        # Vortest und fiel in `int()`, und ab 4.300 Ziffern weist `int(str)` in
+        # Python 3.12 ohnehin ab. Zwei der drei „reparierten" Routen fielen weiter um.
+        ("id mit zwei Minuszeichen", "/api/taskforce/angebote/status",
+         {"status": "gesehen", "ids": ["--5"]}, 400, 1),
+        ("id mit zwei Minuszeichen als Aufzählung", "/api/taskforce/angebote/status",
+         {"status": "gesehen", "ids": "--5"}, 400, 1),
+        ("id mit 4.301 Ziffern", "/api/taskforce/angebote/status",
+         {"status": "gesehen", "ids": ["1" * 4301]}, 400, 1),
+        ("profil mit zwei Minuszeichen", "/api/taskforce/profil",
+         {"profil": "--5"}, 400, None),
+        ("kunde mit zwei Minuszeichen", "/api/taskforce/profil",
+         {"kunde": "--5", "art": "job"}, 400, None),
+        # **Die Felder, die keine Namensliste geschützt hat.** Die Route reicht den
+        # ganzen Körper weiter: `umkreis_km`, `max_miete` und `min_flaeche` fielen mit
+        # `OverflowError` mitten in die Transaktion, `quellen` mit
+        # `'int' object is not iterable`.
+        ("umkreis_km jenseits von 64 Bit", "/api/taskforce/profil",
+         {"kunde": 1, "art": "job", "umkreis_km": 10 ** 20}, 400, None),
+        ("max_miete jenseits von 64 Bit", "/api/taskforce/profil",
+         {"kunde": 1, "art": "wohnung", "max_miete": 10 ** 20}, 400, None),
+        ("min_flaeche jenseits von 64 Bit", "/api/taskforce/profil",
+         {"kunde": 1, "art": "wohnung", "min_flaeche": 10 ** 20}, 400, None),
+        ("quellen als Zahl", "/api/taskforce/profil",
+         {"kunde": 1, "art": "job", "quellen": 5}, 400, None),
+        ("quellen als Wahrheitswert", "/api/taskforce/profil",
+         {"kunde": 1, "art": "job", "quellen": True}, 400, None),
+        ("quellen als Objekt", "/api/taskforce/profil",
+         {"kunde": 1, "art": "job", "quellen": {"a": 1}}, 400, None),
         # Dieselbe Klasse an den Stammdaten: ein verschachtelter Wert darf nicht als
-        # Python-Zeile in der Kundenakte landen.
+        # Python-Zeile in der Kundenakte landen – und `true`/`false` ist kein Text.
+        # `str(False)` ergäbe „False", und das stand als Rufnummer in einer echten Akte.
+        ("phone als Wahrheitswert", "/api/kunde",
+         {"customer_number": "API-1", "phone": False}, 400, None),
+        ("name als Wahrheitswert", "/api/kunde", {"name": True}, 400, None),
         ("name als Liste", "/api/kunde", {"name": ["Vorname", "Nachname"]}, 400, None),
         ("phone als Objekt", "/api/kunde",
          {"customer_number": "API-1", "phone": {"mobil": "0170"}}, 400, None),
@@ -2426,6 +2461,19 @@ def main():
            and len(_json_status.get("erlaubt") or []) == 8,
            f"{_r_status.status_code} · Status {_kunde_st['status_code']!r} → {_danach!r}"
            f" · erlaubt {_json_status.get('erlaubt')}")
+    # **Der neue 400er auf `status_code`.** Unser eigener Buchstabe darf direkt kommen –
+    # aber nur einer, den es gibt. Ein erfundener richtet denselben Schaden an wie ein
+    # leerer: Der Mensch fällt aus jeder Auswertung, die nach Status filtert.
+    _r_zz = c.post("/api/kunde", json={"customer_number": _kunde_st["kundennummer"],
+                                       "status_code": "ZZ"})
+    _nach_zz = db.wert("SELECT status_code FROM kunde WHERE id=?", (_kunde_st["id"],), None)
+    _json_zz = _r_zz.get_json() or {}
+    pruefe("Ein erfundener status_code wird abgewiesen und ändert nichts",
+           _r_zz.status_code == 400 and _nach_zz == _kunde_st["status_code"]
+           and len(_json_zz.get("erlaubt") or []) == len(db.STATUS),
+           f"{_r_zz.status_code} · {_kunde_st['status_code']!r} → {_nach_zz!r}"
+           f" · {len(_json_zz.get('erlaubt') or [])} Buchstaben genannt")
+
     # Und die Gegenrichtung: ein bekanntes Wort setzt den Status weiterhin.
     _r_gut = c.post("/api/kunde", json={"customer_number": _kunde_st["kundennummer"],
                                         "status": "aktiv"})
@@ -2555,6 +2603,118 @@ def main():
            f"{_unter} Sätze = {_bytes_unter} B → {_r_unter.status_code},"
            f" {_drin_unter} Zeilen · {_ueber} Sätze = {_bytes_ueber} B →"
            f" {_r_ueber.status_code}, {_drin_ueber} Zeilen")
+
+    # Ein Wohnungstyp als Zahl ist keine Katastrophe, sondern ein unbrauchbares
+    # Kriterium: Die Route nimmt den Aufruf an, `kriterien_aus_formular` lässt den Wert
+    # fallen (er steht nicht in `WOHNUNGSTYPEN`), und im Profil steht kein erfundener
+    # Typ. Vorher fiel derselbe Aufruf mit `'int' object is not iterable` um.
+    _r_typ = c.post("/api/taskforce/profil",
+                    json={"kunde": kid, "art": "wohnung", "titel": "Typprobe",
+                          "k_wohnungstyp": 5})
+    _pid_typ = (_r_typ.get_json() or {}).get("profil")
+    _krit_typ = tf.kriterien(tf.profil(_pid_typ)) if _pid_typ else {}
+    pruefe("Ein Wohnungstyp als Zahl fällt die Route nicht und legt kein erfundenes"
+           " Kriterium an",
+           _r_typ.status_code == 200 and _pid_typ and "wohnungstyp" not in _krit_typ,
+           f"{_r_typ.status_code} · Kriterien {_krit_typ}")
+    if _pid_typ:
+        tf.profil_loeschen(_pid_typ)
+
+    # **Drei Antworten statt einer.** Für einen Maschinenaufrufer heisst 400
+    # „wiederhol es nicht". Das stimmt für eine tote Adresse – nicht dafür, dass sich
+    # der Nachtlauf gerade mit dem CRM auf der Datenbank trifft (dann ist es in
+    # Sekunden vorbei) und nicht dafür, dass ein Portal etwas Unlesbares geliefert hat.
+    _echte_abgleich = tf.abgleich
+    _antworten = {}
+    for _name_f, _fehler_f in (("netz", urllib.error.URLError("weg")),
+                               ("datenbank", sqlite3.OperationalError("database is locked")),
+                               ("portal", ValueError("Antwort nicht lesbar"))):
+        tf.abgleich = (lambda _f: lambda *a, **k: (_ for _ in ()).throw(_f))(_fehler_f)
+        try:
+            _r_f = c.post(f"/api/taskforce/angebot/{_aid_status}/abgleich")
+        finally:
+            tf.abgleich = _echte_abgleich
+        _antworten[_name_f] = (_r_f.status_code, bool((_r_f.get_json() or {}).get("grund")))
+    pruefe("Der Abgleich unterscheidet: Netzfehler 400, Datenbank belegt 503, Portal"
+           " unlesbar 502 – jede Antwort mit Grund",
+           _antworten == {"netz": (400, True), "datenbank": (503, True),
+                          "portal": (502, True)},
+           _antworten)
+
+    # **`eintrittszeitraum` ist ein Objekt, kein Datum.** `str(…)[:10]` machte daraus
+    # `{'von': '2`, und genau so stehen im Bestand 49 Zeilen – auf dem Bildschirm „ab
+    # {'von': '2". Geprüft ohne Netz: die Antwort der BA wird untergeschoben.
+    _echtes_get = tf._get
+    _ba_antwort = json.dumps({"stellenangebotsBeschreibung": "Text",
+                              "eintrittszeitraum": {"von": "2026-10-01",
+                                                    "bis": "2026-12-31"}})
+    tf._get = lambda *a, **k: ("https://example.invalid", _ba_antwort)
+    try:
+        _text_ba, _zusatz_ba = tf.beschreibung_laden(
+            {"quelle": "jobs.ba", "extern_id": "PROBE", "zusatz": None})
+    finally:
+        tf._get = _echtes_get
+    pruefe("Der Eintrittstermin der BA wird als Datum gelesen, nicht als Python-Zeile",
+           _zusatz_ba.get("eintritt") == "2026-10-01",
+           _zusatz_ba.get("eintritt"))
+    # Und wenn nichts Brauchbares kommt, bleibt das Feld leer statt falsch.
+    tf._get = lambda *a, **k: ("https://example.invalid",
+                               json.dumps({"eintrittszeitraum": {"keins": 1}}))
+    try:
+        _, _zusatz_leer = tf.beschreibung_laden(
+            {"quelle": "jobs.ba", "extern_id": "PROBE", "zusatz": None})
+    finally:
+        tf._get = _echtes_get
+    pruefe("Ohne brauchbaren Eintrittstermin bleibt das Feld leer, nicht falsch",
+           "eintritt" not in _zusatz_leer, _zusatz_leer)
+
+    # **Eine mehrdeutige Kundennummer wird nicht geraten.** Im Bestand steht eine Nummer
+    # zweimal – zwei Sätze desselben Menschen, der Nachname in zwei Umschriften. Die
+    # Route nahm per `db.eine` den ersten Treffer und schrieb den mitgeschickten Namen
+    # hinein: kollidierte er, gab es 500; kollidierte er nicht, gab es 200 und einen
+    # überschriebenen Menschen. Nachgestellt mit zwei erfundenen Namen.
+    _dopp_nr = "IMP-TEST-DOPP"
+    with db.offen() as _con:
+        for _n in ("Wendelin Doppelpruef", "Radulf Doppelpruef"):
+            _con.execute("INSERT INTO kunde (name, kundennummer, standort, status_code)"
+                         " VALUES (?,?,?,'K')", (_n, _dopp_nr, db.STANDORT_STANDARD))
+    try:
+        _namen_vor = sorted(z["name"] for z in db.hole(
+            "SELECT name FROM kunde WHERE kundennummer=?", (_dopp_nr,)))
+        _r_dopp = c.post("/api/kunde", json={"customer_number": _dopp_nr,
+                                             "name": "Quintus Umbenannt",
+                                             "phone": "0221-000000"})
+        _namen_nach = sorted(z["name"] for z in db.hole(
+            "SELECT name FROM kunde WHERE kundennummer=?", (_dopp_nr,)))
+        _json_dopp = _r_dopp.get_json() or {}
+        pruefe("Eine doppelt vergebene Kundennummer wird zurückgefragt, statt den"
+               " ersten Satz zu überschreiben",
+               _r_dopp.status_code == 409 and _namen_vor == _namen_nach
+               and len(_json_dopp.get("gefunden") or []) == 2
+               and not db.wert("SELECT COUNT(*) FROM kunde WHERE name='Quintus Umbenannt'"),
+               f"{_r_dopp.status_code} · {len(_json_dopp.get('gefunden') or [])} Sätze"
+               f" genannt · Namen unverändert: {_namen_vor == _namen_nach}")
+        # Und der laute Fall derselben Stelle: Umbenennen auf einen Namen, den es schon
+        # gibt. Der Formularweg fängt den `IntegrityError` seit jeher ab, die
+        # Schnittstelle gab eine nackte 500er-Seite.
+        with db.offen() as _con:
+            _con.execute("DELETE FROM kunde WHERE name='Radulf Doppelpruef'")
+        # Der Name kommt aus dem Bestand, nicht aus der Tastatur – ein echter Name hat
+        # in einer versionierten Datei nichts zu suchen (siehe der Wächter weiter oben).
+        _belegt = db.wert("SELECT name FROM kunde WHERE kundennummer IS NOT ? AND id>0"
+                          " ORDER BY id LIMIT 1", (_dopp_nr,), None)
+        _r_kollision = c.post("/api/kunde", json={"customer_number": _dopp_nr,
+                                                  "name": _belegt})
+        _json_koll = _r_kollision.get_json() or {}
+        pruefe("Ein Name, den es schon gibt, endet in einer Auskunft statt in einer"
+               " Absturzseite",
+               _r_kollision.status_code == 409 and _json_koll.get("gefunden")
+               and db.wert("SELECT COUNT(*) FROM kunde WHERE name=?", (_belegt,)) == 1
+               and db.wert("SELECT COUNT(*) FROM kunde WHERE name='Wendelin Doppelpruef'") == 1,
+               f"{_r_kollision.status_code} · {_json_koll.get('fehler')}")
+    finally:
+        with db.offen() as _con:
+            _con.execute("DELETE FROM kunde WHERE kundennummer=?", (_dopp_nr,))
 
     fehl = [n for n, ok, _ in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

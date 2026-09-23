@@ -340,13 +340,33 @@ WOHNUNGSTYPEN = [("groundfloor", "Erdgeschoss"), ("raisedgroundfloor", "Hochpart
 
 
 def _mehrfach(daten, feld):
-    """Mehrfachauswahl aus dem Formular – getlist, wenn es das gibt, sonst Komma-Text."""
+    """Mehrfachauswahl aus dem Formular – getlist, wenn es das gibt, sonst Komma-Text.
+
+    **Eine einzelne Angabe ist auch eine Angabe.** Aus dem Formular kommt hier immer
+    Text; aus einem JSON-Körper kommt, was der Aufrufer schickt. `[x for x in (v or [])]`
+    fiel über jede Zahl und jeden Wahrheitswert (`'int' object is not iterable`), und
+    zwar mitten in `profil_speichern` – gemessen am 23.09.2026 über
+    `/api/taskforce/profil` mit `quellen: 5` und `quellen: true`. Ein einzelner Wert
+    wird deshalb wie eine Liste mit einem Element gelesen.
+
+    Was herauskommt, ist immer Text: Der Aufrufer fügt die Stücke mit `",".join`
+    zusammen, eine Zahl darin hätte genau dort den nächsten Absturz ergeben.
+    `bool` fällt heraus, statt zu „True" zu werden – ein Portal namens „True" gibt es
+    nicht, und eine erfundene Quelle ist schlimmer als keine."""
     if hasattr(daten, "getlist"):
-        return [x for x in daten.getlist(feld) if x]
-    v = daten.get(feld)
-    if isinstance(v, str):
-        return [x for x in v.split(",") if x]
-    return [x for x in (v or []) if x]
+        roh = daten.getlist(feld)
+    else:
+        v = daten.get(feld)
+        if isinstance(v, str):
+            roh = v.split(",")
+        elif isinstance(v, (list, tuple)):
+            roh = list(v)
+        elif v is None:
+            roh = []
+        else:
+            roh = [v]
+    return [str(x).strip() for x in roh
+            if x and not isinstance(x, bool) and str(x).strip()]
 
 
 def kriterien_aus_formular(daten, art="wohnung"):

@@ -40,6 +40,7 @@ import datetime
 import functools
 import hmac
 import json
+import math
 import os
 import socket
 import sqlite3
@@ -198,17 +199,33 @@ def feld_zahl(wert):
     Schreibschnittstelle darf nichts stillschweigend verschwinden.
 
     `bool` fällt heraus, obwohl Python ihn als `int` führt: `true` ist keine Nummer
-    eines Angebots, und `1` wäre eine erfundene Antwort auf eine unsinnige Frage."""
+    eines Angebots, und `1` wäre eine erfundene Antwort auf eine unsinnige Frage.
+
+    **Umgewandelt wird im Versuch, nicht nach Vortest.** Hier stand
+    `wert.strip().lstrip("-").isdecimal()` als Wächter vor `int(wert)` – und dieser
+    Wächter hat selbst die 500er erzeugt, gegen die er gebaut war: `lstrip("-")` nimmt
+    **alle** führenden Minuszeichen weg, `int()` bekommt sie danach wieder alle
+    („--5" → `ValueError`), und ab 4.300 Ziffern weist `int(str)` in Python 3.12
+    ohnehin ab, ganz gleich was ein Vortest sagt. Gemessen am 23.09.2026: `["--5"]`,
+    `"--5"` als Textaufzählung und eine Zahl mit 4.301 Ziffern fällten zwei der drei
+    Schreibrouten. Ein Vortest muss jeden Sonderfall einzeln kennen; ein Versuch mit
+    Fang muss das nicht."""
     if wert is None or isinstance(wert, bool):
         return None
-    if isinstance(wert, int):
-        return wert if abs(wert) <= db.SQLITE_MAX else None
     if isinstance(wert, float):
-        return int(wert) if wert.is_integer() and abs(wert) <= db.SQLITE_MAX else None
-    if isinstance(wert, str) and wert.strip().lstrip("-").isdecimal():
-        zahl = int(wert.strip())
-        return zahl if abs(zahl) <= db.SQLITE_MAX else None
-    return None
+        # `inf` und `NaN` sind gültiges JSON für Pythons Leser und keine Zahlen, mit
+        # denen sich rechnen liesse. `int(float('inf'))` wirft `OverflowError`.
+        if not math.isfinite(wert) or not wert.is_integer():
+            return None
+        wert = int(wert)
+    if isinstance(wert, str):
+        try:
+            wert = int(wert.strip())
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(wert, int):
+        return None
+    return wert if abs(wert) <= db.SQLITE_MAX else None
 
 
 def feld_text(daten, name, standard=None):
@@ -220,15 +237,77 @@ def feld_text(daten, name, standard=None):
     Rufnummer in den Stammdaten steht und die echte überschreibt. Gemessen am
     23.09.2026 auf `/api/kunde`: `name = "['Vorname', 'Nachname']"`, HTTP 200.
 
+    **`true`/`false` sind kein Text**, obwohl `str(False)` einen ergäbe: „False" ist
+    wahr im Sinne von `if` und landete als Rufnummer in der Akte. Gemessen am
+    23.09.2026: `{"phone": false}` → HTTP 200, `telefon = "False"` – die echte
+    Rufnummer eines Menschen überschrieben durch ein Wort. Ein CRM, das „keine
+    Rufnummer hinterlegt" als `false` schickt, hätte damit genau das getan, was dieses
+    Haus nirgends tut: einen Kontakt erfinden. `feld_zahl` wirft `bool` aus demselben
+    Grund heraus.
+
     400 statt stillem Übergehen, weil es um Stammdaten geht: Der Aufrufer muss
-    erfahren, dass sein Wert nicht angekommen ist."""
+    erfahren, dass sein Wert nicht angekommen ist. Ein Feld zu LEEREN geht über diese
+    Schnittstelle bewusst nicht – „überschrieben wird nur, was mitgeschickt wird"."""
     if name not in daten or daten[name] is None:
         return standard
     wert = daten[name]
-    if isinstance(wert, (list, tuple, dict)):
-        abort(400, "Feld '%s' muss Text sein, kein %s – verschachtelte Werte werden"
-                   " nicht umgewandelt." % (name, type(wert).__name__))
+    if isinstance(wert, (list, tuple, dict, bool)):
+        abort(400, "Feld '%s' muss Text sein, kein %s – ein verschachtelter Wert wird"
+                   " nicht umgewandelt, und true/false ist kein Text."
+                   % (name, type(wert).__name__))
     return str(wert).strip() or standard
+
+
+def _bindbar(wert):
+    """Kann SQLite diesen Wert binden – oder fällt er mitten in der Transaktion um?
+
+    `int` über 64 Bit wirft `OverflowError`, `inf`/`NaN` sind keine Messwerte. Beides
+    fällt in `with db.offen()` und reisst den ganzen Stapel mit (siehe den Kopf von
+    `ZUSATZ_TEXT_MAX` in `taskforce.py`)."""
+    if wert is None or isinstance(wert, (str, bool)):
+        return True
+    if isinstance(wert, int):
+        return abs(wert) <= db.SQLITE_MAX
+    if isinstance(wert, float):
+        return math.isfinite(wert) and abs(wert) <= db.SQLITE_MAX
+    return False
+
+
+def koerper_felder(daten, objekte=()):
+    """Den **ganzen** Körper auf Werte bringen, die die Module verarbeiten können.
+
+    Für Routen, die den Körper als Ganzes weiterreichen, statt einzelne Felder zu
+    lesen – `tf.profil_speichern` etwa liest je nach Art über zwanzig Schlüssel, und
+    eine Liste von Feldnamen in der Route wäre am Tag ihrer Entstehung unvollständig.
+    Genau das ist passiert: Acht Textfelder standen namentlich geschützt da, und
+    `umkreis_km`, `max_miete`, `min_flaeche`, `quellen` und `k_wohnungstyp` fielen
+    weiter in einen 500er. Hier wird deshalb **jedes** Feld geprüft, auch das, das es
+    morgen gibt:
+
+      * ein Objekt ist nur erlaubt, wo die Route es ausdrücklich erwartet (`objekte`)
+      * eine Liste darf nur einfache Werte enthalten, keine Listen und keine Objekte
+      * jede Zahl muss in 64 Bit passen und endlich sein
+
+    Was durchkommt, kann noch das falsche Feld treffen – dafür prüfen die Module
+    weiter selbst. Was hier abgewiesen wird, hätte keine Chance mehr, sauber zu
+    scheitern: Es fiele mitten in die Transaktion."""
+    sauber = {}
+    for name, wert in daten.items():
+        if isinstance(wert, dict):
+            if name in objekte:
+                sauber[name] = wert
+                continue
+            abort(400, "Feld '%s' darf kein Objekt sein." % name)
+        if isinstance(wert, (list, tuple)):
+            if any(isinstance(x, (list, tuple, dict)) or not _bindbar(x) for x in wert):
+                abort(400, "Feld '%s' darf nur eine Liste einfacher Werte sein." % name)
+            sauber[name] = list(wert)
+            continue
+        if not _bindbar(wert):
+            abort(400, "Feld '%s' trägt einen Wert, den die Datenbank nicht aufnehmen"
+                       " kann (Zahlen bis 64 Bit, keine unendlichen)." % name)
+        sauber[name] = wert
+    return sauber
 
 
 @api.errorhandler(400)
@@ -505,28 +584,70 @@ def kunde_schreiben():
                             "hinweis": "es wurde nichts gespeichert"}), 400
         felder["status_code"] = eigener.upper()
 
+    # **Eine mehrdeutige Kundennummer wird nicht geraten.** Hier stand `db.eine(…)`:
+    # Liegt dieselbe Nummer zweimal im Bestand, nahm die Route den ERSTEN Satz und
+    # schrieb den mitgeschickten Namen hinein. Kollidierte der Name, gab es einen
+    # `IntegrityError` und eine 500er-Seite; kollidierte er nicht, gab es HTTP 200 und
+    # einen überschriebenen Menschen – Datenverlust mit Erfolgsmeldung, nicht einmal
+    # im Protokoll als Fehler sichtbar. Gemessen am 23.09.2026: Satz 22 hiess danach
+    # so, wie der Aufruf es sagte, und die Kundenzahl blieb bei 120.
+    #
+    # **Warum die Nummer überhaupt zweimal dasteht.** Im Bestand betrifft es genau
+    # einen Fall, und es ist eine DUBLETTE DESSELBEN MENSCHEN: zwei Sätze, gleicher
+    # Vorname, der Nachname um zwei Buchstaben verschieden (Umschrift aus einer anderen
+    # Schrift), gleicher Status. Es ist ausdrücklich **kein** Haushalt: Dass sich
+    # Familienmitglieder eine BG-Nummer des Jobcenters teilen, klingt plausibel, war
+    # hier aber falsch geraten – wer darauf eine Regel für Mehrfachnummern baut, baut
+    # sie auf einen Tippfehler. Die richtige Antwort ist deshalb keine Sonderregel,
+    # sondern eine Rückfrage: Das CRM bekommt beide Sätze genannt und entscheidet.
     nummer = felder.get("kundennummer")
-    vorhanden = None
+    treffer = []
     if nummer:
-        vorhanden = db.eine("SELECT * FROM kunde WHERE kundennummer=? AND standort=?",
-                            (nummer, db.STANDORT_STANDARD))
+        treffer = db.hole("SELECT * FROM kunde WHERE kundennummer=? AND standort=?"
+                          " ORDER BY id", (nummer, db.STANDORT_STANDARD))
+    if len(treffer) > 1:
+        return jsonify({
+            "fehler": "Kundennummer ist nicht eindeutig",
+            "kundennummer": nummer,
+            "gefunden": [{"kunde": t["id"], "name": t["name"],
+                          "status_code": t["status_code"]} for t in treffer],
+            "hinweis": "es wurde nichts geändert – den Satz über seine Nummer im OS"
+                       " ansprechen (POST /api/kunde mit eindeutiger Nummer) oder die"
+                       " Dublette im Bestand auflösen"}), 409
+    vorhanden = treffer[0] if treffer else None
     if not vorhanden and felder.get("name"):
         vorhanden = db.eine("SELECT * FROM kunde WHERE name=? AND standort=?",
                             (felder["name"], db.STANDORT_STANDARD))
 
-    with db.offen() as con:
-        if vorhanden:
-            gesetzt = ", ".join(f"{f}=?" for f in felder)
-            con.execute(f"UPDATE kunde SET {gesetzt}, quelle_stand='CRM', stand_am=? WHERE id=?",
-                        list(felder.values()) + [jetzt(), vorhanden["id"]])
-            kid, neu = vorhanden["id"], False
-        else:
-            felder.setdefault("name", nummer)
-            spalten = list(felder) + ["standort", "quelle_stand", "stand_am"]
-            werte = list(felder.values()) + [db.STANDORT_STANDARD, "CRM", jetzt()]
-            cur = con.execute(f"INSERT INTO kunde ({', '.join(spalten)})"
-                              f" VALUES ({', '.join('?' * len(spalten))})", werte)
-            kid, neu = cur.lastrowid, True
+    # Der Name trägt `UNIQUE(name, standort)`. Wer einen vorhandenen Satz auf den Namen
+    # eines anderen umbenennt, läuft in einen `IntegrityError` – ungefangen war das eine
+    # 500er-Seite ohne Hinweis. Der Formularweg (`app.kunde_anlegen`) fängt denselben
+    # Fall seit jeher ab und nennt den Satz, der im Weg steht; hier fehlte er.
+    try:
+        with db.offen() as con:
+            if vorhanden:
+                gesetzt = ", ".join(f"{f}=?" for f in felder)
+                con.execute(f"UPDATE kunde SET {gesetzt}, quelle_stand='CRM', stand_am=?"
+                            f" WHERE id=?",
+                            list(felder.values()) + [jetzt(), vorhanden["id"]])
+                kid, neu = vorhanden["id"], False
+            else:
+                felder.setdefault("name", nummer)
+                spalten = list(felder) + ["standort", "quelle_stand", "stand_am"]
+                werte = list(felder.values()) + [db.STANDORT_STANDARD, "CRM", jetzt()]
+                cur = con.execute(f"INSERT INTO kunde ({', '.join(spalten)})"
+                                  f" VALUES ({', '.join('?' * len(spalten))})", werte)
+                kid, neu = cur.lastrowid, True
+    except sqlite3.IntegrityError as e:
+        schon = db.eine("SELECT id, name, kundennummer FROM kunde WHERE name=? AND standort=?",
+                        (felder.get("name"), db.STANDORT_STANDARD))
+        return jsonify({
+            "fehler": "Name ist im Bestand schon vergeben",
+            "grund": str(e)[:120],
+            "gefunden": ({"kunde": schon["id"], "name": schon["name"],
+                          "kundennummer": schon["kundennummer"]} if schon else None),
+            "hinweis": "es wurde nichts geändert – zwei Menschen dürfen an einem"
+                       " Standort nicht buchstabengleich heissen"}), 409
     return jsonify({"stand": jetzt(), "kunde": kid, "angelegt": neu,
                     "geaendert": sorted(felder)})
 
@@ -583,15 +704,33 @@ def tf_profil_schreiben():
     Jobprofil ohne Suchbegriffe findet nichts, sagt das aber beim Lauf, statt hier den
     Aufruf abzuweisen. Wer ein bestehendes Profil ändert, schickt `profil` mit; dann
     bleibt stehen, was nicht mitgeschickt wird."""
-    d = dict(eingang())
-    # Erst die Typen, dann die Fachlogik. `tf.profil_speichern` ruft auf Titel, Ort,
-    # Suchbegriffen, Arbeitszeit, Suchauftrag und Notiz `.strip()` und bindet `kunde_id`
-    # an SQLite – ein Objekt oder eine Liste fiel dort ungefangen um. `art` steht mit
-    # dabei, weil es gleich verglichen wird.
+    # Erst die Typen, dann die Fachlogik – und zwar für JEDES Feld, nicht für eine
+    # Liste von Namen: Diese Route reicht den ganzen Körper an `tf.profil_speichern`
+    # weiter, und das liest je nach Art über zwanzig Schlüssel. `kriterien` darf als
+    # Objekt kommen, alles andere nicht (siehe `koerper_felder`).
+    d = koerper_felder(eingang(), objekte=("kriterien",))
+    # Und die Handvoll Felder, auf denen `profil_speichern` `.strip()` ruft, muss Text
+    # sein. Das ist keine zweite Regel, sondern dieselbe eine Ebene tiefer: Was dort
+    # als Zahl ankäme, fiele mit `AttributeError` um.
     for _feld in ("titel", "art", "suchbegriffe", "ort", "arbeitszeit", "suchauftrag",
                   "notiz", "standort"):
         if _feld in d:
             d[_feld] = feld_text(d, _feld)
+    # **Eine Quelle, die es nicht gibt, wird nicht stillschweigend gespeichert.** Das
+    # ist keine Typfrage mehr, sondern eine Wertfrage, und die gehört zum Feld: Ein
+    # Profil mit `quellen='5'` fragt kein Portal und sucht damit nichts – und niemand
+    # sähe, warum. Über die Oberfläche kann das nicht passieren (dort stehen Haken),
+    # über die Schnittstelle schon: `{"quellen": {"a": 1}}` legte die Quelle „a" an.
+    # Leer bleibt leer und heisst weiter „alle Portale".
+    if d.get("quellen") not in (None, "", [], ()):
+        _gewaehlt = tf._mehrfach(d, "quellen")
+        _bekannt = [q for q in _gewaehlt if q in tf.QUELLEN]
+        if not _bekannt:
+            return jsonify({"fehler": "keine dieser Quellen ist angebunden",
+                            "bekommen": _gewaehlt or repr(d["quellen"])[:80],
+                            "erlaubt": sorted(tf.QUELLEN),
+                            "hinweis": "Feld weglassen heisst „alle Portale\""}), 400
+        d["quellen"] = _bekannt
     roh_pid = d.get("profil") or d.get("id")
     pid = feld_zahl(roh_pid)
     if roh_pid is not None and pid is None:
