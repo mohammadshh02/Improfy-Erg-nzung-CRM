@@ -3,6 +3,8 @@
 
     import pruefkopie
     os.environ["IMPROFY_OS_DB"] = pruefkopie.anlegen("improfy_os_cv_test.db")
+    os.environ["OS_SICHERUNG_ORDNER"] = pruefkopie.papierkorb("sicherungen")
+    os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
 
 **Warum nicht `shutil.copy`.** Eine SQLite-Datei, die gerade geschrieben wird, kopiert
 sich als Datei in einem Zwischenzustand: halbe Seiten, ein Journal, das nicht dazu passt.
@@ -37,6 +39,17 @@ Stück mit 46 MB Kundendaten. Zwei Wege räumen das jetzt ab: Der eigene Ordner 
 Programmende (`atexit`), und beim Anlegen werden die Ordner weggeräumt, deren
 Prozessnummer nicht mehr lebt. Ordner **laufender** Läufe bleiben stehen – sonst
 zieht ein Lauf dem anderen die Datenbank unter den Füßen weg.
+
+**Nicht nur die Datenbank muss umgelenkt werden.** Zwei weitere Ordner leitet das OS
+aus seinem eigenen Verzeichnis ab, und beide treffen echte Daten: `sicherungen/` –
+ein Testlauf, der sichert, legt einen Schnappschuss der Testdatenbank dorthin, und
+`aufraeumen()` wirft bei sieben Ständen je eine echte Nachtsicherung heraus – und
+`ausgabe/lebenslaeufe/`, wo jeder Lauf zwei Dateien mit echtem Kundennamen ablegte
+(belegt am 21.09.2026: Riegel entfernt, Test gelaufen, beide Dateien wieder da). Weil
+der Dateiname Kundennummer und Datum trägt, überschreibt ein Testlauf ein am selben
+Tag echt gebautes Dokument desselben Menschen. `OS_SICHERUNG_ORDNER` und
+`OS_AUSGABE_ORDNER` zeigen deshalb über `papierkorb()` in den Ordner dieses Laufs –
+dieselbe Prozessnummer, dasselbe Aufräumen, eine Stelle statt sieben.
 """
 import atexit
 import hashlib
@@ -92,6 +105,22 @@ def ordner():
     kurze Prüfsumme kommt dazu, weil zwei Arbeitsbäume gleich heißen können, wenn sie
     in verschiedenen Ordnern liegen."""
     ziel = _eigener_pfad()
+    os.makedirs(ziel, exist_ok=True)
+    return ziel
+
+
+def papierkorb(name):
+    """Ein Unterordner dieses Laufs für alles, was ein Testlauf schreibt – Pfad zurück.
+
+    Gedacht für `OS_SICHERUNG_ORDNER` und `OS_AUSGABE_ORDNER` (siehe Modulkopf). Beide
+    Variablen werden beim Import von `betrieb` bzw. `lebenslauf_bauen` und `cv_pdf`
+    gelesen, sie müssen also **vor** dem Import von `app` gesetzt sein – genau wie
+    `IMPROFY_OS_DB`.
+
+    Der Ordner liegt unter `ordner()`, trägt damit Arbeitsbaum und Prozessnummer im
+    Pfad und geht mit ihm am Programmende weg. Ein eigenes `atexit` je Aufrufer
+    braucht es deshalb nicht; das stand vorher siebenmal einzeln im Repo."""
+    ziel = os.path.join(ordner(), name)
     os.makedirs(ziel, exist_ok=True)
     return ziel
 

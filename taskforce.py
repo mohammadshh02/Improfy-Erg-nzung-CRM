@@ -33,6 +33,7 @@ Quellen (Adapter), Stand 15.09.2026:
   - wohnung.link          Von Hand eingetragene Exposé-Links (Fallback, Kontrolle)
 """
 import base64
+import concurrent.futures
 import datetime
 import email
 import email.header
@@ -45,6 +46,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -118,7 +120,16 @@ NACHRUESTEN = [("tf_profil", "quellen", "TEXT"),          # kommagetrennt, leer 
                ("tf_angebot", "beschreibung_lang", "TEXT"),  # volle Stellen-/Exposébeschreibung, nachgeladen
                ("tf_angebot", "abgleich", "TEXT"),        # JSON: passt / fehlt / unklar / plus
                ("tf_angebot", "match", "REAL"),           # Anteil erfüllter Anforderungen in Prozent
-               ("tf_angebot", "abgleich_am", "TEXT")]
+               ("tf_angebot", "abgleich_am", "TEXT"),
+               # Der Empfänger, damit ihn niemand im Angebot suchen muss. Geschrieben wird
+               # von Hand, aus dem eigenen Postfach – das System nennt nur, an wen.
+               ("tf_angebot", "kontakt_mail", "TEXT"),
+               ("tf_angebot", "kontakt_tel", "TEXT"),
+               ("tf_angebot", "kontakt_name", "TEXT")]
+# Hier standen am 18.09.2026 kurz `bewerbung` und `bewerbung_am` für ein Anschreiben aus
+# dem System. Wieder gestrichen: Die Bewerbungen schreibt und verschickt ein Mensch. In
+# Datenbanken, die schon liefen, bleiben die beiden Spalten leer stehen – SQLite entfernt
+# Spalten nur durch Umbau der Tabelle, und der wäre für zwei leere Felder das größere Risiko.
 
 STATUS = ("neu", "gesehen", "angeschrieben", "antwort", "erfolg", "verworfen", "doppelt")
 STATUS_TEXT = {"neu": "neu", "gesehen": "gesehen", "angeschrieben": "angeschrieben",
@@ -408,9 +419,15 @@ IS24_LAND = {"köln": "nordrhein-westfalen", "duisburg": "nordrhein-westfalen", 
              "kassel": "hessen", "wiesbaden": "hessen", "darmstadt": "hessen"}
 
 
+# Umlaute in der Schreibweise, die eine Adress-BAHN verträgt. Steht hier einmal, weil
+# drei Stellen sie brauchen (`_is24_slug`, `_slug`, und über `_slug` auch meinestadt)
+# und weil drei eigene Fassungen genau so auseinanderlaufen, wie sie es getan haben.
+UMSCHRIFT = (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss"))
+
+
 def _is24_slug(ort):
     o = (ort or "Köln").strip().casefold()
-    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+    for a, b in UMSCHRIFT:
         o = o.replace(a, b)
     return re.sub(r"[^a-z0-9]+", "-", o).strip("-")
 
@@ -470,14 +487,33 @@ def profile_von(kunde_id):
 
 
 def profil_loeschen(pid):
+    """Profil samt Angeboten, Läufen und deren Verlauf entfernen.
+
+    Der Verlauf muss zuerst weg. Solange ein `tf_ereignis` auf ein Angebot zeigt, weist
+    SQLite das Löschen mit „FOREIGN KEY constraint failed" ab – und getroffen hat es genau
+    die Profile, an denen gearbeitet wurde: Ein Profil, dessen Angebote nie einen Status
+    bekamen, ließ sich löschen, eines mit Anschreiben nicht."""
     with db.offen() as con:
+        con.execute("DELETE FROM tf_ereignis WHERE angebot_id IN"
+                    " (SELECT id FROM tf_angebot WHERE profil_id=?)", (pid,))
         con.execute("DELETE FROM tf_angebot WHERE profil_id=?", (pid,))
         con.execute("DELETE FROM tf_lauf WHERE profil_id=?", (pid,))
         con.execute("DELETE FROM tf_profil WHERE id=?", (pid,))
 
 
-def uebersicht(standort=db.STANDORT_STANDARD):
+def _art_bedingung(art, praefix="p."):
+    """Die Aufspaltung an einer Stelle: entweder Arbeitssuche, oder Wohnungssuche, oder beides.
+
+    Jede Auswertung der Tafel nimmt denselben Filter, damit die Zahlen einer Ansicht
+    zusammenpassen. Ohne art bleibt alles wie vorher – das Gesamtbild."""
+    if art not in ("job", "wohnung"):
+        return "", ()
+    return " AND %sart=?" % praefix, (art,)
+
+
+def uebersicht(standort=db.STANDORT_STANDARD, art=None):
     """Alle Profile mit Zählern – die Tafel der Taskforce."""
+    wo, werte = _art_bedingung(art)
     return db.hole(
         "SELECT p.*, k.name AS kunde, k.sprache, m.name AS coach,"
         "  (SELECT COUNT(*) FROM tf_angebot a WHERE a.profil_id=p.id AND a.status='neu') AS neu,"
@@ -486,13 +522,16 @@ def uebersicht(standort=db.STANDORT_STANDARD):
         "  (SELECT COUNT(*) FROM tf_angebot a WHERE a.profil_id=p.id) AS gesamt"
         "  FROM tf_profil p JOIN kunde k ON k.id=p.kunde_id"
         "  LEFT JOIN mitarbeiter m ON m.id=k.coach_id"
-        " WHERE p.standort=? ORDER BY neu DESC, k.name, p.art", (standort,))
+        " WHERE p.standort=?" + wo + " ORDER BY neu DESC, k.name, p.art",
+        (standort,) + werte)
 
 
-def anzahl_neu(standort=db.STANDORT_STANDARD):
+def anzahl_neu(standort=db.STANDORT_STANDARD, art=None):
+    wo, werte = _art_bedingung(art)
     return db.wert(
         "SELECT COUNT(*) FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
-        " WHERE a.status='neu' AND p.standort=? AND p.aktiv=1", (standort,)) or 0
+        " WHERE a.status='neu' AND p.standort=? AND p.aktiv=1" + wo,
+        (standort,) + werte) or 0
 
 
 def neue_angebote(limit=80, standort=db.STANDORT_STANDARD, kunde_id=None, art=None,
@@ -583,11 +622,12 @@ def neue_angebote(limit=80, standort=db.STANDORT_STANDARD, kunde_id=None, art=No
     return gefiltert
 
 
-def angebote_zaehlen(standort=db.STANDORT_STANDARD):
+def angebote_zaehlen(standort=db.STANDORT_STANDARD, art=None):
     """Zähler je Status über alle aktiven Profile."""
+    wo, werte = _art_bedingung(art)
     zeilen = db.hole(
         "SELECT a.status, COUNT(*) AS n FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
-        " WHERE p.standort=? AND p.aktiv=1 GROUP BY a.status", (standort,))
+        " WHERE p.standort=? AND p.aktiv=1" + wo + " GROUP BY a.status", (standort,) + werte)
     return {z["status"]: z["n"] for z in zeilen}
 
 
@@ -618,12 +658,17 @@ def angebot_status(aid, status, bearbeiter=None, notiz=None):
                     " VALUES (?,?,?,?)", (aid, status, wer, jetzt()))
 
 
-def angebote_status(ids, status, bearbeiter=None):
-    """Sammelaktion der Tafel: viele Angebote auf einmal umstellen."""
+def angebote_status(ids, status, bearbeiter=None, notiz=None):
+    """Sammelaktion der Tafel: viele Angebote auf einmal umstellen.
+
+    Die Notiz gilt für alle markierten Zeilen. „Per Mail beworben, Unterlagen angehängt"
+    einmal zu tippen statt zwanzigmal ist der Unterschied dazwischen, ob sie geschrieben
+    wird oder nicht – und ohne sie sagt „angeschrieben" in drei Wochen niemandem mehr,
+    was eigentlich passiert ist."""
     n = 0
     for aid in ids:
         try:
-            angebot_status(int(aid), status, bearbeiter)
+            angebot_status(int(aid), status, bearbeiter, notiz)
             n += 1
         except (TypeError, ValueError):
             continue
@@ -633,7 +678,7 @@ def angebote_status(ids, status, bearbeiter=None):
 WIEDERVORLAGE_TAGE = 7          # so lange geben wir einem Arbeitgeber oder Vermieter Zeit
 
 
-def wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD, limit=60):
+def wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD, limit=60, art=None):
     """Angeschrieben, aber seit Tagen nichts gehört - das ist die eigentliche Arbeit.
 
     Ein Anschreiben ohne Nachfassen ist verschenkte Arbeit: die meisten Zusagen kommen
@@ -645,15 +690,18 @@ def wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD, limit=
         "  CAST(julianday('now') - julianday(a.status_am) AS INT) AS tage_offen"
         "  FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id JOIN kunde k ON k.id=p.kunde_id"
         " WHERE a.status='angeschrieben' AND p.standort=? AND p.aktiv=1 AND a.status_am <= ?"
-        " ORDER BY a.status_am LIMIT ?", (standort, grenze, limit))
+        + _art_bedingung(art)[0] +
+        " ORDER BY a.status_am LIMIT ?",
+        (standort, grenze) + _art_bedingung(art)[1] + (limit,))
 
 
-def anzahl_wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD):
+def anzahl_wiedervorlage(tage=WIEDERVORLAGE_TAGE, standort=db.STANDORT_STANDARD, art=None):
     grenze = (datetime.datetime.now() - datetime.timedelta(days=tage)).isoformat()
+    wo, werte = _art_bedingung(art)
     return db.wert(
         "SELECT COUNT(*) FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
-        " WHERE a.status='angeschrieben' AND p.standort=? AND p.aktiv=1 AND a.status_am <= ?",
-        (standort, grenze)) or 0
+        " WHERE a.status='angeschrieben' AND p.standort=? AND p.aktiv=1 AND a.status_am <= ?" + wo,
+        (standort, grenze) + werte) or 0
 
 
 def nachgefasst(aid, bearbeiter=None):
@@ -728,6 +776,103 @@ def export_angebote(kunde_id=None, status=None, seit=None, standort=db.STANDORT_
     for z in zeilen:
         z["zusatz"] = zusatz(z)
         z["abgleich"] = abgleich_von(z)
+    return zeilen
+
+
+# ------------------------------------------------- Nachweis je Kunde
+
+# Die Reihenfolge ist der Weg, den ein Angebot nimmt. Sie steht hier einmal, damit
+# Tafel, Nachweis und Schnittstelle dieselbe Geschichte erzählen.
+WEG = [("gefunden", "gefunden"), ("angeschrieben", "angeschrieben"),
+       ("antwort", "Rückmeldung"), ("erfolg", "Gespräch, Besichtigung oder Zusage")]
+
+
+def kunden_bilanz(kunde_id, seit=None, bis=None, standort=db.STANDORT_STANDARD):
+    """Was für diesen Menschen getan wurde – in Zahlen, je Arbeitssuche und Wohnungssuche.
+
+    **Wofür das da ist.** Das Jobcenter fragt nicht „wie viele Stellen gibt es in Köln",
+    sondern „was haben Sie für Herrn X unternommen". Genau diese Frage konnte das System
+    bisher nicht beantworten: Es zählte je Mitarbeiter, nicht je Mensch. Wer den Nachweis
+    brauchte, hat ihn von Hand aus Notizen zusammengesucht.
+
+    Gezählt wird der Weg, den ein Angebot nimmt: gefunden → angeschrieben → Rückmeldung →
+    Ergebnis. Verworfene zählen getrennt; sie sind kein Misserfolg, sondern Auswahl."""
+    def zahl(sql, args=()):
+        return db.wert(sql, args) or 0
+
+    bedingung, werte = "", []
+    if seit:
+        bedingung += " AND COALESCE(a.status_am, a.gefunden_am) >= ?"
+        werte.append(seit)
+    if bis:
+        bedingung += " AND COALESCE(a.status_am, a.gefunden_am) <= ?"
+        werte.append(bis + "T23:59:59")
+
+    bilanz = {}
+    for art in ("job", "wohnung"):
+        grund = ("FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
+                 " WHERE p.kunde_id=? AND p.art=? AND p.standort=? AND a.status!='doppelt'")
+        args = [kunde_id, art, standort] + werte
+        gefunden = zahl("SELECT COUNT(*) " + grund + bedingung, args)
+        stufen = {s: zahl("SELECT COUNT(*) " + grund + " AND a.status=?" + bedingung,
+                          [kunde_id, art, standort, s] + werte)
+                  for s in ("neu", "gesehen", "angeschrieben", "antwort", "erfolg", "verworfen")}
+        # „Angeschrieben" heißt: mindestens angeschrieben. Wer geantwortet hat, wurde
+        # vorher angeschrieben – sonst sähe die Quote besser aus, je weniger zurückkam.
+        angeschrieben = stufen["angeschrieben"] + stufen["antwort"] + stufen["erfolg"]
+        antwort = stufen["antwort"] + stufen["erfolg"]
+        bilanz[art] = {
+            # Jedes Profil dieser Art, auch ein pausiertes: die Zeile heisst „Profile".
+            # Mit `aktiv=1` stand auf dem Stand eines Menschen „0 Profile", während
+            # dieselbe Seite sein pausiertes Profil auflistete.
+            "profile": zahl("SELECT COUNT(*) FROM tf_profil WHERE kunde_id=? AND art=?",
+                            (kunde_id, art)),
+            "laeufe": zahl("SELECT COUNT(*) FROM tf_lauf l JOIN tf_profil p ON p.id=l.profil_id"
+                           " WHERE p.kunde_id=? AND p.art=?", (kunde_id, art)),
+            "letzter_lauf": db.wert("SELECT MAX(letzter_lauf) FROM tf_profil"
+                                    " WHERE kunde_id=? AND art=?", (kunde_id, art), None),
+            "gefunden": gefunden, "offen": stufen["neu"] + stufen["gesehen"],
+            "angeschrieben": angeschrieben, "antwort": antwort, "erfolg": stufen["erfolg"],
+            "verworfen": stufen["verworfen"],
+            "antwortquote": round(100 * antwort / angeschrieben) if angeschrieben else None,
+            "erfolgsquote": round(100 * stufen["erfolg"] / angeschrieben) if angeschrieben else None,
+        }
+    bilanz["gesamt"] = {f: (bilanz["job"][f] or 0) + (bilanz["wohnung"][f] or 0)
+                        for f in ("profile", "laeufe", "gefunden", "offen", "angeschrieben",
+                                  "antwort", "erfolg", "verworfen")}
+    return bilanz
+
+
+def kunden_nachweis(kunde_id, seit=None, bis=None, standort=db.STANDORT_STANDARD, art=None):
+    """Die Liste hinter den Zahlen: jedes Angebot, bei dem etwas passiert ist.
+
+    Bewusst nur, was angefasst wurde. Eine Liste aller 700 gefundenen Angebote weist nichts
+    nach – sie zeigt, dass eine Maschine lief. Nachgewiesen wird die Arbeit: angeschrieben,
+    nachgefasst, Rückmeldung, Ergebnis.
+
+    `art` verengt den Nachweis auf eine Suche. Wer den Stand eines Menschen als
+    Arbeitssuche aufschlägt, soll dort keine Wohnung im Verlauf stehen haben – und das
+    aus dieser einen Abfrage, nicht aus einer zweiten, die anders zählen könnte."""
+    sql = ("SELECT a.id, a.titel, a.anbieter, a.ort, a.url, a.quelle, a.status, a.bearbeiter,"
+           "  a.notiz, a.status_am, a.gefunden_am, a.kontakt_mail, a.kontakt_tel,"
+           "  p.art, p.titel AS profil"
+           "  FROM tf_angebot a JOIN tf_profil p ON p.id=a.profil_id"
+           " WHERE p.kunde_id=? AND p.standort=?"
+           "   AND a.status IN ('angeschrieben','antwort','erfolg','verworfen')")
+    args = [kunde_id, standort]
+    if art in ("job", "wohnung"):
+        sql += " AND p.art=?"
+        args.append(art)
+    if seit:
+        sql += " AND COALESCE(a.status_am, a.gefunden_am) >= ?"
+        args.append(seit)
+    if bis:
+        sql += " AND COALESCE(a.status_am, a.gefunden_am) <= ?"
+        args.append(bis + "T23:59:59")
+    zeilen = db.hole(sql + " ORDER BY a.status_am DESC, a.id DESC", args)
+    for z in zeilen:
+        z["verlauf"] = db.hole("SELECT status, bearbeiter, zeitpunkt FROM tf_ereignis"
+                               " WHERE angebot_id=? ORDER BY id", (z["id"],))
     return zeilen
 
 
@@ -836,7 +981,35 @@ def jobs_ba(p, tage=14, max_seiten=3):
 # ------------------------------------------------------- Jobs: StepStone
 
 def _slug(s):
-    return re.sub(r"[^a-z0-9äöüß]+", "-", s.casefold()).strip("-")
+    """Ein Stück Adress-BAHN: klein, ASCII, mit Bindestrichen – Umlaute umgeschrieben.
+
+    Das gilt für **beide** Stücke, die hier durchgehen: den Ortsnamen und den
+    SUCHBEGRIFF. „Bürokauffrau" wird zu `buerokauffrau`, aus demselben Grund – auch
+    der Beruf steht bei StepStone in der Bahn (`/jobs/buerokauffrau/in-koeln`).
+
+    **Warum die Umschrift hier steht und nicht beim Aufrufer.** Der Ortsname landet bei
+    StepStone und meinestadt im PFAD der Adresse (`/jobs/lagerhelfer/in-koeln`), nicht
+    im Abfrageteil. Ein Umlaut wird dort prozentkodiert (`in-k%C3%B6ln`) – und genau
+    das ist die Falle: **StepStone antwortet darauf mit einer gültigen Seite, in der
+    die Trefferliste leer ist.** Keine 404, keine Ausnahme, kein Fehler, den irgendwer
+    bemerken könnte. Gemessen am 22.09.2026, viermal abwechselnd im selben Prozess:
+
+        /jobs/lagerhelfer/in-k%C3%B6ln   1.289.408 B, "items":[ vorhanden,  0 Einträge
+        /jobs/lagerhelfer/in-koeln       1.277.117 B, "items":[ vorhanden, 25 Einträge
+
+    Dasselbe für Düsseldorf, Münster, Mönchengladbach und Osnabrück.
+
+    `meinestadt` schrieb dieselbe Umschrift bisher hinter seinem eigenen `_slug`-Aufruf
+    noch einmal hin – zwei Stellen, eine Regel, und StepStone hatte die zweite nicht.
+    Jetzt steht sie hier, einmal.
+
+    **Nicht angefasst sind die Portale, die den Ort im ABFRAGETEIL bekommen** (BA,
+    Kleinanzeigen, Indeed, Adzuna, Jooble). Dort ist die Prozentkodierung richtig, und
+    die BA braucht den Umlaut sogar: gemessen Köln 5 Treffer, „Koeln" 0."""
+    o = (s or "").casefold()
+    for a, b in UMSCHRIFT:
+        o = o.replace(a, b)
+    return re.sub(r"[^a-z0-9]+", "-", o).strip("-")
 
 
 def jobs_stepstone(p, max_seiten=2):
@@ -878,8 +1051,58 @@ def jobs_stepstone(p, max_seiten=2):
 
 # --------------------------------------------------------- Jobs: Indeed
 
-def jobs_indeed(p, max_seiten=2):
-    """Indeed-Ergebnisliste: die Seite trägt ihre Treffer als JSON ("results":[...])."""
+# Welche Wartestufe bei Indeed getragen hat. Die Leiter (0, 5, 12 s) steht seit dem
+# ersten Tag da, und **niemand weiss, ob sie je hilft** – gemessen sind bisher nur
+# Fehlschläge (9 Versuche über 3 Runden, immer 403). Blind kürzen hiesse eine
+# Vermutung gegen eine andere tauschen. Also wird mitgeschrieben, wer trägt.
+#
+# **Die Zeilen gehören dem einzelnen Lauf, nicht dem Prozess.** Hier stand eine
+# Modulliste – in einem Server, der `alle_laufen` per `threading.Thread` im selben
+# Prozess startet (`betrieb.py`). Wer den Nachtlauf von Hand anstoßst und gleich
+# danach sucht, bekam dessen Zeilen in seine Direktsuche gemischt: „Indeed: nach 12 s"
+# für eine Suche, die höchstens 5 s warten durfte – und `notieren` schrieb das so ins
+# Protokoll. Ausgerechnet die Zeile, die die Frage beantworten soll, war damit
+# verunreinigt; dazu wuchs die Liste unbegrenzt. Jeder Aufruf bringt jetzt seine
+# eigene Liste mit (`protokoll=`), siehe `_abfragen`.
+
+# Was eine Suche AM BILDSCHIRM für Indeed übrig hat. Gemessen am 21.09.2026 über den
+# laufenden Server, dieselbe Suche, derselbe Moment: mit Indeed 17,27 s / 136 Treffer,
+# ohne Indeed 3,98 s / 136 Treffer. Die 17 s sind fast vollständig die eigene Leiter
+# (0+5+12 s `sleep` plus 0,2 s für drei 403-Runden), nicht das Portal. Alle anderen
+# Quellen sind nach rund 4 s fertig; Indeed hält den Parallellauf also allein fest.
+#
+# **Der Nachtlauf behält die volle Leiter** (`lauf` gibt kein Budget mit): dort wartet
+# niemand vor dem Bildschirm, und nur dort kann sich zeigen, ob Warten je hilft.
+BUDGET_BILDSCHIRM = 5
+BUDGET_QUELLEN = ("jobs.indeed",)
+
+
+def _abfragen(schluessel, p, budget=None, notiz=None):
+    """Eine Quelle fragen und dabei mitschreiben, was ihre Wartestufen gekostet haben.
+
+    `notiz` ist die Liste DIESES Aufrufs; sie gehört dem Aufrufer, damit sie auch dann
+    noch lesbar ist, wenn die Quelle mit einer Ausnahme endet – und gerade dann ist sie
+    interessant, weil dort steht, wie lange vergeblich gewartet wurde.
+
+    Eine frische Liste je Aufruf: darum können Direktsuche und Nachtlauf gleichzeitig
+    laufen, ohne sich zu vermischen."""
+    funktion = QUELLEN[schluessel][2]
+    if notiz is None:
+        notiz = []
+    if schluessel in BUDGET_QUELLEN:
+        return funktion(p, budget=budget, protokoll=notiz), notiz
+    return funktion(p), notiz
+
+
+def jobs_indeed(p, max_seiten=2, budget=None, protokoll=None):
+    """Indeed-Ergebnisliste: die Seite trägt ihre Treffer als JSON ("results":[...]).
+
+    `budget` ist die Zeit in Sekunden, die dieser Aufruf insgesamt warten darf. Ohne
+    Budget läuft die Leiter ganz durch – das ist der Nachtlauf.
+
+    `protokoll` ist die Liste DIESES Aufrufs: welche Wartestufe getragen hat. Sie
+    gehört dem Lauf, damit sich zwei gleichzeitige Läufe nicht vermischen."""
+    beginn = time.time()
     gesehen, treffer = set(), []
     dec = json.JSONDecoder()
     for begriff in _begriffe(p):
@@ -888,17 +1111,28 @@ def jobs_indeed(p, max_seiten=2):
                 {"q": begriff, "l": p.get("ort") or "Köln", "radius": p.get("umkreis_km") or 25,
                  "fromage": 14, "start": seite * 10})
             body = None
+            getragen = None
             for warte in (0, 5, 12):          # Indeeds Bot-Schutz ist launisch: bis zu dreimal
+                # Das Budget gilt für das WARTEN, nicht für den Abruf: eine Stufe, die
+                # erst nach Ablauf fände, wird gar nicht erst betreten. Ohne Budget
+                # ändert sich nichts.
+                if warte and budget and (time.time() - beginn) + warte > budget:
+                    break
                 try:
                     if warte:
                         time.sleep(warte)
                         _OPENER.handlers[0].cookiejar.clear() if hasattr(_OPENER.handlers[0], "cookiejar") else None
                     _, body = _get(url)
+                    getragen = warte
                     break
                 except urllib.error.HTTPError as e:
                     if e.code != 403:
                         raise
                     letzter = e
+            if protokoll is not None:
+                protokoll.append(
+                    ("nach %d s" % getragen) if getragen is not None
+                    else ("403 nach %.0f s" % (time.time() - beginn)))
             if body is None:
                 raise RuntimeError("Indeed blockt gerade (403) – beim nächsten Lauf wieder versuchen")
             i = body.find('"results":[')
@@ -941,7 +1175,9 @@ MS_BEI = re.compile(r"^Job als .*? bei (.+?) in (.+)$")
 def jobs_meinestadt(p, max_seiten=2):
     """jobs.meinestadt.de liefert die Treffer als schema.org-OfferCatalog im Seitenkopf."""
     gesehen, treffer = set(), []
-    stadt = _slug(p.get("ort") or "Köln").replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    # Die Umschrift steckt seit dem 22.09.2026 in `_slug` selbst – hier stand sie ein
+    # zweites Mal, und StepStone hatte sie nicht. Eine Regel, eine Stelle.
+    stadt = _slug(p.get("ort") or "Köln")
     for begriff in _begriffe(p):
         for seite in range(1, max_seiten + 1):
             url = (f"https://jobs.meinestadt.de/{stadt}/suche?"
@@ -1039,6 +1275,10 @@ def jobs_kleinanzeigen(p):
 
 
 GESUCH = re.compile(r"\b(such(e|t|en)|gesucht|wir suchen|ich suche)\b", re.I)
+# Tauschwohnungen stellen auf Kleinanzeigen die Mehrheit der Kölner Treffer – und sind für
+# unsere Leute wertlos: wer tauscht, verlangt eine Wohnung im Gegenzug. Genau die haben die
+# Menschen nicht, für die wir suchen. Ungefiltert stehen sie vor den echten Angeboten.
+TAUSCH = re.compile(r"\btausch", re.I)
 
 
 def wohnung_kleinanzeigen(p):
@@ -1054,6 +1294,8 @@ def wohnung_kleinanzeigen(p):
     for a in _ka_liste(params, max_seiten=3):
         if GESUCH.search(a["titel"] or ""):
             continue                       # Mieter, die selbst suchen – nicht anschreiben
+        if TAUSCH.search(a["titel"] or ""):
+            continue                       # Tauschangebot: setzt eine eigene Wohnung voraus
         zimmer = re.search(r"(\d+(?:[.,]\d)?)\s*Zi", a["masse"] or "")
         flaeche = re.search(r"(\d+)\s*m²", a["masse"] or "")
         zi = float(zimmer.group(1).replace(",", ".")) if zimmer else None
@@ -1394,9 +1636,12 @@ QUELLEN = {
 }
 
 
-def quellen_stand():
+def quellen_stand(nur_art=None):
+    """Welche Quellen es gibt und ob sie verbunden sind. nur_art blendet die andere Hälfte aus –
+    wer in der Wohnungssuche steht, muss nicht acht Jobportale durchlesen."""
     return [{"schluessel": s, "name": n, "art": art, "bereit": bereit()}
-            for s, (n, art, _, bereit) in QUELLEN.items()]
+            for s, (n, art, _, bereit) in QUELLEN.items()
+            if nur_art not in ("job", "wohnung") or art == nur_art]
 
 
 def quellen_fuer(p):
@@ -1630,15 +1875,22 @@ def lauf(pid):
         name, _, funktion, bereit = QUELLEN[schluessel]
         if not bereit():
             continue                         # nicht konfiguriert – still überspringen
+        notiz = []
         try:
-            treffer = funktion(p)
+            # Ohne Budget: im Nachtlauf wartet niemand vor dem Bildschirm, und nur
+            # dort kann sich zeigen, ob die Wartestufen je tragen. Was sie gekostet
+            # haben, landet unten in `tf_lauf.meldung`.
+            treffer, _ = _abfragen(schluessel, p, notiz=notiz)
             treffer, weg = job_filter(p, treffer)
             neu = _ablegen(pid, treffer)
-            meldung = f"{weg} durch die Filter aussortiert" if weg else ""
+            meldung = "; ".join(
+                ([f"{weg} durch die Filter aussortiert"] if weg else []) + notiz)
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-            treffer, neu, meldung = [], 0, f"{name}: nicht erreichbar ({e})"
+            treffer, neu = [], 0
+            meldung = "; ".join([f"{name}: nicht erreichbar ({e})"] + notiz)
         except Exception as e:
-            treffer, neu, meldung = [], 0, f"{name}: {e}"
+            treffer, neu = [], 0
+            meldung = "; ".join([f"{name}: {e}"] + notiz)
         if meldung:
             meldungen.append(meldung)
         gesamt += len(treffer)
@@ -1657,10 +1909,132 @@ def lauf(pid):
     return gesamt, neu_gesamt, meldungen
 
 
-def alle_laufen(standort=db.STANDORT_STANDARD, alarm=True):
+# ------------------------------------------------------------------- Direktsuche
+
+def suchspalte(art="job", begriffe="", ort="Köln", umkreis_km=25, arbeitszeit=None,
+               max_miete=None, min_zimmer=None, min_flaeche=None, kriterien=None):
+    """Ein Suchprofil, das es nur für diesen Augenblick gibt.
+
+    Die Adapter erwarten ein Profil als einfaches Wörterbuch – sie lesen nie aus der
+    Datenbank. Genau darum kann man auch ohne angelegtes Profil suchen; das war nie
+    ausgeschlossen, es hat nur niemand angeboten."""
+    return {"art": art, "suchbegriffe": begriffe or "", "ort": (ort or "").strip() or "Köln",
+            "umkreis_km": _zahl(umkreis_km) or 25, "arbeitszeit": arbeitszeit or None,
+            "zeitarbeit": 0, "quellen": None, "notiz": None, "suchauftrag": None,
+            "max_miete": _zahl(max_miete), "min_zimmer": _zahl(min_zimmer, float),
+            "min_flaeche": _zahl(min_flaeche),
+            "kriterien": json.dumps(kriterien or {}, ensure_ascii=False)}
+
+
+def direktsuche(p, quellen=None, grenze=200):
+    """Alle Quellen der Art gleichzeitig fragen und die Treffer zusammenlegen.
+
+    **Warum es das gibt.** Bisher führte der einzige Weg zu Treffern über Kunde → Suchprofil
+    → Agentenlauf. Wer nur wissen wollte, was es in Köln für Reinigungskräfte gibt – am
+    Telefon, im Gespräch, zur Einschätzung –, hatte kein Feld dafür. Das ist die Grundlage
+    der Arbeitsvermittlung und darf nicht von einem angelegten Datensatz abhängen.
+
+    **Gleichzeitig, nicht nacheinander.** Der Agentenlauf fragt Quelle für Quelle; das ist
+    für den Nachtlauf gleichgültig, aber niemand wartet am Bildschirm zwanzig Sekunden.
+    Nebeneinander gefragt antworten alle in der Zeit der langsamsten.
+
+    Gibt (treffer, meldungen) zurück. **Kein Treffer wird gespeichert** – eine Suche ist
+    eine Frage, keine Ablage; übernommen wird erst mit einem Klick. Eine Zeile entsteht
+    trotzdem: die Route schreibt jede Suche ins Protokoll (wer, wonach, wie lange, mit
+    welchen Meldungen). Das ist Nachweis, kein Bestand."""
+    schluessel = [s for s in quellen_fuer(p)
+                  if (not quellen or s in quellen) and QUELLEN[s][3]()]
+    treffer, meldungen = [], []
+
+    je_quelle = {}
+
+    def fragen(s):
+        name = QUELLEN[s][0]
+        notiz = []
+        try:
+            # Eine Quelle darf den Parallellauf nicht allein festhalten. Die mit einer
+            # Wartestufenleiter bekommen am Bildschirm ein Zeitbudget mit – siehe
+            # `BUDGET_BILDSCHIRM`. Alle anderen laufen unverändert.
+            gefunden, _ = _abfragen(s, p, budget=BUDGET_BILDSCHIRM, notiz=notiz)
+            return s, gefunden, None, notiz
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+            return s, [], f"{name}: nicht erreichbar ({e})", notiz
+        except Exception as e:
+            return s, [], f"{name}: {e}", notiz
+
+    if schluessel:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(schluessel)) as pool:
+            for s, gefunden, meldung, notiz in pool.map(fragen, schluessel):
+                treffer.extend(gefunden)
+                je_quelle[s] = len(gefunden)
+                if meldung:
+                    meldungen.append(meldung)
+                for zeile in notiz:
+                    meldungen.append(f"{QUELLEN[s][0]}: {zeile}")
+
+    # **Welche Quelle wie viel geliefert hat, steht auf dem Bildschirm.**
+    #
+    # Null Treffer sind kein Fehler – sie können stimmen. Aber eine Quelle, die still
+    # nichts liefert, während die anderen liefern, ist von einem vollständigen Ergebnis
+    # nicht zu unterscheiden. Genau so lag StepStone für jeden Umlautort auf Null: die
+    # Seite kam, die Trefferliste war leer, keine Ausnahme, keine Meldung. Der Nutzer
+    # sah 94 Treffer und hielt das für alles; 136 waren es.
+    #
+    # Gezählt wird, was das Portal geliefert hat – vor Reglern und Dublettenabgleich.
+    # Die Frage lautet „hat es geantwortet", nicht „was ist am Ende übrig".
+    #
+    # **Der Agentenlauf zählt an dieser Stelle anders**, und das ist kein Versehen:
+    # `lauf()` schreibt in `tf_lauf.gefunden` die Zahl NACH `job_filter`, weil dort die
+    # Frage „wie viel ist für diesen Menschen übrig geblieben" lautet. Wer die beiden
+    # Zahlen vergleicht, vergleicht zwei verschiedene Fragen.
+    # Ganz nach vorn: das ist die Antwort auf „habe ich alles gesehen?", und sie muss
+    # vor den Einzelmeldungen stehen, nicht hinter ihnen.
+    if je_quelle:
+        # Komma innen, damit die Zeile nicht im Trennzeichen der uebrigen
+        # Meldungen untergeht – die werden mit „ · " verbunden.
+        meldungen.insert(0, "Quellen: " + ", ".join(
+            f"{QUELLEN[s][0]} {n}" for s, n in
+            sorted(je_quelle.items(), key=lambda x: (-x[1], QUELLEN[x[0]][0]))))
+
+    treffer, weg = job_filter(p, treffer)
+    if weg:
+        meldungen.append(f"{weg} durch die Regler aussortiert")
+
+    # Dieselbe Stelle steht oft bei drei Portalen. Der erste Fund gilt, die anderen zaehlen
+    # wir nur – dieselbe Regel wie beim Agentenlauf, damit die Liste vergleichbar bleibt.
+    gesehen, einmalig, doppelt = set(), [], 0
+    for x in treffer:
+        s = _schluessel(x)
+        if s in gesehen:
+            doppelt += 1
+            continue
+        gesehen.add(s)
+        x["score"] = _score(p, x)
+        einmalig.append(x)
+    if doppelt:
+        meldungen.append(f"{doppelt} Dubletten aus anderen Portalen ausgeblendet")
+    einmalig.sort(key=lambda x: (-(x.get("score") or 0), x.get("titel") or ""))
+    # Dieselbe Ehrlichkeit wie bei den Dubletten. Der Schnitt bei `grenze` stand bisher
+    # nirgends: wer 340 Treffer hatte, sah 200 und hielt das für alles. Sortiert ist
+    # nach Relevanz, oben steht also das Beste – aber das muss dastehen, nicht geraten
+    # werden. **Wer `grenze` anhebt, hebt auch den POST-Rumpf beim Übernehmen an**;
+    # ab rund 575 Treffern greift `max_form_memory_size` (siehe `zu_viel_auf_einmal`
+    # in `app.py`).
+    if len(einmalig) > grenze:
+        meldungen.append(f"{len(einmalig) - grenze} weitere Treffer abgeschnitten"
+                         f" – gezeigt werden die {grenze} bestbewerteten")
+    return einmalig[:grenze], meldungen
+
+
+def alle_laufen(standort=db.STANDORT_STANDARD, alarm=True, art=None):
+    """art='job' laesst nur die Arbeits-Agenten laufen, art='wohnung' nur die Wohnungs-Agenten.
+
+    Das ist nicht nur Anzeige: ein voller Lauf fragt zehn Portale und dauert bis zu zwei
+    Minuten. Wer nur Wohnungen sucht, soll nicht darauf warten muessen."""
+    wo, werte = _art_bedingung(art, praefix="")
     ergebnisse = []
-    for p in db.hole("SELECT id, titel FROM tf_profil WHERE aktiv=1 AND standort=? ORDER BY id",
-                     (standort,)):
+    for p in db.hole("SELECT id, titel FROM tf_profil WHERE aktiv=1 AND standort=?" + wo
+                     + " ORDER BY id", (standort,) + werte):
         gefunden, neu, meldungen = lauf(p["id"])
         ergebnisse.append((p["id"], p["titel"], gefunden, neu, "; ".join(meldungen)))
     if alarm:
@@ -1689,6 +2063,91 @@ def alarm_senden(ergebnisse):
     except Exception:
         return False
 
+
+
+# ------------------------------------------------------ Kontaktdaten im Angebot
+
+# Wer im Text steht, an den kann man schreiben. Gemessen an 56 vollstaendig geladenen
+# Angeboten (18.09.2026): 11 % nennen eine Mailadresse, 38 % eine Telefonnummer. Der Rest
+# laeuft ueber das Portalformular – darum ist die Bewerbung nie nur ein Mailversand.
+MAIL_MUSTER = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+TEL_MUSTER = re.compile(r"(?:\+49|0)\s?[\d()/\s.-]{7,24}\d")
+ANREDE = re.compile(r"\b(Herrn?|Frau)\s+((?:Dr\.|Prof\.)?\s*[A-ZÄÖÜ][\wäöüß-]+"
+                    r"(?:\s+[A-ZÄÖÜ][\wäöüß-]+){0,2})")
+# Deutsche Saetze fangen gross an. „Ansprechpartner ist Herr Bürgi Wir freuen uns …" haengt
+# das naechste Satzwort an den Namen, wenn man nur auf Grossschreibung achtet.
+NAME_STOPP = {"Wir", "Sie", "Ihre", "Ihr", "Ihnen", "Bitte", "Die", "Der", "Das", "Den",
+              "Unser", "Unsere", "Im", "In", "Am", "Und", "Oder", "Für", "Bei", "Gerne",
+              "Telefon", "Tel", "Mail", "E-Mail", "Rufen", "Melden", "Haben", "Senden"}
+# Sammelpostfaecher, die niemanden erreichen, und Adressen der Portale selbst.
+MAIL_WEG = re.compile(r"no-?reply|do-?not-?reply|datenschutz@|impressum@|webmaster@|"
+                      r"@(arbeitsagentur|stepstone|indeed|kleinanzeigen|meinestadt)\.", re.I)
+NAEHE = re.compile(r"(ansprechpartner|ansprechperson|kontakt|rückfrage|rueckfrage|bewerb|"
+                   r"fragen|telefon|tel\.|e-?mail)", re.I)
+
+
+def _naechster(text, muster, pruefen=None, fenster=140):
+    """Den Treffer nehmen, der am nächsten an einem Kontakt-Stichwort steht.
+
+    In einer Stellenbeschreibung stehen oft mehrere Nummern – die der Zentrale, die im
+    Impressum, die des Standorts. Gemeint ist die neben „Ansprechpartner" oder
+    „Rückfragen". Findet sich kein Stichwort in der Nähe, gilt der erste Treffer; das ist
+    seltener richtig, aber besser als nichts, und der Mensch sieht ihn vor dem Absenden."""
+    beste, erster = None, None
+    for m in muster.finditer(text or ""):
+        wert = m.group(0).strip(" .,;:")
+        if pruefen and not pruefen(wert):
+            continue
+        if erster is None:
+            erster = wert
+        umfeld = text[max(0, m.start() - fenster):m.start()]
+        if NAEHE.search(umfeld):
+            beste = beste or wert
+    return beste or erster
+
+
+def _telefon_sauber(roh):
+    """Ziffernfolgen, die keine Telefonnummer sind, aussortieren: Referenznummern,
+    Zeiträume, Beträge. Eine deutsche Rufnummer hat mit Vorwahl 9 bis 15 Ziffern.
+
+    Die Punktregel kommt aus dem Bestand: Kleinanzeigen-Beschreibungen enthalten Kennungen
+    wie „01.206064.2.4", die jedes Rufnummernmuster erfüllen. Zwei Punkte hat keine
+    Rufnummer, eine Kennung fast immer."""
+    roh = (roh or "").strip(" .,;:-/")
+    if roh.count(".") >= 2:
+        return None
+    ziffern = re.sub(r"\D", "", roh)
+    if not 9 <= len(ziffern) <= 15:
+        return None
+    return re.sub(r"\s{2,}", " ", roh)
+
+
+def kontakt_aus_text(text, anbieter=None):
+    """Mailadresse, Telefonnummer und Ansprechpartner aus einer Beschreibung lesen.
+
+    Nichts davon wird erfunden: steht es nicht da, bleibt das Feld leer, und die Bewerbung
+    laeuft ueber den Portallink. Ein falscher Empfaenger waere schlimmer als keiner."""
+    text = text or ""
+    mail = _naechster(text, MAIL_MUSTER, lambda w: not MAIL_WEG.search(w))
+    # Eine Adresse, deren Domain zum Arbeitgeber passt, ist die richtige – auch wenn weiter
+    # oben im Text eine allgemeinere steht.
+    if anbieter:
+        kern = re.sub(r"[^a-z]", "", vergleichbar(anbieter).split(" ")[0] or "")
+        if len(kern) >= 4:
+            for m in MAIL_MUSTER.finditer(text):
+                w = m.group(0).strip(" .,;:")
+                if kern in w.lower() and not MAIL_WEG.search(w):
+                    mail = w
+                    break
+    tel = _telefon_sauber(_naechster(text, TEL_MUSTER, lambda w: _telefon_sauber(w)))
+    name = None
+    m = ANREDE.search(text)
+    if m:
+        worte = re.sub(r"\s+", " ", m.group(0)).strip().split(" ")
+        while len(worte) > 2 and worte[-1] in NAME_STOPP:
+            worte.pop()                    # das nächste Satzwort gehört nicht zum Namen
+        name = " ".join(worte) if worte[-1] not in NAME_STOPP else None
+    return {"kontakt_mail": mail, "kontakt_tel": tel, "kontakt_name": name}
 
 
 # ------------------------------------------- Stellen-/Exposébeschreibung nachladen
@@ -1933,11 +2392,17 @@ def abgleich(aid, laden=True):
     n = len(passt) + len(fehlt)
     match = round(100 * len(passt) / n) if n else None
     ergebnis = {"passt": passt, "fehlt": fehlt, "unklar": unklar, "plus": plus}
+    # Der Kontakt faellt beim Abgleich mit ab – die Beschreibung ist dafuer ohnehin geladen.
+    # COALESCE: was ein Mensch von Hand eingetragen hat, ueberschreibt der Automat nicht.
+    k = kontakt_aus_text(text, a.get("anbieter"))
     with db.offen() as con:
         con.execute("UPDATE tf_angebot SET beschreibung_lang=?, abgleich=?, match=?, abgleich_am=?, zusatz=?,"
-                    " beschreibung=COALESCE(beschreibung, ?) WHERE id=?",
+                    " beschreibung=COALESCE(beschreibung, ?),"
+                    " kontakt_mail=COALESCE(kontakt_mail, ?), kontakt_tel=COALESCE(kontakt_tel, ?),"
+                    " kontakt_name=COALESCE(kontakt_name, ?) WHERE id=?",
                     (text[:6000] or None, json.dumps(ergebnis, ensure_ascii=False), match, jetzt(),
-                     json.dumps(z, ensure_ascii=False), text[:400] or None, aid))
+                     json.dumps(z, ensure_ascii=False), text[:400] or None,
+                     k["kontakt_mail"], k["kontakt_tel"], k["kontakt_name"], aid))
     return ergebnis, match
 
 
@@ -1965,6 +2430,68 @@ def abgleich_von(a):
         return json.loads(a.get("abgleich") or "{}")
     except (TypeError, ValueError):
         return {}
+
+
+def vergleichbar(s):
+    """Namen vergleichbar machen, damit Tippen zum Ziel fuehrt.
+
+    Die Namen im Bestand kommen aus vier Quellen und sind uneinheitlich geschrieben:
+    „Müller" und „Mueller", „Zahra" und „ZAHRA", arabische und persische Namen mit und
+    ohne Akzent. Wer sucht, tippt aber, was er im Kopf hat. Also wird beides auf eine
+    einfache Form gebracht, bevor verglichen wird."""
+    s = (s or "").lower()
+    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        s = s.replace(a, b)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9 ]+", " ", s).strip()
+
+
+def kunden_suchen(text, standort=db.STANDORT_STANDARD, limit=12):
+    """Personensuche: tippen, und der Richtige steht da.
+
+    Die Auswahlliste mit allen Namen war bei 93 Kunden nicht mehr zu bedienen – man musste
+    wissen, wie der Name im Bestand geschrieben ist, um ihn zu finden. Hier genuegen ein
+    paar Buchstaben aus *irgendeinem* Teil des Namens; die Reihenfolge ist egal, „muester er"
+    findet „Erika Müstermann" genauso wie „erika". Die Kundennummer geht auch. Der
+    Beispielname ist mit Absicht keiner, den es geben kann: ein echter Name im Code
+    kollidiert eines Tages mit einem echten Kunden – und steht dann unbemerkt zweimal.
+
+    Sortiert wird nach Treffergenauigkeit, nicht alphabetisch: wer den Anfang des Namens
+    tippt, will nicht erst durch alle Namen scrollen, die den Buchstaben in der Mitte haben."""
+    teile = vergleichbar(text).split()
+    if not teile:
+        return []
+    zeilen = db.hole(
+        "SELECT k.id, k.name, k.ort_jc, k.kundennummer, k.status_code, m.name AS coach,"
+        # Jedes Profil, auch ein pausiertes: die Vorschlagszeile der Kopfsuche schreibt
+        # daraus wörtlich „N Profile" bzw. „kein Profil" (`basis.html`). Das ist die
+        # eine Zählweise des Hauses – siehe `sammelanlage.vorschlaege`.
+        "  (SELECT COUNT(*) FROM tf_profil t WHERE t.kunde_id=k.id) AS profile,"
+        "  (SELECT COUNT(*) FROM tf_angebot a JOIN tf_profil t ON t.id=a.profil_id"
+        "     WHERE t.kunde_id=k.id AND a.status='neu') AS neu"
+        "  FROM kunde k LEFT JOIN mitarbeiter m ON m.id=k.coach_id"
+        " WHERE k.standort=? ORDER BY k.name", (standort,))
+    gefunden = []
+    for k in zeilen:
+        name = vergleichbar(k["name"])
+        worte = name.split()
+        nummer = (k.get("kundennummer") or "").lower()
+        rang = 0
+        for teil in teile:
+            if name.startswith(teil):
+                rang += 0                      # Anfang des ganzen Namens: bester Treffer
+            elif any(w.startswith(teil) for w in worte):
+                rang += 1                      # Anfang eines Namensteils, etwa des Nachnamens
+            elif teil in name or teil in nummer:
+                rang += 2                      # irgendwo drin – findet Tippfehler am Anfang
+            else:
+                break
+        else:
+            k["status_text"] = db.STATUS.get(k.get("status_code"), "")
+            gefunden.append((rang, k["name"], k))
+    gefunden.sort(key=lambda z: (z[0], z[1]))
+    return [k for _, _, k in gefunden[:limit]]
 
 
 def kunden_info(kunde_id):

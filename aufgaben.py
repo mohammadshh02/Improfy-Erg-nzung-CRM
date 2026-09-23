@@ -24,6 +24,14 @@ import datetime
 
 import datenbank as db
 
+try:                                       # Flask nur, wenn es da ist: dieses Modul läuft
+    from flask import g, has_app_context   # auch aus `taskforce.py --lauf`, ohne Anfrage
+except ImportError:                        # und ohne Webserver.
+    g = None
+
+    def has_app_context():
+        return False
+
 FRIST_WARNUNG = 14          # Tage vor Maßnahmeende, ab denen es eilt
 WIEDERVORLAGE = 7           # Tage ohne Antwort auf eine Bewerbung
 LAUFEND = ("H", "I")        # Statuscodes: Maßnahme läuft
@@ -49,19 +57,66 @@ def _aufgabe(stufe, art, titel, kunde=None, coach=None, frist=None, link=None, w
 
 
 # --------------------------------------------------------------------- Regeln
-def _laufende():
-    return db.hole(
+def _merker():
+    """Der Zwischenspeicher dieser einen Anfrage – oder None, wenn gerade keine läuft.
+
+    Hängt an `flask.g` und stirbt mit der Anfrage. Ein Merker im Modul selbst würde in der
+    Kommandozeile und im nächtlichen Agentenlauf stundenlang alt werden und irgendwann
+    Aufgaben zu Menschen zeigen, die längst nicht mehr in Maßnahme sind."""
+    if g is None or not has_app_context():
+        return None
+    if not hasattr(g, "aufgaben_merker"):
+        g.aufgaben_merker = {}
+    return g.aufgaben_merker
+
+
+def laufende_massnahmen():
+    """Wer gerade in einer Maßnahme steht, mit allem, was an ihm hängt.
+
+    Öffentlich, weil der Einstieg dieselbe Liste braucht: eine zweite Abfrage dort würde
+    irgendwann anders zählen als die Regeln hier.
+
+    **Einmal je Anfrage.** Neun Regeln fragen dieselbe Liste; ein Aufruf von /taskforce
+    rechnete sie dadurch neunmal – gemessen 23 von 54 Millisekunden Seitenzeit. Am
+    Ergebnis ändert der Merker nichts: dieselbe Anfrage, dieselbe Sekunde, dieselbe
+    Antwort. Außerhalb einer Anfrage wird wie bisher jedes Mal frisch gerechnet."""
+    merker = _merker()
+    if merker is not None and "laufende" in merker:
+        return merker["laufende"]
+    zeilen = db.hole(
         "SELECT k.id, k.name, k.status_code, k.massnahme, m.name AS coach,"
         "       (SELECT MAX(g.bis) FROM gutschein_zeile g WHERE g.kunde_id=k.id) AS endet,"
         "       (SELECT COUNT(*) FROM termin t WHERE t.kunde_id=k.id) AS termine,"
         "       (SELECT COUNT(*) FROM lebenslauf l WHERE l.kunde_id=k.id) AS lebenslaeufe,"
-        "       (SELECT COUNT(*) FROM tf_profil p WHERE p.kunde_id=k.id AND p.aktiv=1) AS profile,"
+        # **Gezählt wird JEDES Profil, auch ein pausiertes** – dieselbe Bedingung wie in
+        # `sammelanlage.vorschlaege()`, `sammelanlage.anlegen()`, der Kundenliste und
+        # dem Coaches-Überblick (`app.py`, `coaches.py`), dem Hinweis auf der Tafel und
+        # `taskforce.kunden_bilanz`. Das ist die eine Zählweise des Hauses – sie stand
+        # bis zum 22.09.2026 an fünf dieser Stellen NICHT, während dieser Kommentar das
+        # Gegenteil behauptete. Sie richtet sich nach dem, was der Knopf tun kann:
+        # `anlegen()` legt für jemanden mit pausiertem Profil kein zweites an. Stand hier
+        # `aktiv=1`, zeigte der Einstieg „19 ohne Jobprofil", und hinter dem Knopf standen
+        # 18 Zeilen – gemessen am 21.09.2026, ein Profil auf `aktiv=0` gesetzt.
+        #
+        # Pausiert heisst nicht „nichts da", sondern „steht still". Wer still steht,
+        # steht auf dem Arbeitsplatz seiner Art in der unteren Liste, mit der Plakette
+        # „pausiert – sucht nicht". Die Antwort darauf ist einschalten, nicht ein
+        # zweites Profil.
+        "       (SELECT COUNT(*) FROM tf_profil p WHERE p.kunde_id=k.id) AS profile,"
+        # Die Jobprofile zusätzlich einzeln: Arbeitssuche und Wohnungssuche sind zwei
+        # Arbeiten. Wer ein Wohnprofil hat, hat ein Profil – für seine Arbeitssuche sucht
+        # der Agent trotzdem nichts.
+        "       (SELECT COUNT(*) FROM tf_profil p WHERE p.kunde_id=k.id"
+        "          AND p.art='job') AS jobprofile,"
         "       (SELECT COUNT(*) FROM kunde_profil p WHERE p.kunde_id=k.id"
         "          AND p.kurzprofil IS NOT NULL AND p.kurzprofil<>'') AS kurzprofil,"
         "       k.stadt"
         "  FROM kunde k LEFT JOIN mitarbeiter m ON m.id=k.coach_id"
         " WHERE k.standort=? AND k.status_code IN ('H','I') ORDER BY k.name",
         (db.STANDORT_STANDARD,))
+    if merker is not None:
+        merker["laufende"] = zeilen
+    return zeilen
 
 
 def massnahme_ohne_termine():
@@ -70,13 +125,13 @@ def massnahme_ohne_termine():
     return [_aufgabe("rot", "Nachweis", "Termine dokumentieren – der Gutschein läuft ohne Nachweis",
                      k, k["coach"], k["endet"], f"/kunde/{k['id']}",
                      "Ohne dokumentierte Termine lässt sich die Maßnahme nicht abrechnen.")
-            for k in _laufende() if not k["termine"]]
+            for k in laufende_massnahmen() if not k["termine"]]
 
 
 def frist_laeuft_ab():
     """Maßnahme endet in den nächsten zwei Wochen. Danach ist nichts mehr nachzuholen."""
     aufgaben = []
-    for k in _laufende():
+    for k in laufende_massnahmen():
         tage = _tage_bis(k["endet"])
         if tage is None or tage > FRIST_WARNUNG:
             continue
@@ -121,7 +176,7 @@ def ohne_lebenslauf():
     return [_aufgabe("gelb", "Unterlagen", "Lebenslauf fehlt – bewerben ist nicht möglich",
                      k, k["coach"], k["endet"], f"/kunde/{k['id']}/lebenslauf",
                      "Solange kein Lebenslauf da ist, kann niemand für diese Person bewerben.")
-            for k in _laufende() if not k["lebenslaeufe"]]
+            for k in laufende_massnahmen() if not k["lebenslaeufe"]]
 
 
 def ohne_taskforce():
@@ -129,7 +184,7 @@ def ohne_taskforce():
     return [_aufgabe("gelb", "Taskforce", "Kein Such-Profil – der Agent sucht für diese Person nichts",
                      k, k["coach"], k["endet"], f"/taskforce/kunde/{k['id']}",
                      "Vermittlung ist das Ziel der Maßnahme; ohne Profil passiert dabei nichts.")
-            for k in _laufende() if not k["profile"]]
+            for k in laufende_massnahmen() if not k["profile"]]
 
 
 def ohne_kurzprofil():
@@ -137,7 +192,7 @@ def ohne_kurzprofil():
     return [_aufgabe("grau", "Taskforce", "Kurzprofil fehlt – Angebote lassen sich nicht abgleichen",
                      k, k["coach"], k["endet"], f"/taskforce/kunde/{k['id']}",
                      "Der Abgleich passt/fehlt braucht Stichworte zur Person.")
-            for k in _laufende() if k["profile"] and not k["kurzprofil"]]
+            for k in laufende_massnahmen() if k["profile"] and not k["kurzprofil"]]
 
 
 def ohne_wohnort():
@@ -145,7 +200,7 @@ def ohne_wohnort():
     return [_aufgabe("grau", "Stammdaten", "Wohnort fehlt – gesucht wird ersatzweise in Köln",
                      k, k["coach"], None, f"/kunde/{k['id']}",
                      "Job- und Wohnungssuche brauchen den Ort der Person.")
-            for k in _laufende() if not k["stadt"]]
+            for k in laufende_massnahmen() if not k["stadt"]]
 
 
 def ohne_coach():
@@ -189,7 +244,9 @@ def gute_angebote_liegen():
     return [_aufgabe("gelb", "Taskforce",
                      f"{z['n']} gut passende Angebote warten (bestes {int(z['bester'] or 0)} von 10)",
                      {"id": z["kunde_id"], "name": z["kunde"]}, z["coach"], None,
-                     f"/taskforce?kunde={z['kunde_id']}&score=6",
+                     # Ausdrücklich die Tafel: /taskforce zeigt ohne Regler den Einstieg,
+                     # und „alle Filter zurücksetzen" führte von dort wieder dorthin.
+                     f"/taskforce/tafel?kunde={z['kunde_id']}&score=6",
                      "Gefundene Angebote nützen erst etwas, wenn jemand sie anschreibt.")
             for z in zeilen]
 

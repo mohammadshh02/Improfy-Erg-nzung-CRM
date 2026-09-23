@@ -7,7 +7,10 @@
   · <a href="{{ url_for('nachrichten_seite') }}">Kundennachrichten</a>
   · <a href="{{ url_for('coaches_seite') }}">Coaches</a></p>
 
-<form class="reglerbank" method="get">
+{# Das Ziel steht ausdrücklich da. Ohne `action` schickt ein GET-Formular an den aktuellen
+   Pfad – und der ist nach einer Rückfrage beim Anlegen `/kunden/anlegen`, eine Route, die
+   nur POST kennt: ein Klick auf „Coach" beantwortete die Rückfrage mit einem 405. #}
+<form class="reglerbank" method="get" action="{{ url_for('kunden') }}">
   <div class="reglerreihe">
     <label style="flex:1;min-width:200px">Suche
       <input type="text" name="q" value="{{ suche or '' }}" placeholder="Name, Ort, Kundennummer"></label>
@@ -19,7 +22,9 @@
         <option value="" {{ 'selected' if not nur }}>alle</option>
         <option value="laufend" {{ 'selected' if nur=='laufend' }}>nur laufende Maßnahmen</option>
         <option value="ohne_cv" {{ 'selected' if nur=='ohne_cv' }}>ohne Lebenslauf</option>
-        <option value="ohne_profil" {{ 'selected' if nur=='ohne_profil' }}>ohne Suchprofil</option></select></label>
+        <option value="ohne_profil" {{ 'selected' if nur=='ohne_profil' }}>ohne Suchprofil</option>
+        {# Die Arbeitsliste fürs Andocken: hier erfasst, vom CRM noch nicht bestätigt. #}
+        <option value="vorlaeufig" {{ 'selected' if nur=='vorlaeufig' }}>nur vorläufig erfasste</option></select></label>
   </div>
   <div class="reglerreihe reglerfuss">
     <button type="submit" class="btn btn-primary">filtern</button>
@@ -28,6 +33,75 @@
   </div>
 </form>
 
+{# ------------------------------------------------------- Einen Menschen erfassen
+
+   Angelegt wird ein Kunde im CRM – dort hängt die Akte mit Terminen, UE, Gutschein
+   und Abrechnung. Solange `CRM_BASIS` nicht in der .env steht, kommt von dort aber
+   nichts zurück, und für jemanden, den das OS nicht kennt, kann die Taskforce nicht
+   suchen. Darum hier: Name, Telefon, Ort, Status – wer jemand ist, nicht seine Akte.
+
+   Eingeklappt, solange niemand danach fragt: die Liste ist die Hauptsache, das
+   Anlegen der Ausnahmefall. Offen steht es für den, der über den Schnellzugriff der
+   Taskforce kommt (`?neu=1`) – und für jede Rückfrage, damit die Antwort dort steht,
+   wo die Frage gestellt wurde. #}
+<details id="neu" class="karte" style="margin:0 0 16px"
+         {{ 'open' if request.args.get('neu') or fehler or aehnlich }}>
+  <summary><strong>Kunde anlegen</strong>
+    <span class="marke">Name, Telefon, Ort – Termine, UE und Abrechnung bleiben im CRM</span></summary>
+
+  {% if fehler %}
+  <p class="fehler" style="margin:12px 0 0">{{ fehler }}
+    {% if verweis %}<a href="{{ url_for('kunde_detail', kid=verweis.id) }}">{{ verweis.name }} öffnen →</a>{% endif %}</p>
+  {% endif %}
+
+  {# Rückfragen, nicht sperren. Wer hier gehindert wird, tippt den Namen beim zweiten
+     Versuch absichtlich falsch – und dann steht der Mensch doppelt da, ohne dass es
+     je auffällt. Darum stehen die Fundstellen mit Weg dorthin, und „trotzdem anlegen"
+     bleibt erreichbar. #}
+  {% if aehnlich %}
+  <div class="warnung" style="margin:12px 0 0">
+    <strong>{{ aehnlich|length }} ähnliche Namen stehen schon im Bestand:</strong>
+    {% for a in aehnlich %}<a href="{{ url_for('kunde_detail', kid=a.id) }}">{{ a.name }}</a>{{ ' · ' if not loop.last }}{% endfor %}
+    <div class="marke" style="margin-top:6px">Verglichen wird ohne Umlaute, Akzente und
+      Reihenfolge – dieselbe Rechnung wie in der Kopfsuche. Ist keiner davon gemeint,
+      steht der Weg weiter unten offen.</div>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('kunde_anlegen') }}">
+    <div class="reglerreihe">
+      <label style="flex:2;min-width:220px">Name <span class="marke">(Pflicht)</span>
+        <input type="text" name="name" value="{{ eingabe.name or '' }}" required></label>
+      <label style="flex:1;min-width:150px">Telefon
+        <input type="text" name="telefon" value="{{ eingabe.telefon or '' }}"></label>
+      <label style="flex:1;min-width:150px">Ort
+        <input type="text" name="stadt" value="{{ eingabe.stadt or '' }}"></label>
+      {# Zur Wahl stehen nur Status, die ohne Akte wahr sein können (`ANLAGE_STATUS` in
+         app.py): K „Lead ohne Antrag" und L „pausiert / abgesprungen". Ein Gutschein-
+         oder Maßnahmenstatus entsteht im CRM und kommt von dort zurück – hier gewählt
+         wäre er eine Behauptung, die keine Akte deckt, und er zählte ab dem nächsten
+         Seitenaufruf im Leerlaufband, in der Sammelanlage und in der Kapazitätsrechnung
+         der Coaches mit. Vorgabe bleibt K. #}
+      <label>Status
+        <select name="status_code">
+          {% for code, text in status_liste %}
+          <option value="{{ code }}" {{ 'selected' if (eingabe.status_code or 'K') == code }}>{{ code }} – {{ text }}</option>
+          {% endfor %}</select></label>
+    </div>
+    <div class="reglerreihe">
+      <label style="flex:1;min-width:150px">Sprache
+        <input type="text" name="sprache" value="{{ eingabe.sprache or '' }}"></label>
+      <label style="flex:1;min-width:150px">Kundennummer
+        <input type="text" name="kundennummer" value="{{ eingabe.kundennummer or '' }}"
+               placeholder="IMP-2026-0018"></label>
+      <button type="submit" class="btn btn-primary">anlegen</button>
+      {% if aehnlich %}
+      <button type="submit" name="bestaetigt" value="1" class="btn">trotzdem anlegen</button>
+      {% endif %}
+    </div>
+  </form>
+</details>
+
 <div class="tabellenkasten">
 <table>
   <tr><th>Kunde</th><th>Status</th><th>Coach</th><th>Ort</th><th>Maßnahme</th>
@@ -35,6 +109,8 @@
   {% for z in zeilen %}
   <tr>
     <td><a href="{{ url_for('kunde_detail', kid=z.id) }}"><strong>{{ z.name }}</strong></a>
+        {% if z.quelle_stand == anlage_quelle %}<span class="plakette p-gelb"
+          title="hier erfasst – das CRM hat den Datensatz noch nicht bestätigt">vorläufig</span>{% endif %}
         {% if z.telefon %}<div class="marke">{{ z.telefon }}</div>{% endif %}</td>
     <td><span class="plakette p-{{ z.ampel }}">{{ z.status_code or '—' }}</span>
         <div class="marke">{{ z.status_text }}</div></td>

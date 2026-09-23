@@ -72,7 +72,11 @@ def _kunde_zu_name(tokens, kunden):
 
     **Alle Namen in dieser Funktion sind erfunden.** Die Fälle sind echt – sie stammen
     aus fünf falsch zugeordneten Lebensläufen –, die Namen standen hier aber im
-    Klartext, und die Datei ist versioniert."""
+    Klartext, und die Datei ist versioniert. Beide Zweige haben sie unabhängig
+    voneinander ersetzt; hier steht der Satz aus `main`, weil dieselben erfundenen
+    Namen auch in `lebenslauf_bauen.py` und `cv_serie.py` stehen. Dass keiner wieder
+    hereinrutscht, hält der Selbsttest „Kein vollständiger Kundenname steht im
+    Produktcode" fest."""
     if not tokens:
         return None
     treffer = []

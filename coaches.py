@@ -65,10 +65,13 @@ def uebersicht():
         "   AND (p.cv_text IS NULL OR p.cv_text = '')"
         " GROUP BY m.name", st)
 
+    # Ohne JEDES Profil, auch ohne pausiertes – die eine Zählweise des Hauses (siehe
+    # `sammelanlage.vorschlaege`). Die Spalte heisst „ohne Profil"; wer eins hat und es
+    # abgeschaltet hat, gehört nicht hierher, sondern auf den Arbeitsplatz seiner Art.
     ohne_profil = _je_coach(
         "SELECT m.name AS coach, COUNT(*) AS n FROM kunde k"
         "  LEFT JOIN mitarbeiter m ON m.id = k.coach_id"
-        "  LEFT JOIN tf_profil t ON t.kunde_id = k.id AND t.aktiv = 1"
+        "  LEFT JOIN tf_profil t ON t.kunde_id = k.id"
         " WHERE k.standort = ? AND k.status_code IN ('H','I') AND t.id IS NULL"
         " GROUP BY m.name", st)
 
@@ -151,8 +154,13 @@ def kunden(coach_id):
     return db.hole(
         "SELECT k.id, k.name, k.status_code, k.stadt, k.massnahme, k.naechster_schritt,"
         "       (SELECT COUNT(*) FROM lebenslauf l WHERE l.kunde_id = k.id) AS cvs,"
+        # Jedes Profil, auch ein pausiertes – dieselbe Zählart wie `ohne_profil()`
+        # darüber. Hier stand `aktiv=1`, und damit fiel ein Mensch mit genau einem
+        # pausierten Profil zwischen beide Stühle: die Coachseite zeigte „keins",
+        # während ihn die Kundenliste und die Sammelanlage nicht mehr als „ohne
+        # Profil" führten. Ein Klick auf „pausieren" genügte dafür.
         "       (SELECT COUNT(*) FROM tf_profil t"
-        "         WHERE t.kunde_id = k.id AND t.aktiv = 1) AS profile,"
+        "         WHERE t.kunde_id = k.id) AS profile,"
         "       (SELECT COUNT(*) FROM tf_angebot a JOIN tf_profil t ON t.id = a.profil_id"
         "         WHERE t.kunde_id = k.id AND a.status = 'beworben') AS beworben,"
         "       (SELECT p.cv_text FROM kunde_profil p WHERE p.kunde_id = k.id) AS cv_text"

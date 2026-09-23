@@ -18,6 +18,22 @@ import pruefkopie                # noqa: E402
 kopie = pruefkopie.anlegen("improfy_os_cv_test.db")
 os.environ["IMPROFY_OS_DB"] = kopie
 
+# Auch der Sicherungsordner gehört in den Papierkorb. `betrieb.py` leitet ihn sonst aus
+# seinem eigenen Verzeichnis ab: ein Testlauf, der sichert, legt einen Schnappschuss der
+# TESTdatenbank ins echte `sicherungen/` und wirft bei sieben Ständen je eine echte
+# Nachtsicherung heraus. Gelesen wird die Variable beim Import von `betrieb`.
+os.environ["OS_SICHERUNG_ORDNER"] = pruefkopie.papierkorb("sicherungen")
+
+# Dasselbe für die gebauten Unterlagen. Ohne diese Variable legt jeder Lauf zwei
+# echte Dateien in `ausgabe/lebenslaeufe/` des Live-Repos – belegt am 21.09.2026:
+# gelöscht, Test erneut gelaufen, beide wieder da. Der Dateiname trägt Kundennummer
+# und Datum, ein Testlauf überschreibt also ein am selben Tag echt gebautes Dokument
+# desselben Menschen. Gelesen wird die Variable beim Import von `lebenslauf_bauen`
+# und `cv_pdf`, sie muss darum vorher stehen.
+# Prozessnummer und Aufräumen stecken jetzt in `pruefkopie.papierkorb` – vorher stand
+# beides hier von Hand, an sieben Stellen mit sieben eigenen Pfaden.
+os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
+
 import openpyxl                     # noqa: E402
 from flask import render_template as flask_render   # noqa: E402
 import app as A                     # noqa: E402

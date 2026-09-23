@@ -8,21 +8,31 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap">
-<link rel="stylesheet" href="{{ url_for('static', filename='stil.css') }}?v=20260916">
+<link rel="stylesheet" href="{{ url_for('static', filename='stil.css') }}?v=20260921">
 </head>
 <body>
 {% set s = request.endpoint or '' %}
 {# Die Seitenleiste hatte 14 Reiter. Wer täglich damit arbeitet, braucht sieben davon;
    die anderen sechs sind Einrichtung und Nachweis – einmal eingestellt, selten geöffnet.
    14 gleichwertige Einträge machen die sieben wichtigen unauffindbar. Darum: oben die
-   Arbeit, unten hinter einem Eintrag die Verwaltung. #}
+   Arbeit, unten hinter einem Eintrag die Verwaltung.
+
+   Bei „Kunden" steht `kunde_anlegen` mit in der Liste, weil die Rückfrage beim Anlegen
+   unter dieser Route dieselbe Kundenseite noch einmal zeigt. Fehlte sie, stünde die
+   Leiste ohne Markierung da und der Seitenname fiele auf „Improfy-Ergänzung" zurück –
+   ausgerechnet dort, wo man gerade eine Frage beantworten soll.
+
+   Dieser Absatz stand einmal als eigener {#-Block mitten in der Liste unten. Jinja liest
+   Kommentare aber nicht innerhalb einer Anweisung: die ganze Vorlage war unlesbar, und
+   weil jede Seite von ihr erbt, war das gesamte OS mit einem Schlag nicht erreichbar.
+   Erklärungen zu einer Liste gehören darum davor, nicht hinein. #}
 {% set nav_arbeit = [
   ('uebersicht', ('uebersicht',), 'Übersicht'),
   ('aufgaben_seite', ('aufgaben_seite',), 'Aufgaben'),
   ('taskforce_seite', ('taskforce',), 'Taskforce'),
   ('lebenslauf_uebersicht', ('lebenslauf_uebersicht','lebenslauf_liste','lebenslauf_formular','lebenslauf_erzeugen','lebenslauf_lesen','lebenslauf_pdf','lebenslauf_fotos'), 'Lebenslauf'),
   ('trichter_seite', ('trichter_seite','trichter_kommo'), 'Vertrieb'),
-  ('kunden', ('kunden','kunde_detail','nachrichten_seite','nachrichten_vermerken'), 'Kunden'),
+  ('kunden', ('kunden','kunde_detail','kunde_anlegen','kunde_nummer_nachtragen','nachrichten_seite','nachrichten_vermerken'), 'Kunden'),
   ('coaches_seite', ('coaches_seite','aktivitaet_seite'), 'Coaches'),
 ] %}
 {# Kundennachrichten ist keine eigene Abteilung, sondern etwas, das man an einem Kunden
@@ -77,13 +87,50 @@
   </aside>
   <div class="main">
     <header class="topbar">
+{# Der Seitentitel der ganzen Anwendung.
+
+   Entschieden ist Variante (A): **die Topbar ist der Titel.** Sie klebt
+   (`position:sticky`) und steht auch nach 2.800 px Scrollhöhe noch da, während eine
+   Inhaltsüberschrift nach dem ersten Bildschirm weg ist. Wo es genauer sein muss als
+   der Reitername, sagt die Pfadleiste den Ort – sie steht auf jeder Taskforce-Seite
+   ganz oben (`_pfad.html`).
+
+   **Wie weit das ausgerollt ist, steht hier genau – und nicht größer, als es ist.**
+   Am 21.09.2026 umgebaut sind die fünf Taskforce-Ansichten (`/taskforce`, `/tafel`,
+   `/arbeit`, `/wohnung`, `/suchen`): dort hiess der Seiten-`h1` dasselbe wie diese
+   Leiste oder dasselbe wie das letzte Glied der Pfadleiste, also ist er weg. Von den
+   23 Seiten des Hauses tragen **17 weiterhin beides** (`/`, `/aufgaben`, `/kunden`,
+   `/lebenslauf`, `/trichter`, `/coaches`, `/anbindung`, `/konten`, `/betrieb`,
+   `/nachrichten` …). Das ist kein Bruch – es ist schlicht noch nicht ausgerollt.
+
+   **Nicht gestrichen wird, was einen Menschen benennt.** `taskforce_stand`,
+   `taskforce_kunde` und `taskforce_profil` behalten ihren `h1`: ein Name steht in
+   dieser Leiste nie, dort wäre Streichen kein Aufräumen, sondern Weglassen. Und
+   `sammelanlage` behält ihn, weil sie keinem Reiter zugeordnet ist – diese Leiste
+   sagt dort nur „Improfy-Ergänzung". #}
       <h1 class="page-title">{{ ns.titel }}</h1>
       <div class="topbar-right">
+{# Tippen und den Menschen bekommen. Die Vorschlaege vergleichen ohne Umlaute, Akzente
+           und Reihenfolge – „muester er" findet „Erika Müstermann" (erfundener Name, damit
+           er nie einem echten Kunden in die Quere kommt). Enter ohne Auswahl fuehrt
+           weiter auf die Ergebnisseite, die auch Telefon, Firma und Angebote durchsucht. #}
         <form method="get" action="{{ url_for('suche_seite') }}" class="kopfsuche">
-          <input type="search" name="q" value="{{ request.args.get('q', '') if request.endpoint == 'suche_seite' }}"
-                 placeholder="Suchen … (Name, Telefon, Firma)" aria-label="Gesamtsuche">
+          <div class="ksuche" data-ziel="seite" data-url="{{ url_for('kunde_detail', kid=0) }}"
+               data-api="{{ url_for('api_kunden_suche') }}">
+            <input type="search" name="q" class="ksuche-feld" autocomplete="off"
+                   value="{{ request.args.get('q', '') if request.endpoint == 'suche_seite' }}"
+                   placeholder="Suchen … (Name, Telefon, Firma)" aria-label="Gesamtsuche">
+            <div class="ksuche-liste" hidden></div>
+          </div>
         </form>
         <a class="btn btn-sm" href="{{ url_for('aufgaben_seite') }}">Aufgaben</a>
+{# Menschen finden und Menschen erfassen ist derselbe Reflex und wird von allen
+           sieben Reitern gebraucht – also steht der Weg dorthin da, wo die Suche schon
+           klebt. Die Akte entsteht im CRM: Termine, UE, Gutschein, Abrechnung. Wer nur
+           einen Namen braucht, damit die Taskforce suchen kann, legt ihn unter
+           „Kunden" an – beide Wege stehen nebeneinander und heißen verschieden. #}
+        <a class="btn btn-sm" href="{{ crm_url }}/kunden" target="_blank"
+           rel="noopener">Kunde im CRM anlegen</a>
         <a class="btn btn-sm" href="{{ url_for('logout') }}">abmelden</a>
       </div>
     </header>
@@ -96,5 +143,85 @@
     </main>
   </div>
 </div>
+<script>
+/* Personensuche. Bei 93 Kunden ist eine Auswahlliste mit allen Namen unbedienbar: man muss
+   wissen, wie der Name im Bestand geschrieben steht, um ihn zu finden. Hier tippt man, was
+   man im Kopf hat – der Server vergleicht ohne Umlaute, Akzente und Reihenfolge.
+   Mit Maus und mit Tastatur bedienbar (Pfeile, Enter, Esc), weil die Taskforce schnell arbeitet. */
+document.querySelectorAll('.ksuche').forEach(function (wurzel) {
+  var feld      = wurzel.querySelector('.ksuche-feld');
+  var liste     = wurzel.querySelector('.ksuche-liste');
+  var versteckt = wurzel.querySelector('input[type=hidden]');
+  var treffer = [], zeiger = -1, lauf = 0;
+
+  function sicher(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function zeichnen() {
+    if (!treffer.length) { liste.hidden = true; liste.innerHTML = ''; return; }
+    liste.innerHTML = treffer.map(function (k, i) {
+      var rechts = (k.profile ? k.profile + ' Profile' : 'kein Profil')
+                 + (k.neu ? ' · <b>' + k.neu + ' neu</b>' : '');
+      var neben = [k.coach, k.status_text].filter(Boolean).map(sicher).join(' · ');
+      return '<div class="ksuche-zeile' + (i === zeiger ? ' an' : '') + '" data-i="' + i + '">'
+           + '<span class="ksuche-name">' + sicher(k.name) + '</span>'
+           + '<span class="ksuche-neben">' + rechts + '</span>'
+           + (neben ? '<span class="ksuche-neben">' + neben + '</span>' : '')
+           + '</div>';
+    }).join('');
+    liste.hidden = false;
+  }
+
+  function waehlen(k) {
+    if (!k) return;
+    if (wurzel.dataset.ziel === 'seite') {
+      /* Steht ein Platzhalter {id} in der Adresse, wird er ersetzt – sonst gilt weiter
+         die alte Regel „letzte Null". Gebraucht wird das, seit ein Ziel nicht mehr auf
+         die Kundennummer endet: „/taskforce/kunde/0/stand" endet auf „stand". */
+      var ziel = wurzel.dataset.url;
+      window.location.href = ziel.indexOf('{id}') >= 0 ? ziel.replace('{id}', k.id)
+                                                       : ziel.replace(/0$/, k.id);
+      return;
+    }
+    versteckt.value = k.id;
+    feld.value = k.name;
+    liste.hidden = true;
+    if (!feld.dataset.nichtAbschicken) wurzel.closest('form').submit();
+  }
+
+  feld.addEventListener('input', function () {
+    var q = feld.value.trim(), meiner = ++lauf;
+    if (versteckt && !q) versteckt.value = '';   /* Feld leeren heißt: Filter weg */
+    if (q.length < 2) { treffer = []; zeiger = -1; zeichnen(); return; }
+    fetch(wurzel.dataset.api + '?q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (meiner !== lauf) return;   /* eine ältere Antwort darf die neuere nicht überschreiben */
+        treffer = d.kunden || []; zeiger = treffer.length ? 0 : -1; zeichnen();
+      })
+      .catch(function () { treffer = []; zeichnen(); });
+  });
+
+  feld.addEventListener('keydown', function (e) {
+    if (liste.hidden) return;
+    if (e.key === 'ArrowDown') { zeiger = Math.min(zeiger + 1, treffer.length - 1); zeichnen(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { zeiger = Math.max(zeiger - 1, 0); zeichnen(); e.preventDefault(); }
+    else if (e.key === 'Enter' && zeiger >= 0) { waehlen(treffer[zeiger]); e.preventDefault(); }
+    else if (e.key === 'Escape') { liste.hidden = true; }
+  });
+
+  liste.addEventListener('mousedown', function (e) {
+    var zeile = e.target.closest('.ksuche-zeile');
+    if (zeile) { e.preventDefault(); waehlen(treffer[+zeile.dataset.i]); }
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!wurzel.contains(e.target)) liste.hidden = true;
+  });
+});
+</script>
 </body>
 </html>

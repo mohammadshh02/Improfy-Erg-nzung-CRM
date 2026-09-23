@@ -6,7 +6,15 @@
 <p class="unterzeile">
   <span class="plakette p-{{ kunde.ampel }}">{{ kunde.status_code or '—' }}</span>
   {{ kunde.status_text }}{% if kunde.coach %} · Coach {{ kunde.coach }}{% endif %}
+  {# Hier erfasst, nicht aus dem CRM gelesen. Die Plakette bleibt stehen, bis das CRM den
+     Satz bestätigt – und das tut es nur über die Kundennummer oder den exakt gleich
+     geschriebenen Namen. Der Weg dorthin steht unten bei den Stammdaten. #}
+  {% if kunde.quelle_stand == anlage_quelle %}<span class="plakette p-gelb"
+    title="hier erfasst – das CRM hat den Datensatz noch nicht bestätigt">vorläufig</span>{% endif %}
 </p>
+
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+{% if fehler %}<p class="fehler">{{ fehler }}</p>{% endif %}
 
 <div class="hinweis">
   <strong>Dieser Datensatz ist ein Spiegel.</strong> Termine, Unterrichtseinheiten, Dokumente,
@@ -25,7 +33,20 @@
           ersatzweise am Standort</span>{% endif %}</dd>
       <dt>Sprache</dt><dd>{{ kunde.sprache or '—' }}</dd>
       <dt>Jobcenter</dt><dd>{{ kunde.jobcenter or kunde.ort_jc or '—' }}</dd>
-      <dt>Kundennummer</dt><dd>{{ kunde.kundennummer or '—' }}</dd>
+      {# Fehlt die Nummer, findet das CRM diesen Satz beim Einlesen nur über den exakt
+         gleich geschriebenen Namen – bei Namen aus vier Quellen ist das die Ausnahme.
+         Wer beide Sätze vor sich hat, trägt die Nummer hier nach; ab dann greift der
+         sichere Weg, und die Herkunft springt beim nächsten Einlesen auf „CRM". Eine
+         vorhandene Nummer bleibt stehen, darum steht das Feld nur bei einer leeren. #}
+      <dt>Kundennummer</dt><dd>{{ kunde.kundennummer or '—' }}
+        {% if not kunde.kundennummer %}
+        <form method="post" action="{{ url_for('kunde_nummer_nachtragen', kid=kunde.id) }}"
+              style="display:flex;gap:6px;align-items:center;margin:6px 0 0">
+          <input type="text" name="kundennummer" placeholder="IMP-2026-0018" style="min-width:150px">
+          <button type="submit" class="btn btn-sm">nachtragen</button>
+        </form>
+        <span class="marke">aus dem CRM übernehmen – damit findet das CRM diesen Menschen wieder</span>
+        {% endif %}</dd>
       <dt>Maßnahme</dt><dd>{{ kunde.massnahme or '—' }}</dd>
       <dt>Gutschein</dt><dd>{{ kunde.gutschein_status or '—' }}{% if kunde.gutschein_nr %} · {{ kunde.gutschein_nr }}{% endif %}</dd>
       <dt>Antrag</dt><dd>{{ kunde.antrag_datum|datum if kunde.antrag_datum else '—' }}

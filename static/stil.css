@@ -63,6 +63,25 @@ a:hover{text-decoration:underline}
 .page-title{font-size:19px;font-stretch:112%}
 .topbar-right{display:flex;align-items:center;gap:10px}
 .content{padding:24px 28px 48px;max-width:1240px;width:100%}
+/* Sprungziele landen nicht mehr unter der klebenden Leiste.
+
+   Die Topbar ist `position:sticky`, undurchsichtig und rund 69 px hoch. In der ganzen
+   Stilvorlage stand bis zum 21.09.2026 kein einziges `scroll-margin-top` – der
+   einzige Sprunglink des Hauses, `/kunden?neu=1#neu`, scrollte das Anlegeformular
+   deshalb exakt hinter die Leiste. 72 px = 69 px Leiste + 3 px Luft.
+
+   **Was hier ausdrücklich NICHT steht.** Der Verdacht, die Leiste fange auch
+   gewöhnliche Klicks ab, ist am 21.09.2026 im Browser widerlegt worden: auf dem
+   Umschalter (237/138) und auf „jetzt suchen" (y=495) liefert
+   `document.elementFromPoint` das Element selbst, Unterkante der Leiste bei 69.
+   Wer diesen Wert künftig anfasst, repariert Sprungziele – keine Klicks.
+
+   `scroll-padding-top` am Wurzelelement gilt für jedes Sprungziel der Seite,
+   `scroll-margin-top` an `.content` für den Fall, dass der Inhaltsblock selbst
+   ins Bild geholt wird. Wer künftig etwas Klebendes dazustellt, muss das hier
+   nachziehen – die Bedienprobe misst genau das. */
+html{scroll-padding-top:72px}
+.content{scroll-margin-top:72px}
 @media (max-width:900px){
   :root{--sidebar-w:62px}
   .brand{padding:18px 0;text-align:center}
@@ -75,9 +94,22 @@ a:hover{text-decoration:underline}
 @media print{.sidebar,.topbar{display:none!important}.shell{display:block}.content{padding:0;max-width:none}body{background:#fff}}
 
 /* ----------------------------------------------------------- Überschriften */
+/* Das Maßsystem der Seite, fünf Stufen, alle Werte stehen schon hier:
+     1 Seitentitel     24 px          `.content h1`   – höchstens einmal je Seite
+     2 Abschnittstitel 19 px          `.content h2` / `.page-title`
+     3 Kartentitel     14 px / 620    `.card-title`
+     4 Fließtext       14,5 px        `body` (13,5 Nebentext, 12 `.marke`)
+     5 Etikett         10,5 px Mono   `.eyebrow`, `th`, `.karte h3`
+   Regel: führt es einen Abschnitt an, ist es Stufe 2. Benennt es ein Feld oder
+   eine Spalte, ist es Stufe 5. Dazwischen wird nichts erfunden.
+
+   `.content h2` trug bis zum 21.09.2026 Stufe 5: 10,5 px Mono in Versalien, grau
+   und leichter als der Fließtext darunter. Eine Überschrift, die kleiner ist als
+   ihr eigener Text, ordnet die Seite nicht mehr – sie zerfällt in gleich laute
+   Blöcke. `.eyebrow` bleibt unverändert und trägt die alte Gestalt weiter: jede
+   Stelle, die wirklich ein Etikett meinte, sieht aus wie vorher. */
 .content h1{font-size:24px;font-stretch:112%;margin:0 0 4px}
-.content h2{font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);
-  font-weight:500;margin:28px 0 12px}
+.content h2{font-family:var(--font-ui);font-size:19px;font-weight:600;color:var(--heading);margin:28px 0 12px}
 .unterzeile{color:var(--muted);font-size:13.5px;margin:0 0 20px}
 .marke{font-size:12px;color:var(--muted);margin-top:3px}
 .mono{font-family:var(--font-mono);font-size:.93em;letter-spacing:0}
@@ -131,7 +163,23 @@ form.filter{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:
 select,input,textarea{font-family:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1px solid var(--line-strong);
   border-radius:var(--radius-sm);padding:8px 10px}
 select:focus,input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent)}
-input[type=checkbox]{accent-color:var(--accent-ink);width:15px;height:15px;vertical-align:-2px}
+/* Trefferfläche, nicht Optik. Ein Häkchen maß 15 px, ein Radio trug gar keine
+   Regel und kam mit den 13 px des Browsers – gemessen am 21.09.2026 auf dem
+   Umschalter des Schnellzugriffs. Getroffen wird so etwas mit der Maus im zweiten
+   Anlauf und mit dem Finger gar nicht. 18 px ist die Marke, die daneben auch der
+   `.btn-sm` hält.
+
+   **Der Klick gehört dem Etikett.** Ein 18-px-Kästchen bleibt ein kleines Ziel;
+   die Fläche, die wirklich trifft, ist das Wort daneben. Wo ein Kästchen in einem
+   `<label>` steht, zeigt der Zeiger das an – der Umschalter wird damit von 13×13 px
+   zur ganzen Schaltfläche (siehe `.modus-knopf` weiter unten).
+
+   `vertical-align` geht von -2 auf -4 px mit: bei 18 px Höhe und 14,5 px Schrift
+   sitzt das Kästchen sonst zu hoch. `flex:0 0 auto`, weil beide in flexiblen
+   Etiketten stehen und dort sonst zusammengedrückt werden. */
+input[type=checkbox],input[type=radio]{accent-color:var(--accent-ink);width:18px;height:18px;
+  vertical-align:-4px;cursor:pointer;flex:0 0 auto}
+label:has(input[type=checkbox]),label:has(input[type=radio]){cursor:pointer}
 .field{display:flex;flex-direction:column;gap:5px}
 .field label{font-weight:560;font-size:13.5px}
 .field input{width:100%}
@@ -153,7 +201,12 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .knopf.leise:hover,.btn:hover{background:var(--surface-2);border-color:var(--accent);color:var(--ink)}
 .btn-primary,.btn.btn-primary{background:var(--pill-green);border-color:var(--pill-green);color:var(--accent-ink);font-weight:600}
 .btn-primary:hover{background:var(--accent);border-color:var(--accent)}
-.btn-sm{padding:5px 10px;font-size:13px}
+/* Der kleine Knopf ist der häufigste der Oberfläche – er steht in jeder Zeile jeder
+   Arbeitsliste. Mit 5 px Polster war er 30 px hoch; 7 px bringen ihn auf rund 34 px
+   und damit an die Grenze, ab der ein Ziel mit der Maus im ersten Anlauf sitzt.
+   Bewusst nicht 44 px: das sind in einer Liste mit 19 Zeilen 190 px mehr Scroll,
+   und die Zeilen wären dann länger als das, was in ihnen steht. */
+.btn-sm{padding:7px 12px;font-size:13px}
 
 .paare,.kv{display:grid;grid-template-columns:160px 1fr;gap:7px 14px;font-size:13.5px}
 .paare dt,.kv dt{color:var(--muted)}
@@ -200,6 +253,10 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
 /* ------------------------------------------------------- Reglerbank (Taskforce) */
 .reglerbank{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:6px 18px 14px;margin:0 0 16px}
+/* Die zweite Stelle mit Fingerbreite (siehe `.modus-knopf`): der Schnellzugriff
+   und die Suchmasken. Hier faellt die Entscheidung, bevor etwas passiert – nicht
+   in einer Zeile, die man im Vorbeigehen abhakt. */
+.reglerbank .btn,.reglerbank button{min-height:44px}
 .reglerreihe{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-end;
   padding:10px 0;border-bottom:1px solid var(--line)}
 .reglerreihe:last-child{border-bottom:none;padding-bottom:0}
@@ -298,3 +355,145 @@ td.zahl-sp strong,td.zahl-sp{font-variant-numeric:tabular-nums}
 .kundenfotos .fotokarte img { display: block; width: 100%; aspect-ratio: 3 / 4;
                               object-fit: cover; object-position: center top;
                               border-radius: 7px; background: var(--surface-2); }
+
+/* Beide Zweige haben hier angebaut, und die Bloecke gehen einander nichts an:
+   oben der Fotoeingang aus dem Lebenslauf-Werkzeug, unten die Taskforce-Aufspaltung.
+   Kein Selektor kommt zweimal vor, deshalb bleiben beide unveraendert stehen. */
+
+/* ------------------------------------------- Aufspaltung der Taskforce (Arbeit / Wohnung)
+   Die Wahl zwischen Arbeitssuche und Wohnungssuche ist die oberste Entscheidung der Seite,
+   keine Filterzeile. Sie steht deshalb als Blattreihe direkt unter der Ueberschrift. */
+.modus{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+/* 44 px ist die Fingerbreite. Sie gilt hier und im Schnellzugriff, weil das die zwei
+   Stellen sind, an denen eine Entscheidung fällt, bevor irgendetwas passiert – und
+   nicht in den Arbeitslisten, wo 19 Zeilen davon die Seite auseinanderziehen würden. */
+.modus-knopf{display:flex;flex-direction:column;gap:2px;min-width:180px;min-height:44px;padding:10px 18px;
+  border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);
+  text-decoration:none;color:var(--muted);transition:border-color .12s,box-shadow .12s}
+.modus-knopf strong{font-size:15px;color:var(--heading);font-weight:600}
+.modus-knopf span{font-size:12px;letter-spacing:0}
+.modus-knopf b{color:var(--red);font-weight:600}
+.modus-knopf:hover{border-color:var(--line-strong)}
+.modus-knopf.an{border-color:var(--pine);background:var(--accent-soft);box-shadow:var(--shadow)}
+.modus-knopf.an strong{color:var(--pine-2)}
+.artfest{display:inline-flex;align-items:center;height:34px;font-size:13px;font-weight:500;
+  letter-spacing:0;text-transform:none;color:var(--heading)}
+
+/* ---------- Ordnung auf der Taskforce-Seite: Kopf, Personensuche, Abschnitte ------------
+   Die Seite hatte zehn gleichrangige Ueberschriften untereinander. Rang entsteht hier durch
+   drei Mittel: der Kopf traegt Suche und Aufspaltung, Arbeitsabschnitte stehen offen mit
+   Abstand dazwischen, Nachschlagewerk liegt eingeklappt. Keine neuen Farben, keine neuen
+   Schriften - nur Abstand, Linie und Rangfolge. */
+.tf-kopf{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  margin:0 0 14px}
+.tf-kopf h1{margin:0}
+
+/* Abschnitt = eine Arbeit. Der Abstand davor ist groesser als jeder Abstand darin, damit
+   das Auge die Grenze sieht, ohne dass eine Linie noetig ist. */
+.tf-abschnitt{margin:30px 0 0}
+.tf-abschnitt > h2{margin-bottom:6px}
+.tf-abschnitt > h2 .marke{text-transform:none;letter-spacing:0;font-weight:400}
+
+/* Nachschlagewerk: zu, bis jemand es braucht. */
+.tf-nach{margin:10px 0 0;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow)}
+.tf-nach > summary{cursor:pointer;user-select:none;list-style:none;padding:13px 20px;
+  font-weight:600;color:var(--heading);display:flex;align-items:baseline;gap:8px}
+.tf-nach > summary::-webkit-details-marker{display:none}
+.tf-nach > summary:before{content:"A";display:inline-block;transition:transform .15s;
+  opacity:.5;font-size:17px;line-height:1}
+.tf-nach[open] > summary:before{transform:rotate(90deg)}
+.tf-nach > summary .marke{font-weight:400;text-transform:none;letter-spacing:0}
+.tf-nach-inhalt{padding:0 20px 18px}
+.tf-nach-inhalt .tabellenkasten{box-shadow:none}
+.tf-nach + .tf-abschnitt{margin-top:30px}
+
+/* Feinere Regler in der Reglerbank. */
+.tf-mehr > summary{cursor:pointer;user-select:none;list-style:none;padding:10px 0 2px;
+  font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tf-mehr > summary::-webkit-details-marker{display:none}
+.tf-mehr > summary:before{content:"A";display:inline-block;margin-right:6px;
+  transition:transform .15s;opacity:.6}
+.tf-mehr[open] > summary:before{transform:rotate(90deg)}
+.tf-mehr > summary .plakette{text-transform:none;letter-spacing:0}
+.reglertitel{align-self:center;font-size:11px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted);min-width:78px}
+
+/* ---------- Personensuche (tippen statt scrollen) */
+.ksuche{position:relative;min-width:320px}
+.ksuche-klein{min-width:0;width:100%}
+.ksuche .ksuche-feld{width:100%;margin:0}
+.ksuche-liste{position:absolute;z-index:40;left:0;right:0;top:calc(100% + 4px);
+  background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-pop);max-height:340px;overflow:auto;padding:4px}
+.ksuche-zeile{display:grid;grid-template-columns:1fr auto;gap:0 12px;padding:8px 12px;
+  border-radius:var(--radius-sm);cursor:pointer;line-height:1.35}
+.ksuche-zeile.an,.ksuche-zeile:hover{background:var(--accent-soft)}
+.ksuche-name{font-weight:560;color:var(--heading)}
+.ksuche-neben{font-size:12px;color:var(--muted);text-align:right}
+.ksuche-zeile .ksuche-neben:last-child{grid-column:1 / -1;text-align:left}
+.ksuche-neben b{color:var(--red);font-weight:600}
+/* Die Vorschlagsliste der Kopfsuche darf breiter sein als das Feld – die Namen stehen
+   sonst umgebrochen da. Sie haengt rechtsbuendig, damit sie nicht aus dem Fenster laeuft. */
+.kopfsuche .ksuche{min-width:0}
+.kopfsuche .ksuche-liste{left:auto;right:0;min-width:340px}
+/* Der Sprung in die Direktsuche steht neben den Modi, gehoert aber nicht zu ihnen:
+   er waehlt nichts aus, er fuehrt woandershin. Darum gestrichelt statt gefuellt. */
+.modus-suchen{border-style:dashed;margin-left:auto}
+.modus-suchen strong{color:var(--pine)}
+
+/* ---------- Pfadleiste. Wer aus der Personensuche oder aus dem CRM mitten in eine Seite
+   springt, sieht sonst eine Ueberschrift ohne Zusammenhang. Eine Zeile sagt, wo er ist
+   und wie er eine Ebene hoeher kommt. */
+.pfad{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px;
+  font-size:12px;letter-spacing:.02em;color:var(--muted)}
+.pfad a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent}
+.pfad a:hover{color:var(--heading);border-bottom-color:var(--line-strong)}
+.pfad span[aria-current]{color:var(--heading);font-weight:560}
+.pfad-pfeil{opacity:.45}
+/* Der Weg zurueck, vor dem ersten Glied. Groesser als die Schrift der Leiste, weil ein
+   Pfeil in 12px kaum zu treffen ist; ohne Unterstrich, damit er nicht wie ein weiteres
+   Pfadglied aussieht. Die zwei Klassen im Selektor sind noetig, sonst zieht `.pfad a`
+   seinen Unterstrich darueber. */
+.pfad .pfad-zurueck{display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;margin-right:2px;font-size:15px;line-height:1;
+  color:var(--muted);text-decoration:none;border-bottom:none;border-radius:var(--radius-sm)}
+.pfad .pfad-zurueck:hover{color:var(--heading);border-bottom:none}
+
+
+/* ---------- Leerlaufband. Fuenf Stufen vom Menschen bis zur Antwort, nebeneinander.
+   Die Tafel zeigt 754 gefundene Angebote; erst diese Reihe zeigt, dass davon nichts
+   ankommt. Rot ist die Stelle, an der es stehenbleibt – sie ist der Knopf. */
+.kette{display:flex;flex-wrap:nowrap;align-items:stretch;gap:8px;margin:0 0 12px}
+.kette-stufe{flex:1 1 0;min-width:0;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius-sm);padding:10px 14px}
+.kette-stufe.bruch{border-color:var(--red);background:var(--red-soft)}
+.kette-zahl{font-family:var(--font-mono);font-size:24px;font-weight:600;line-height:1.15;color:var(--heading)}
+.kette-name{font-size:13px;font-weight:560;color:var(--ink)}
+/* Plakette und Name nebeneinander statt untereinander: das spart je Stufe eine Zeile,
+   und ein Trichter, der auf zwei Reihen umbricht, ist kein Trichter mehr. */
+.kette-zeile{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px}
+.kette-stufe .marke{margin-top:5px}
+.kette-pfeil{align-self:center;color:var(--muted);opacity:.45}
+/* Auf schmalen Schirmen darf es doch umbrechen – fuenf Stufen nebeneinander werden
+   unter 760px zu schmal fuer die Beschriftung. */
+@media (max-width:760px){
+  .kette{flex-wrap:wrap}
+  .kette-stufe{flex:1 1 140px;min-width:140px}
+}
+
+/* ---------- Ein Handgriff je Mensch: Name, Coach, was fehlt, ein Knopf. Eine Zeile,
+   weil eine Aufgabe, die man erst aufklappen muss, niemand erledigt. */
+.handgriff{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:9px 16px;
+  border-bottom:1px solid var(--line)}
+.handgriff:last-child{border-bottom:none}
+.handgriff-name{min-width:170px;font-weight:560;color:var(--heading)}
+.handgriff-fehlt{flex:1;min-width:200px;font-size:13px;color:var(--ink)}
+.handgriff .marke{margin-top:0}
+/* Die Plaketten einer Zeile bleiben beieinander, auch wenn sie umbrechen. */
+.handgriff-marken{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+/* Kopfzeile der Liste: links was fehlt und der Knopf dagegen, rechts das Suchfeld.
+   Steht ueber der ersten Zeile und gehoert zur selben Karte – der Satz zum fehlenden
+   Suchprofil steht damit einmal oben statt in jeder zweiten Zeile. */
+.listenkopf{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line)}

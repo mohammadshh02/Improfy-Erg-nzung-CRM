@@ -22,19 +22,32 @@ sys.path.insert(0, HIER)
 import pruefkopie                # noqa: E402
 # Warum die Arbeitskopie über `sqlite3.backup` läuft und nicht über `shutil.copy`,
 # steht im Kopf von `pruefkopie.py`. Am Echtbestand ändert der Lauf nichts.
+# Prozessnummer und Aufräumen stecken ebenfalls dort – beides stand bis zur
+# Zusammenführung an jeder der sieben Stellen von Hand.
 kopie = pruefkopie.anlegen("improfy_os_gesamt_test.db")
 os.environ["IMPROFY_OS_DB"] = kopie
+
 # **Der Sicherungsordner gehört ebenfalls dem Lauf.** Abschnitt 7 drückt auf
 # `/betrieb/sichern`; `betrieb.SICHERUNGEN` zeigte dabei auf den echten Ordner des
 # Repos, und `betrieb.aufraeumen` warf dort den ältesten Stand weg. Die Prüfkette hat
 # sich so ihre eigene Historie überschrieben – am 22.09.2026 lagen sieben Stände aus
-# 86 Minuten im Ordner, alle aus Testläufen. Der Wert muss **vor** `import app` stehen,
-# `betrieb` bindet ihn beim Import.
+# 86 Minuten im Ordner, alle aus Testläufen. Wer daraus zurücksichert, holt sich
+# Testkonten in den Echtbestand, und schon das erste Konto schaltet die persönliche
+# Anmeldung scharf. Der Wert muss **vor** `import app` stehen, `betrieb` bindet ihn
+# beim Import.
 # Gesetzt wird **unbedingt**, nicht mit `setdefault`: Ein geerbter Wert aus der Umgebung
 # (eine `.env`, ein Startskript, ein Elternprozess) zeigt im Zweifel genau auf den
 # Ordner, den dieser Lauf nicht anfassen darf. Wer den Ordner steuern will, ruft den
 # Test aus einem eigenen Arbeitsbaum auf.
-os.environ["OS_SICHERUNG_ORDNER"] = os.path.join(os.path.dirname(kopie), "sicherungen")
+os.environ["OS_SICHERUNG_ORDNER"] = pruefkopie.papierkorb("sicherungen")
+
+# Dasselbe für die gebauten Unterlagen. Ohne diese Variable legt jeder Lauf zwei
+# echte Dateien in `ausgabe/lebenslaeufe/` des Live-Repos – belegt am 21.09.2026:
+# gelöscht, Test erneut gelaufen, beide wieder da. Der Dateiname trägt Kundennummer
+# und Datum, ein Testlauf überschreibt also ein am selben Tag echt gebautes Dokument
+# desselben Menschen. Gelesen wird die Variable beim Import von `lebenslauf_bauen`
+# und `cv_pdf`, sie muss darum vorher stehen.
+os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
 
 import app as A                     # noqa: E402
 import datenbank as db              # noqa: E402
@@ -159,13 +172,19 @@ def main():
     for _p in ("/", "/kunden", "/coaches", "/lebenslauf", "/taskforce", "/trichter",
                "/aufgaben"):
         _wege |= set(re.findall('href="(/[^"?#]*)', c.get(_p).get_data(as_text=True)))
+    # /taskforce/tafel hat keinen Reiter: /taskforce zeigt jetzt den Einstieg. Die volle
+    # Tafel muss von dort aus verlinkt bleiben, sonst ist sie praktisch geloescht.
+    # Dasselbe gilt seit dem 21.09.2026 fuer die beiden Arbeitsplaetze /taskforce/arbeit
+    # und /taskforce/wohnung: sie bekommen keinen achten Reiter, also muss der
+    # Schnellzugriff des Einstiegs sie tragen.
     for _ziel in ("/nachrichten", "/aktivitaet", "/protokoll", "/konten", "/betrieb",
-                  "/anbindung", "/aussen", "/lebenslauf/liste"):
+                  "/anbindung", "/aussen", "/lebenslauf/liste", "/taskforce/tafel",
+                  "/taskforce/arbeit", "/taskforce/wohnung"):
         pruefe(f"{_ziel} ist ohne eigenen Reiter erreichbar", _ziel in _wege)
 
     print("\n4. Kein Platzhalter blieb stehen")
-    proben = ["/", "/kunden", "/taskforce", "/lebenslauf", "/trichter", "/aufgaben",
-              "/aktivitaet", "/betrieb"]
+    proben = ["/", "/kunden", "/taskforce", "/taskforce/tafel", "/taskforce/arbeit",
+              "/lebenslauf", "/trichter", "/aufgaben", "/aktivitaet", "/betrieb"]
     for pfad in proben:
         t = c.get(pfad).get_data(as_text=True)
         pruefe(f"{pfad} ohne offene Jinja-Stelle",
@@ -315,6 +334,13 @@ def main():
     print("\n7. Betrieb: Sicherung und Zeitsteuerung")
     import betrieb
     betrieb.init()
+    # Vor der ersten Sicherung festhalten, was im echten Ordner liegt. Ein Testlauf darf
+    # dort weder etwas hinlegen noch etwas herausdraengen: `betrieb.aufraeumen()` behaelt
+    # sieben Staende, jeder Test-Schnappschuss kostet also eine echte Nachtsicherung. Wer
+    # aus so einem Stand zurueckholt, hat die Testkonten im Echtbestand - und schon das
+    # erste Konto schaltet die persoenliche Anmeldung scharf.
+    _echter_ordner = os.path.join(HIER, "sicherungen")
+    _vorher = sorted(os.listdir(_echter_ordner)) if os.path.isdir(_echter_ordner) else []
     pruefe("Sicherung von Hand legt einen Stand an",
            c.post("/betrieb/sichern").status_code == 302 and len(betrieb.staende()) >= 1,
            [s["name"] for s in betrieb.staende()][:2])
@@ -325,6 +351,15 @@ def main():
     pruefe("Der Selbsttest sichert nicht in den Ordner des Repos",
            os.path.abspath(betrieb.SICHERUNGEN)
            != os.path.abspath(os.path.join(HIER, "sicherungen")), betrieb.SICHERUNGEN)
+    # Beide Zweige hatten dieselbe Sorge und haben sie verschieden gemessen; beide Reihen
+    # bleiben stehen. Die obere fragt, **wohin** gesichert wird, die untere zaehlt den
+    # echten Ordner vorher und nachher ab. Ein umgebogener Pfad, der trotzdem in den
+    # echten Ordner schreibt (Verknuepfung, relativer Rest), faellt nur der unteren auf.
+    _nachher = sorted(os.listdir(_echter_ordner)) if os.path.isdir(_echter_ordner) else []
+    pruefe("Der Testlauf sichert in den Papierkorb, nicht in den echten Ordner",
+           os.path.abspath(betrieb.SICHERUNGEN) != os.path.abspath(_echter_ordner)
+           and _vorher == _nachher and len(betrieb.staende()) >= 1,
+           f"{betrieb.SICHERUNGEN} · echter Ordner unveraendert: {_vorher == _nachher}")
     _seite_betrieb = c.get("/betrieb").get_data(as_text=True)
     pruefe("Betriebsseite zeigt Uhrzeiten und Staende",
            all(x in _seite_betrieb
@@ -698,6 +733,158 @@ def main():
         _p = os.path.join(pruefkopie.SAMMELORDNER, _n)
         if os.path.isdir(_p):
             os.rmdir(_p)
+
+    # Beide Zweige hatten einen eigenen Abschnitt 10. Beide bleiben; der aus `taskforce`
+    # ist hier zur 11 geworden, damit die Nummern in der Ausgabe wieder eindeutig sind.
+    print("\n11. Einen Menschen erfassen, ohne das CRM nachzubauen")
+    # Angelegt wird ein Kunde eigentlich im CRM. Solange `CRM_BASIS` nicht in der .env
+    # steht, kommt von dort aber nichts zurueck – und fuer jemanden, den das OS nicht
+    # kennt, sucht die Taskforce nicht. Also geht es auch hier.
+    #
+    # Geprueft wird vor allem, was NICHT passieren darf: stilles Verdoppeln, stilles
+    # Zusammenfuehren, eine zweite Wahrheit unter derselben Kundennummer. Und die Grenze:
+    # erfasst wird, WER jemand ist – kein UE-Feld, kein Gutschein, kein Termin.
+    #
+    # Die Namen sind mit Absicht keine, die es geben kann. Ein echter Name im Testcode
+    # kollidiert eines Tages mit einem echten Kunden und steht dann unbemerkt zweimal da.
+    NAME = "Quintus Testbergmann"
+    NAME_B = "Radulf Prüfstein"
+    NAME_C = "Wendelin Ochsenfurt"
+    NUMMER = "IMP-TEST-0001"
+    testnamen = (NAME, NAME_B, NAME_C)
+
+    def anzahl():
+        return db.wert("SELECT COUNT(*) FROM kunde WHERE standort=?",
+                       (db.STANDORT_STANDARD,))
+
+    try:
+        vorher = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": "   "})
+        pruefe("Ohne Namen wird nichts angelegt",
+               r.status_code == 200 and anzahl() == vorher
+               and "Ohne Namen wird nichts angelegt" in r.get_data(as_text=True),
+               f"{vorher} Kunden vorher, {anzahl()} nachher")
+
+        r = c.post("/kunden/anlegen",
+                   data={"name": NAME, "telefon": "0221 000000", "stadt": "Köln"})
+        kid = db.wert("SELECT id FROM kunde WHERE name=?", (NAME,))
+        pruefe("Ein unbekannter Name wird ohne Rückfrage angelegt",
+               r.status_code == 302 and bool(kid) and anzahl() == vorher + 1
+               and r.headers.get("Location", "").endswith(f"/kunde/{kid}"),
+               r.headers.get("Location", ""))
+
+        # Herkunft und Status: „K – Lead ohne Antrag" ist der einzige Code, der heisst
+        # „ist da, noch nichts passiert". Leere Felder bleiben leer – nichts erfunden.
+        satz = db.eine("SELECT * FROM kunde WHERE id=?", (kid,)) or {}
+        pruefe("Der angelegte Kunde trägt seine Herkunft und den Lead-Status",
+               satz.get("quelle_stand") == A.ANLAGE_QUELLE
+               and satz.get("status_code") == "K" and satz.get("stadt") == "Köln"
+               and satz.get("sprache") is None and satz.get("kundennummer") is None,
+               f"{satz.get('quelle_stand')} / {satz.get('status_code')}")
+        pruefe("Die Plakette „vorläufig“ steht in Liste und Akte",
+               "vorläufig" in c.get("/kunden?q=Testbergmann").get_data(as_text=True)
+               and "vorläufig" in c.get(f"/kunde/{kid}").get_data(as_text=True))
+        pruefe("Das Anlegeformular steht offen, wenn der Schnellzugriff danach fragt",
+               '<details id="neu"' in c.get("/kunden?neu=1").get_data(as_text=True))
+
+        # Die Personensuche ist der Weg, auf dem die Taskforce ihn wiederfindet. Wer
+        # angelegt ist und nicht gefunden wird, ist so gut wie nicht angelegt.
+        gefunden = c.get("/api/kunden-suche?q=testbergmann").get_json() or {}
+        pruefe("Der angelegte Kunde ist über die Personensuche findbar",
+               any(k["id"] == kid for k in gefunden.get("kunden", [])),
+               [k["name"] for k in gefunden.get("kunden", [])][:3])
+
+        # Rueckfragen, nicht sperren: derselbe Name fuehrt zur Rueckfrage, nicht zum
+        # zweiten Datensatz – und „trotzdem anlegen" bleibt erreichbar. Verglichen wird
+        # unscharf (`tf.kunden_suchen`), weil ein exakter Vergleich zwei Namensteile
+        # nicht wiederfindet, wenn im Bestand drei stehen oder die zweite Schreibweise
+        # in Klammern dahinter.
+        zwischen = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": NAME.lower()})
+        text = r.get_data(as_text=True)
+        pruefe("Ein ähnlicher Name führt zur Rückfrage statt zum Datensatz",
+               r.status_code == 200 and anzahl() == zwischen
+               and "ähnliche Namen stehen schon im Bestand" in text
+               and "trotzdem anlegen" in text and NAME in text,
+               f"{zwischen} Kunden, unverändert: {anzahl() == zwischen}")
+        r = c.post("/kunden/anlegen", data={"name": NAME.lower(), "bestaetigt": "1"})
+        pruefe("„trotzdem anlegen“ legt den zweiten Datensatz wirklich an",
+               r.status_code == 302 and anzahl() == zwischen + 1,
+               f"{zwischen} → {anzahl()}")
+
+        # Eine Kundennummer gibt es einmal – dieselbe Regel wie in `api.py`. Hier gilt
+        # kein „trotzdem": zwei Datensaetze unter einer Nummer waeren im QM ein Befund.
+        c.post("/kunden/anlegen", data={"name": NAME_B, "kundennummer": NUMMER})
+        bid = db.wert("SELECT id FROM kunde WHERE kundennummer=?", (NUMMER,))
+        vor_dublette = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": NAME_C, "kundennummer": NUMMER})
+        text = r.get_data(as_text=True)
+        pruefe("Eine schon vergebene Kundennummer wird abgewiesen, mit Weg zum Vorhandenen",
+               r.status_code == 200 and anzahl() == vor_dublette
+               and NUMMER in text and f'/kunde/{bid}' in text
+               and not db.wert("SELECT COUNT(*) FROM kunde WHERE name=?", (NAME_C,)),
+               f"{vor_dublette} Kunden, unverändert: {anzahl() == vor_dublette}")
+
+        # Die Grenze aus docs/wissen/crm-abgleich-was-gehoert-wohin.md: das Formular
+        # erfasst, WER jemand ist. Alles, was das CRM verbindlich fuehrt, bleibt draussen –
+        # sonst gibt es zwei Wahrheiten und jemand muss spaeter entscheiden, welche gilt.
+        # Gemessen an den Feldern, die das Formular abschickt – nicht am Fliesstext.
+        # Am Wortlaut gemessen schlaegt jede Statusbezeichnung an, in der „Gutschein"
+        # vorkommt (G, H, I), und die Pruefung meldet Rot fuer eine Regel, die niemand
+        # gebrochen hat. Ein Test, der aus der eigenen Aufschrift einen Befund macht,
+        # wird abgeschaltet.
+        formular = c.get("/kunden?neu=1").get_data(as_text=True)
+        block = formular.split('<details id="neu"')[1].split("</details>")[0]
+        felder = set(re.findall(r'name="([a-z_]+)"', block))
+        pruefe("Das Formular erfasst nur, WER jemand ist – kein Stück der Akte aus dem CRM",
+               felder <= {"name", "telefon", "stadt", "sprache", "kundennummer",
+                          "status_code", "bestaetigt"},
+               sorted(felder))
+
+        # Die Feldnamen allein sind die halbe Regel. `status_code` steht erlaubt in der
+        # Liste – was er tragen DARF, entscheidet `ANLAGE_STATUS`, und genau das war
+        # bisher ungeprueft. Zwoelf Codes zur Auswahl waeren wieder die Akte: wer hier
+        # „H – Gutschein da, Massnahme laeuft" waehlen koennte, zaehlte ab dem naechsten
+        # Seitenaufruf als laufende Massnahme – ohne Gutschein, ohne Akte, ohne dass das
+        # CRM davon weiss.
+        angeboten = set(re.findall(r'<option value="([A-L])"', block))
+        pruefe("Zur Wahl stehen nur Status, die ohne Akte wahr sein können",
+               angeboten == set(A.ANLAGE_STATUS),
+               f"angeboten {sorted(angeboten)}, erlaubt {sorted(A.ANLAGE_STATUS)}")
+
+        # Und die Auswahlliste einzuengen reicht nicht: ein untergeschobenes Feld geht
+        # an ihr vorbei. Geprueft wird deshalb der Weg, den ein Angreifer nimmt – POST
+        # mit einem Code, den das Formular nie anbietet.
+        c.post("/kunden/anlegen", data={"name": NAME_C, "status_code": "H",
+                                        "bestaetigt": "1"})
+        geschmuggelt = db.eine("SELECT status_code FROM kunde WHERE name=?", (NAME_C,))
+        pruefe("Ein untergeschobener Status fällt auf den Lead-Status zurück",
+               bool(geschmuggelt) and geschmuggelt["status_code"] == "K",
+               (geschmuggelt or {}).get("status_code"))
+
+        # Der UNIQUE-Fall. `kunde` traegt UNIQUE(name, standort); bei exakt gleicher
+        # Schreibweise hilft „trotzdem anlegen" nicht, die Datenbank laesst den zweiten
+        # Satz nicht zu. Ohne Abfangen endete genau das auf einer 500er-Seite: kein
+        # Hinweis, kein Protokolleintrag, alles Eingetippte weg.
+        #
+        # Bisher lief der Test daran vorbei: die Rueckfrage-Pruefung oben nimmt
+        # `NAME.lower()`, und das ist fuer SQLite ein anderer Name. Der Griff, der
+        # wirklich kracht, ist die BUCHSTABENGLEICHE Wiederholung.
+        vor_unique = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": NAME_B, "bestaetigt": "1"})
+        text = r.get_data(as_text=True)
+        pruefe("Derselbe Name buchstabengleich: abgewiesen mit Weg zum Vorhandenen,"
+               " nicht mit 500",
+               r.status_code == 200 and anzahl() == vor_unique
+               and "nicht möglich" in text and f'/kunde/{bid}' in text
+               and NAME_B in text,
+               f"{r.status_code}, {vor_unique} Kunden, unverändert:"
+               f" {anzahl() == vor_unique}")
+    finally:
+        # Der Bestand darf durch einen Testlauf nicht wachsen – auch nicht in der Kopie.
+        with db.offen() as con:
+            for n in testnamen:
+                con.execute("DELETE FROM kunde WHERE name=? COLLATE NOCASE", (n,))
 
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

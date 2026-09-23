@@ -1,0 +1,81 @@
+{
+ "jobs.ba": {
+  "anbieter": "AURELIUM GmbH",
+  "entfernung_km": 2,
+  "extern_id": "13424-QBMT9T4II9GPKVR4-S",
+  "ort": "50667 Köln",
+  "quelle": "jobs.ba",
+  "titel": "Lagerhelfer (m/w/d)",
+  "url": "https://www.arbeitsagentur.de/jobsuche/jobdetail/13424-QBMT9T4II9GPKVR4-S",
+  "veroeffentlicht": "2026-09-13",
+  "zusatz": {
+   "arbeitszeit": "Vollzeit, Schicht",
+   "arbeitszeit_codes": [
+    "vz",
+    "snw"
+   ],
+   "beruf": "Helfer/in - Lagerwirtschaft, Transport",
+   "quereinstieg": false,
+   "suchbegriff": "Lagerhelfer",
+   "vertrag": "unbefristet"
+  }
+ },
+ "jobs.kleinanzeigen": {
+  "anbieter": "HeLy Personal GmbH",
+  "beschreibung": "41468 Neuss (ca. 25 km) Lagerhelfer (m/w/d) Nachtschicht in Neuss in Teilzeit In Neuss suchen wir ab sofort Lagerhelfer (m/w/d) in Teilzeit für die... PRO HeLy Personal GmbH",
+  "entfernung_km": null,
+  "extern_id": "3503642581",
+  "ort": "41468 Neuss",
+  "quelle": "jobs.kleinanzeigen",
+  "titel": "Lagerhelfer (m/w/d) Nachtschicht in Neuss in Teilzeit",
+  "url": "https://www.kleinanzeigen.de/s-anzeige/lagerhelfer-m-w-d-nachtschicht-in-neuss-in-teilzeit/3503642581-247-2112",
+  "veroeffentlicht": null,
+  "zusatz": {
+   "gehalt": null,
+   "suchbegriff": "Lagerhelfer"
+  }
+ },
+ "jobs.meinestadt": {
+  "anbieter": "nox Germany GmbH",
+  "entfernung_km": null,
+  "extern_id": "100014340284",
+  "ort": "Köln",
+  "quelle": "jobs.meinestadt",
+  "titel": "Mitarbeiter Umschlag / Staplerfahrer (m/w/d)",
+  "url": "https://jobs.meinestadt.de/koeln/premium?id=100014340284",
+  "veroeffentlicht": null,
+  "zusatz": {
+   "suchbegriff": "Lagerhelfer"
+  }
+ },
+ "jobs.stepstone": {
+  "anbieter": "Deutsche Post & DHL",
+  "entfernung_km": null,
+  "extern_id": "14366643",
+  "ort": "Hürth",
+  "quelle": "jobs.stepstone",
+  "titel": "Lagermitarbeiter / Lagerhelfer (m/w/d)",
+  "url": "https://www.stepstone.de/stellenangebote--Lagermitarbeiter-Lagerhelfer-m-w-d-Huerth-Deutsche-Post-DHL--14366643-inline.html?rltr=1_1_25_seorl_m_0_0_0_0_0_0",
+  "veroeffentlicht": "2026-09-20",
+  "zusatz": {
+   "gehalt": null,
+   "suchbegriff": "Lagerhelfer"
+  }
+ },
+ "wohnung.kleinanzeigen": {
+  "anbieter": "Livus Micro Living",
+  "beschreibung": "11 TOP 53117 Auerberg (22 km) Erstbezug - Livus Bonn Style – Micro-Apartments 16qm ab 650€, All-in-Miete (Bonn-Style,Typ1) Du suchst eine 1-Zimmer-Appartement in Bonn, die modern, voll möbliert und zentral gelegen ist? Mit... 16 m² · 1 Zi. · Online-Besichtigung 530 € Livus Micro Living",
+  "entfernung_km": null,
+  "extern_id": "3476879057",
+  "ort": "53117 Auerberg",
+  "quelle": "wohnung.kleinanzeigen",
+  "titel": "Erstbezug - Livus Bonn Style – Micro-Apartments 16qm ab 650€, All-in-Miete (Bonn-Style,Typ1)",
+  "url": "https://www.kleinanzeigen.de/s-anzeige/erstbezug-livus-bonn-style-micro-apartments-16qm-ab-650-all-in-miete-bonn-style-typ1-/3476879057-203-23706",
+  "veroeffentlicht": null,
+  "zusatz": {
+   "flaeche": "16 m²",
+   "preis": "530 €",
+   "zimmer": "1"
+  }
+ }
+}

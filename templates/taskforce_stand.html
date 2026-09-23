@@ -1,0 +1,193 @@
+{% extends "basis.html" %}
+{% block titel %}{{ kunde.name }} – Taskforce{% endblock %}
+{% block inhalt %}
+{% from "_pfad.html" import pfad %}
+
+{# Die Seite, die ein Coach für einen Menschen aufschlägt. Sie beantwortet drei Fragen in
+   dieser Reihenfolge: Wie steht es? Was liegt jetzt an? Was ist bisher gelaufen?
+
+   Die Tafel zeigt alle Kunden nebeneinander – gut, um zu sehen, wo etwas liegt. Zum
+   Arbeiten an einem Menschen taugt sie nicht: man filtert, scrollt, verliert den Faden.
+   Hier steht alles zu einer Person auf einer Seite, mit den Knöpfen direkt daneben. #}
+
+{# Zwei Glieder, nicht drei. „Stand und Angebote" stand als drittes Glied ohne Ziel
+   hinter dem Namen, der ebenfalls keines hat – zwei tote Glieder hintereinander. Was die
+   Seite zeigt, sagt ohnehin die Überschrift mit der Knopfleiste darunter.
+
+   Mit `?art=…` kommt ein Glied dazu: wer aus der Arbeitssuche hierherkommt, kommt über
+   dasselbe Glied wieder zurück. Ohne `art` bleibt die Leiste, wie sie war. #}
+{{ pfad([("Taskforce", url_for('taskforce_seite'))]
+        + ([("Arbeitssuche", url_for('taskforce_arbeit'))] if nur_art == 'job'
+           else ([("Wohnungssuche", url_for('taskforce_wohnung'))] if nur_art == 'wohnung' else []))
+        + [(kunde.name, None)]) }}
+
+<div class="tf-kopf">
+  <div>
+    <h1>{{ kunde.name }}</h1>
+    <p class="unterzeile" style="margin:2px 0 0">
+      {%- if kunde.coach %}Coach {{ kunde.coach }} · {% endif %}
+      {%- if kunde.status_text %}{{ kunde.status_text }}{% endif %}
+      {%- if kunde.telefon %} · {{ kunde.telefon }}{% endif %}
+      {%- if kunde.massnahme %} · {{ kunde.massnahme }}{% endif %}</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a class="btn" href="{{ url_for('taskforce_suchen', **suche) }}"
+       title="Sofort bei den Portalen nachfragen, mit den Reglern dieses Menschen">jetzt selbst suchen</a>
+    <a class="btn" href="{{ url_for('taskforce_kunde', kid=kunde.id) }}"
+       title="Job- und Wohnprofile dieses Menschen anlegen und ändern">Suchprofile verwalten</a>
+    {# Die Datei zeigt, was der Bildschirm zeigt: ist die Seite verengt, ist es die Liste
+       auch. Im QM entscheidet die Datei. #}
+    <a class="btn" href="{{ url_for('taskforce_stand_csv', kid=kunde.id, art=nur_art) }}">Liste als CSV</a>
+  </div>
+</div>
+
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
+
+{# ------------------------------------------------------------- Wie steht es
+
+   `nur_art` verengt die Seite auf eine Suche – so kommt man aus dem Dashboard einer Art
+   hierher. Was dabei ausgeblendet wird, wird benannt: der Satz darunter führt auf
+   dieselbe Seite ohne `art`. Eine Hälfte, die lautlos fehlt, ist schlimmer als eine
+   lange Seite – niemand vermisst, was er nicht sieht. #}
+{% if nur_art %}
+<p class="marke" style="margin-top:18px">Nur die {{ 'Arbeitssuche' if nur_art == 'job' else 'Wohnungssuche' }}
+  dieses Menschen – Zahlen, offene Angebote und Verlauf.
+  <a href="{{ url_for('taskforce_stand', kid=kunde.id) }}">auch die andere Suche zeigen →</a></p>
+{% endif %}
+{% for art, name in [('job', 'Arbeitssuche'), ('wohnung', 'Wohnungssuche')] if not nur_art or art == nur_art %}
+{% set b = bilanz[art] %}
+{% if b.profile or b.gefunden %}
+<section class="tf-abschnitt">
+  <h2>{{ name }}
+    <span class="marke">– {{ b.profile }} Suchprofil{{ 'e' if b.profile != 1 }}, {{ b.laeufe }} Durchläufe
+      {%- if b.letzter_lauf %}, zuletzt {{ b.letzter_lauf|zeit }}{% endif %}</span></h2>
+  <div class="gitter g4">
+    <div class="karte"><h3>Gefunden</h3><div class="zahl">{{ b.gefunden }}</div>
+      <div class="marke">{{ 'Stellen' if art == 'job' else 'Wohnungen' }} durch die Agenten</div></div>
+    <div class="karte"><h3>Angeschrieben</h3>
+      <div class="zahl" {% if not b.angeschrieben %}style="color:var(--rot)"{% endif %}>{{ b.angeschrieben }}</div>
+      <div class="marke">{{ 'Arbeitgeber' if art == 'job' else 'Vermieter' }}{% if b.offen %} · {{ b.offen }} liegen offen{% endif %}</div></div>
+    <div class="karte"><h3>Rückmeldungen</h3><div class="zahl">{{ b.antwort }}</div>
+      <div class="marke">{% if b.antwortquote is not none %}{{ b.antwortquote }} % der Anschreiben{% else %}noch keine{% endif %}</div></div>
+    <div class="karte"><h3>{{ 'Gespräche' if art == 'job' else 'Besichtigungen' }}</h3>
+      <div class="zahl" {% if b.erfolg %}style="color:var(--gruen)"{% endif %}>{{ b.erfolg }}</div>
+      <div class="marke">{% if b.erfolgsquote is not none %}{{ b.erfolgsquote }} % der Anschreiben{% else %}noch keine{% endif %}
+        {%- if b.verworfen %} · {{ b.verworfen }} verworfen{% endif %}</div></div>
+  </div>
+</section>
+{% endif %}
+{% endfor %}
+
+{# ---------------------------------------------------------- Was liegt jetzt an #}
+<section class="tf-abschnitt">
+  <h2>Liegt offen
+    <span class="marke">– {% if zeige_alle or offen_gesamt <= offen|length %}{{ offen_gesamt }} Angebote ·
+      {% else %}die {{ offen|length }} bestbewerteten von {{ offen_gesamt }} ·
+      {% endif %}ankreuzen, Namen wählen, Stand setzen</span></h2>
+  {% if not zeige_alle and offen_gesamt > offen|length %}
+  {# Nach Relevanz sortiert, die besten oben. Wer 618 Stellen am Stück sieht, schreibt
+     keine an; wer 25 durchsieht, arbeitet sie ab. Der Rest ist einen Klick entfernt. #}
+  <p class="unterzeile" style="margin-top:0">Sortiert nach Relevanz – oben steht, was am besten passt.
+    {# `art` bleibt am Link: sonst hebt „alle anzeigen" die Verengung lautlos mit auf. #}
+    <a href="{{ url_for('taskforce_stand', kid=kunde.id, alle=1, art=nur_art) }}">alle {{ offen_gesamt }} anzeigen →</a></p>
+  {% endif %}
+
+  {# Der Leerfall zählt dieselbe Menge wie die Liste darüber. `offen` ist artgefiltert,
+     `bilanz.gesamt` summiert beide Arten – aus dieser Schieflage kam der Satz „Die Agenten
+     haben alles abgearbeitet" für einen Menschen, für den in dieser Art nie jemand gesucht
+     hat. Ein leerer Stapel, der wie Erledigung aussieht, ist genau der Zustand, gegen den
+     das Leerlaufband gebaut wurde. #}
+  {% set profile_hier = bilanz[nur_art].profile if nur_art else bilanz.gesamt.profile %}
+  {% if not offen %}
+  <p class="leer">Nichts offen.
+    {% if not profile_hier %}Für diesen Menschen ist
+      {%- if nur_art %} kein Suchprofil für die {{ 'Arbeitssuche' if nur_art == 'job' else 'Wohnungssuche' }} angelegt –
+        es sucht hier niemand für ihn.
+      {%- else %} noch kein Suchprofil angelegt –{% endif %}
+      <a href="{{ url_for('taskforce_kunde', kid=kunde.id) }}">hier anlegen</a>.
+    {% else %}Die Agenten haben alles abgearbeitet, was sie gefunden haben.{% endif %}</p>
+  {% else %}
+  <form method="post" action="{{ url_for('taskforce_sammel_status') }}" id="sammel">
+  <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+  <div class="tabellenkasten">
+  <table>
+    <tr><th><input type="checkbox" onclick="document.querySelectorAll('#sammel input[name=ids]').forEach(c=>c.checked=this.checked)"></th>
+        <th>Rel.</th><th>Angebot</th><th>Anbieter · Ort</th><th>Kontakt</th><th>gefunden</th><th>Abgleich</th></tr>
+    {% for a in offen %}
+    <tr>
+      <td><input type="checkbox" name="ids" value="{{ a.id }}"></td>
+      <td><span class="plakette {{ 'p-gruen' if (a.score or 0) >= 6 else ('p-gelb' if (a.score or 0) >= 3 else 'p-grau') }}" title="Relevanz 0–10">{{ (a.score or 0)|round(0)|int }}</span></td>
+      <td><a href="{{ a.url }}" target="_blank" rel="noopener"><strong>{{ a.titel }}</strong></a>
+        <div class="marke"><span class="plakette {{ 'p-teal' if a.art=='job' else 'p-gelb' }}">{{ 'Stelle' if a.art=='job' else 'Wohnung' }}</span>
+          {% set z = a|zusatz %}{{ [z.arbeitszeit, z.vertrag, z.gehalt, z.preis, z.zimmer and z.zimmer ~ ' Zi.', z.flaeche, a.quelle]|select|join(' · ') }}</div></td>
+      <td>{{ a.anbieter or '—' }}<div class="marke">{{ a.ort or '' }}{% if a.entfernung_km is not none %} · {{ a.entfernung_km }} km{% endif %}</div></td>
+      {# Der Empfänger steht hier, weil von hier aus geschrieben wird – von Hand, aus dem
+         eigenen Postfach. Wer ihn erst im Angebot suchen muss, schreibt seltener. #}
+      <td class="marke">{% if a.kontakt_mail %}<a href="mailto:{{ a.kontakt_mail }}">{{ a.kontakt_mail }}</a>{% endif %}
+        {% if a.kontakt_tel %}<div>{{ a.kontakt_tel }}</div>{% endif %}
+        {% if a.kontakt_name %}<div>{{ a.kontakt_name }}</div>{% endif %}
+        {% if not (a.kontakt_mail or a.kontakt_tel) %}<span title="Kein Kontakt im Text – über das Portal bewerben">über das Portal</span>{% endif %}</td>
+      <td class="marke">{{ a.gefunden_am|zeit }}</td>
+      <td style="max-width:200px">{% set ab = a|abgleich %}
+        {% if a.abgleich and not ab.fehler %}
+          {% if a.match is not none %}<span class="plakette {{ 'p-gruen' if a.match >= 67 else ('p-gelb' if a.match >= 34 else 'p-rot') }}">{{ a.match|int }} %</span>{% endif %}
+          {% if ab.passt %}<div class="marke" style="color:var(--gruen)">✓ {{ ab.passt|join(', ') }}</div>{% endif %}
+          {% if ab.fehlt %}<div class="marke" style="color:var(--rot)">✗ {{ ab.fehlt|join(', ') }}</div>{% endif %}
+        {% else %}<span class="marke">—</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <div class="karte" style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <strong>Ausgewählte:</strong>
+    <select name="bearbeiter" required><option value="">wer?</option>{% for l in leute %}<option>{{ l }}</option>{% endfor %}</select>
+    <input type="text" name="notiz" placeholder="Notiz – wie angeschrieben, was vereinbart"
+           style="flex:1;min-width:220px">
+    <button name="status" value="angeschrieben">angeschrieben</button>
+    <button name="status" value="antwort" class="knopf leise">Antwort da</button>
+    <button name="status" value="gesehen" class="knopf leise">gesehen</button>
+    <button name="status" value="verworfen" class="knopf leise">verwerfen</button>
+  </div>
+  </form>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------- Was lief bisher #}
+<section class="tf-abschnitt">
+  <h2>Bisher gelaufen <span class="marke">– was angefasst wurde, mit Notiz und Namen</span></h2>
+  {% if not verlauf %}
+  <p class="leer">Noch nichts angeschrieben. Sobald jemand oben einen Stand setzt, steht es hier.</p>
+  {% else %}
+  <div class="tabellenkasten">
+  <table>
+    <tr><th>Datum</th><th>Angebot</th><th>Anbieter · Ort</th><th>Stand</th><th>Wer · Notiz</th><th></th></tr>
+    {% for z in verlauf %}
+    <tr>
+      <td class="marke" style="white-space:nowrap">{{ (z.status_am or z.gefunden_am)|zeit }}</td>
+      <td><a href="{{ z.url }}" target="_blank" rel="noopener"><strong>{{ z.titel }}</strong></a>
+        <div class="marke"><span class="plakette {{ 'p-teal' if z.art=='job' else 'p-gelb' }}">{{ 'Stelle' if z.art=='job' else 'Wohnung' }}</span> {{ z.quelle }}</div></td>
+      <td>{{ z.anbieter or '—' }}<div class="marke">{{ z.ort or '' }}</div></td>
+      <td><span class="plakette {{ {'erfolg':'p-gruen','antwort':'p-gruen','angeschrieben':'p-gelb','verworfen':'p-grau'}.get(z.status, 'p-grau') }}">{{ status_text.get(z.status, z.status) }}</span></td>
+      <td class="marke">{{ z.bearbeiter or '—' }}{% if z.notiz %}<div>{{ z.notiz }}</div>{% endif %}</td>
+      <td style="white-space:nowrap">
+        {% if z.status == 'angeschrieben' %}
+        <form method="post" action="{{ url_for('taskforce_status', aid=z.id) }}" style="display:inline;margin:0">
+          <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+          <input type="hidden" name="bearbeiter" value="{{ z.bearbeiter or '' }}">
+          <button name="status" value="antwort" class="knopf" style="padding:6px 12px">Antwort da</button>
+        </form>
+        {% elif z.status == 'antwort' %}
+        <form method="post" action="{{ url_for('taskforce_status', aid=z.id) }}" style="display:inline;margin:0">
+          <input type="hidden" name="zurueck" value="{{ request.full_path }}">
+          <input type="hidden" name="bearbeiter" value="{{ z.bearbeiter or '' }}">
+          <button name="status" value="erfolg" class="knopf" style="padding:6px 12px">{{ 'Gespräch' if z.art=='job' else 'Besichtigung' }}</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

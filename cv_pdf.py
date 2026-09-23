@@ -19,7 +19,13 @@ import subprocess
 import tempfile
 
 HIER = os.path.dirname(os.path.abspath(__file__))
-AUSGABE = os.path.join(HIER, "ausgabe", "lebenslaeufe")
+# Wohin gebaute Unterlagen gehen. Ableitbar aus dem eigenen Verzeichnis – aber dann
+# schreibt jeder Testlauf ins Live-Repo. Der Dateiname trägt Kundennummer und Datum,
+# also überschreibt ein Test ein am selben Tag echt gebautes Dokument desselben
+# Menschen. Dieselbe Fehlerklasse wie bei `sicherungen/`, darum dieselbe Lösung:
+# `OS_AUSGABE_ORDNER` setzen die Selbsttests auf einen Papierkorb.
+AUSGABE = os.path.join(os.environ.get("OS_AUSGABE_ORDNER")
+                       or os.path.join(HIER, "ausgabe"), "lebenslaeufe")
 
 # Die festen Vorlagen. Reihenfolge ist die Reihenfolge in der Auswahl.
 # Die Vorlagen der Sammlung, aus der die Coaches beim Designer nach Nummer bestellen

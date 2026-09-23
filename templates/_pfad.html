@@ -1,0 +1,60 @@
+{#  Die Pfadleiste. Steht auf jeder Seite der Taskforce ganz oben.
+
+    **Warum.** Die Taskforce hat inzwischen fünf Seiten, die einander verlinken: Tafel,
+    Direktsuche, Stand eines Kunden, seine Suchprofile, ein einzelnes Profil. Wer über die
+    Personensuche oder aus dem CRM mitten hineinspringt, sieht eine Seite ohne Zusammenhang
+    und weiß weder, wo er ist, noch wie er eine Ebene höher kommt. Die Leiste beantwortet
+    beides in einer Zeile – und jeder Schritt darin ist anklickbar.
+
+    **Der Pfeil davor.** Die Leiste sagte bisher nur, wo man ist; zurück kam man nur, wenn
+    man das richtige Glied traf. Der Pfeil nimmt diesen Klick ab. Sein Ziel ist nicht
+    stumpf das vorletzte Glied – das wäre auf der Hälfte der Seiten die Seite selbst oder
+    ein Eintrag ohne Ziel. Genommen wird das **letzte Glied, das ein Ziel hat und nicht
+    die aktuelle Seite ist**.
+
+    Aufruf:  {% raw %}{% from "_pfad.html" import pfad %}
+             {{ pfad([("Taskforce", url_for('taskforce_seite')), ("Arbeitssuche", None)]) }}{% endraw %}
+    Der letzte Eintrag hat kein Ziel – man ist ja schon dort.
+
+    Wo die Leiste gar kein anklickbares Glied hat – auf der obersten Ebene der Taskforce –,
+    sagt der zweite Parameter, wohin der Pfeil zeigt:
+             {% raw %}{{ pfad([("Taskforce", None)], zurueck=url_for('uebersicht')) }}{% endraw %}
+    Fehlt er dort, bleibt der Pfeil weg. Er zeigte früher ersatzweise in die Taskforce –
+    was für jede Seite außerhalb der Taskforce ein stiller Fehlweg gewesen wäre. #}
+
+{% macro pfad(teile, zurueck=None) -%}
+{#- Wohin der Pfeil zeigt. `request` steht auch in importierten Makros als Proxy bereit,
+    ist aber ohne laufende Anfrage leer – darum die Abfrage statt des blanken Zugriffs.
+
+    Verglichen wird Pfad **und** Abfrageteil: `/taskforce?art=job` ist die Tafel,
+    `/taskforce` ohne Regler ist der Einstieg – zwei Seiten unter einem Pfad. Am Pfad
+    allein gemessen hielt das Makro die Tafel für die Seite, auf der man schon steht, und
+    ließ den Pfeil weg. Ausgerechnet dort kommen das CRM und alte Lesezeichen herein. -#}
+{%- set hier = (request.path ~ ('?' ~ request.query_string.decode('utf-8', 'replace')
+                                if request.query_string else '')) if request else '' -%}
+{%- set weg = namespace(ziel=zurueck, name='') -%}
+{%- for name, ziel in teile -%}
+  {%- if zurueck -%}
+    {%- if ziel and ziel == zurueck %}{% set weg.name = name %}{% endif -%}
+  {%- elif ziel and ziel != hier -%}
+    {%- set weg.ziel = ziel %}{% set weg.name = name -%}
+  {%- endif -%}
+{%- endfor -%}
+{#- Kein Rückfall auf die Taskforce mehr. Hier stand `url_for('taskforce_seite')` für den
+    Fall, dass kein Glied ein Ziel hat und `zurueck` fehlt – gedacht für die oberste Ebene
+    der Taskforce, die inzwischen ihr `zurueck` selbst mitgibt. Eine Seite außerhalb der
+    Taskforce, die das Makro künftig ohne `zurueck` aufruft, bekäme damit lautlos einen
+    Pfeil in eine fremde Abteilung. Kein Pfeil kostet einen Klick auf „zurück" im Browser;
+    ein falscher schickt jemanden weg, ohne dass er es merkt. -#}
+{%- set aufschrift = ('zurück zu ' ~ weg.name) if weg.name else 'eine Ebene zurück' -%}
+<nav class="pfad" aria-label="Wo Sie gerade sind">
+  {%- if weg.ziel and weg.ziel != hier %}
+  <a class="pfad-zurueck" href="{{ weg.ziel }}" title="{{ aufschrift }}" aria-label="{{ aufschrift }}">←</a>
+  {%- endif %}
+  {%- for name, ziel in teile %}
+    {%- if ziel %}<a href="{{ ziel }}">{{ name }}</a>
+    {%- else %}<span aria-current="page">{{ name }}</span>{% endif %}
+    {%- if not loop.last %}<span class="pfad-pfeil">›</span>{% endif %}
+  {%- endfor %}
+</nav>
+{%- endmacro %}

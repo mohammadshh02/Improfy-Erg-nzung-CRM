@@ -36,15 +36,33 @@ sys.path.insert(0, HIER)
 import pruefkopie                # noqa: E402
 # Warum die Arbeitskopie über `sqlite3.backup` läuft und nicht über `shutil.copy`,
 # steht im Kopf von `pruefkopie.py`. Am Echtbestand ändert der Lauf nichts.
+# Bis zur Zusammenführung stand hier derselbe Vorspann von Hand – Prozessnummer im
+# Namen, `atexit`, `backup()`. Er konnte dasselbe, nur siebenmal nebeneinander;
+# `pruefkopie` kann zusätzlich Reste beendeter Läufe wegräumen und bricht bei einer
+# gehaltenen Datei nach 30 Sekunden ab, statt stumm zu hängen.
 KOPIE = pruefkopie.anlegen("improfy_cv_serie.db")
 os.environ["IMPROFY_OS_DB"] = KOPIE
+
+# Die Datenbank zeigte schon in den Papierkorb, die beiden Ordner nicht. Ein Lauf, der
+# jedes Kundenprofil durch jede Vorlage schickt, legte damit Hunderte PDFs ins
+# Live-Repo – und `betrieb` hätte seine Sicherungen ins echte `sicherungen/` gelegt,
+# wo `aufraeumen()` bei sieben Ständen je eine echte Nachtsicherung herauswirft.
+# Beide Variablen werden beim Import gelesen, sie müssen darum vorher stehen.
+os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
+os.environ["OS_SICHERUNG_ORDNER"] = pruefkopie.papierkorb("sicherungen")
 
 import app as A                     # noqa: E402
 import cv_pdf                       # noqa: E402
 import datenbank as db              # noqa: E402
 import lebenslauf_bauen as LB       # noqa: E402
 
-AUSGABE = os.path.join(HIER, "ausgabe", "serie")
+# Wohin gebaute Unterlagen gehen. Ableitbar aus dem eigenen Verzeichnis – aber dann
+# schreibt jeder Testlauf ins Live-Repo. Der Dateiname trägt Kundennummer und Datum,
+# also überschreibt ein Test ein am selben Tag echt gebautes Dokument desselben
+# Menschen. Dieselbe Fehlerklasse wie bei `sicherungen/`, darum dieselbe Lösung:
+# `OS_AUSGABE_ORDNER` setzen die Selbsttests auf einen Papierkorb.
+AUSGABE = os.path.join(os.environ.get("OS_AUSGABE_ORDNER")
+                       or os.path.join(HIER, "ausgabe"), "serie")
 MAX_SEITEN = 4
 MIN_LETZTE_SEITE = 300      # Zeichen; darunter gilt eine Seite als fast leer
 
