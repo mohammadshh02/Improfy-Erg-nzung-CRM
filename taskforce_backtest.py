@@ -51,6 +51,15 @@ sicherungen = os.path.join(tempfile.gettempdir(),
 os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
 atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
 
+# Und der Ausgabeordner. Der Backtest baut heute keine Unterlagen – aber er startet
+# `app` und damit jede Route, und die siebte offene Tür ist genau die, durch die es
+# beim nächsten Mal geht. Sieben Dateien setzen `OS_SICHERUNG_ORDNER`, also setzen
+# sieben auch `OS_AUSGABE_ORDNER`.
+ausgabe_ordner = os.path.join(tempfile.gettempdir(),
+                              "improfy_os_backtest_ausgabe_%d" % os.getpid())
+os.environ["OS_AUSGABE_ORDNER"] = ausgabe_ordner
+atexit.register(lambda: shutil.rmtree(ausgabe_ordner, ignore_errors=True))
+
 import app as A                    # noqa: E402
 import datenbank as db             # noqa: E402
 import taskforce as tf             # noqa: E402

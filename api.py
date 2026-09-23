@@ -230,6 +230,12 @@ def gesundheit():
     return jsonify({
         "stand": jetzt(), "ok": True,
         "kunden": db.wert("SELECT COUNT(*) FROM kunde WHERE standort=?", (db.STANDORT_STANDARD,)),
+        # **Hier bleibt `aktiv=1`, und zwar mit Absicht.** `/gesundheit` beantwortet
+        # „was läuft gerade" – daneben stehen neue Treffer, Wiedervorlage und wie
+        # viele Quellen verbunden sind. Ein pausiertes Profil läuft nicht. Die
+        # Zählweise „jedes Profil" gilt dort, wo eine Oberfläche „Profil" oder „kein
+        # Profil" schreibt (Kundenliste, Coaches, Sammelanlage, Kopfsuche); das ist
+        # eine andere Frage und darf hier nicht dieselbe Zahl liefern.
         "profile": {art: db.wert("SELECT COUNT(*) FROM tf_profil WHERE aktiv=1 AND art=?"
                                  " AND standort=?", (art, db.STANDORT_STANDARD))
                     for art in ("job", "wohnung")},
@@ -610,7 +616,11 @@ def tf_suche():
     if _int("gehalt"):
         kriterien["min_gehalt"] = _int("gehalt")
     if request.args.get("quereinstieg"):
-        kriterien["quereinstieg"] = True
+        # `nur_quereinstieg` – so heisst der Schlüssel in `tf.JOB_KRITERIEN`, und nur
+        # so liest ihn `tf.job_filter`. Hier stand `quereinstieg`; die Naht sagte dem
+        # CRM damit „nur Quereinstieg" zu und lieferte alles. Gemessen an zwei
+        # Treffern: alter Schlüssel 2 durch / 0 aussortiert, richtiger 1 / 1.
+        kriterien["nur_quereinstieg"] = True
     if request.args.get("wbs"):
         kriterien["wbs"] = True
     if _text("arbeitszeit"):

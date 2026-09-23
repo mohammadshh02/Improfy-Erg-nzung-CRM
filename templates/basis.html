@@ -8,21 +8,31 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap">
-<link rel="stylesheet" href="{{ url_for('static', filename='stil.css') }}?v=20260916">
+<link rel="stylesheet" href="{{ url_for('static', filename='stil.css') }}?v=20260921">
 </head>
 <body>
 {% set s = request.endpoint or '' %}
 {# Die Seitenleiste hatte 14 Reiter. Wer täglich damit arbeitet, braucht sieben davon;
    die anderen sechs sind Einrichtung und Nachweis – einmal eingestellt, selten geöffnet.
    14 gleichwertige Einträge machen die sieben wichtigen unauffindbar. Darum: oben die
-   Arbeit, unten hinter einem Eintrag die Verwaltung. #}
+   Arbeit, unten hinter einem Eintrag die Verwaltung.
+
+   Bei „Kunden" steht `kunde_anlegen` mit in der Liste, weil die Rückfrage beim Anlegen
+   unter dieser Route dieselbe Kundenseite noch einmal zeigt. Fehlte sie, stünde die
+   Leiste ohne Markierung da und der Seitenname fiele auf „Improfy-Ergänzung" zurück –
+   ausgerechnet dort, wo man gerade eine Frage beantworten soll.
+
+   Dieser Absatz stand einmal als eigener {#-Block mitten in der Liste unten. Jinja liest
+   Kommentare aber nicht innerhalb einer Anweisung: die ganze Vorlage war unlesbar, und
+   weil jede Seite von ihr erbt, war das gesamte OS mit einem Schlag nicht erreichbar.
+   Erklärungen zu einer Liste gehören darum davor, nicht hinein. #}
 {% set nav_arbeit = [
   ('uebersicht', ('uebersicht',), 'Übersicht'),
   ('aufgaben_seite', ('aufgaben_seite',), 'Aufgaben'),
   ('taskforce_seite', ('taskforce',), 'Taskforce'),
   ('lebenslauf_uebersicht', ('lebenslauf_uebersicht','lebenslauf_liste','lebenslauf_formular','lebenslauf_erzeugen','lebenslauf_lesen','lebenslauf_pdf','lebenslauf_fotos'), 'Lebenslauf'),
   ('trichter_seite', ('trichter_seite','trichter_kommo'), 'Vertrieb'),
-  ('kunden', ('kunden','kunde_detail','nachrichten_seite','nachrichten_vermerken'), 'Kunden'),
+  ('kunden', ('kunden','kunde_detail','kunde_anlegen','kunde_nummer_nachtragen','nachrichten_seite','nachrichten_vermerken'), 'Kunden'),
   ('coaches_seite', ('coaches_seite','aktivitaet_seite'), 'Coaches'),
 ] %}
 {# Kundennachrichten ist keine eigene Abteilung, sondern etwas, das man an einem Kunden
@@ -77,6 +87,27 @@
   </aside>
   <div class="main">
     <header class="topbar">
+{# Der Seitentitel der ganzen Anwendung.
+
+   Entschieden ist Variante (A): **die Topbar ist der Titel.** Sie klebt
+   (`position:sticky`) und steht auch nach 2.800 px Scrollhöhe noch da, während eine
+   Inhaltsüberschrift nach dem ersten Bildschirm weg ist. Wo es genauer sein muss als
+   der Reitername, sagt die Pfadleiste den Ort – sie steht auf jeder Taskforce-Seite
+   ganz oben (`_pfad.html`).
+
+   **Wie weit das ausgerollt ist, steht hier genau – und nicht größer, als es ist.**
+   Am 21.09.2026 umgebaut sind die fünf Taskforce-Ansichten (`/taskforce`, `/tafel`,
+   `/arbeit`, `/wohnung`, `/suchen`): dort hiess der Seiten-`h1` dasselbe wie diese
+   Leiste oder dasselbe wie das letzte Glied der Pfadleiste, also ist er weg. Von den
+   23 Seiten des Hauses tragen **17 weiterhin beides** (`/`, `/aufgaben`, `/kunden`,
+   `/lebenslauf`, `/trichter`, `/coaches`, `/anbindung`, `/konten`, `/betrieb`,
+   `/nachrichten` …). Das ist kein Bruch – es ist schlicht noch nicht ausgerollt.
+
+   **Nicht gestrichen wird, was einen Menschen benennt.** `taskforce_stand`,
+   `taskforce_kunde` und `taskforce_profil` behalten ihren `h1`: ein Name steht in
+   dieser Leiste nie, dort wäre Streichen kein Aufräumen, sondern Weglassen. Und
+   `sammelanlage` behält ihn, weil sie keinem Reiter zugeordnet ist – diese Leiste
+   sagt dort nur „Improfy-Ergänzung". #}
       <h1 class="page-title">{{ ns.titel }}</h1>
       <div class="topbar-right">
 {# Tippen und den Menschen bekommen. Die Vorschlaege vergleichen ohne Umlaute, Akzente
@@ -93,6 +124,13 @@
           </div>
         </form>
         <a class="btn btn-sm" href="{{ url_for('aufgaben_seite') }}">Aufgaben</a>
+{# Menschen finden und Menschen erfassen ist derselbe Reflex und wird von allen
+           sieben Reitern gebraucht – also steht der Weg dorthin da, wo die Suche schon
+           klebt. Die Akte entsteht im CRM: Termine, UE, Gutschein, Abrechnung. Wer nur
+           einen Namen braucht, damit die Taskforce suchen kann, legt ihn unter
+           „Kunden" an – beide Wege stehen nebeneinander und heißen verschieden. #}
+        <a class="btn btn-sm" href="{{ crm_url }}/kunden" target="_blank"
+           rel="noopener">Kunde im CRM anlegen</a>
         <a class="btn btn-sm" href="{{ url_for('logout') }}">abmelden</a>
       </div>
     </header>

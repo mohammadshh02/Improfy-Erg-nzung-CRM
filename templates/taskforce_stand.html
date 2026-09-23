@@ -12,8 +12,14 @@
 
 {# Zwei Glieder, nicht drei. „Stand und Angebote" stand als drittes Glied ohne Ziel
    hinter dem Namen, der ebenfalls keines hat – zwei tote Glieder hintereinander. Was die
-   Seite zeigt, sagt ohnehin die Überschrift mit der Knopfleiste darunter. #}
-{{ pfad([("Taskforce", url_for('taskforce_seite')), (kunde.name, None)]) }}
+   Seite zeigt, sagt ohnehin die Überschrift mit der Knopfleiste darunter.
+
+   Mit `?art=…` kommt ein Glied dazu: wer aus der Arbeitssuche hierherkommt, kommt über
+   dasselbe Glied wieder zurück. Ohne `art` bleibt die Leiste, wie sie war. #}
+{{ pfad([("Taskforce", url_for('taskforce_seite'))]
+        + ([("Arbeitssuche", url_for('taskforce_arbeit'))] if nur_art == 'job'
+           else ([("Wohnungssuche", url_for('taskforce_wohnung'))] if nur_art == 'wohnung' else []))
+        + [(kunde.name, None)]) }}
 
 <div class="tf-kopf">
   <div>
@@ -29,14 +35,26 @@
        title="Sofort bei den Portalen nachfragen, mit den Reglern dieses Menschen">jetzt selbst suchen</a>
     <a class="btn" href="{{ url_for('taskforce_kunde', kid=kunde.id) }}"
        title="Job- und Wohnprofile dieses Menschen anlegen und ändern">Suchprofile verwalten</a>
-    <a class="btn" href="{{ url_for('taskforce_stand_csv', kid=kunde.id) }}">Liste als CSV</a>
+    {# Die Datei zeigt, was der Bildschirm zeigt: ist die Seite verengt, ist es die Liste
+       auch. Im QM entscheidet die Datei. #}
+    <a class="btn" href="{{ url_for('taskforce_stand_csv', kid=kunde.id, art=nur_art) }}">Liste als CSV</a>
   </div>
 </div>
 
 {% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
 
-{# ------------------------------------------------------------- Wie steht es #}
-{% for art, name in [('job', 'Arbeitssuche'), ('wohnung', 'Wohnungssuche')] %}
+{# ------------------------------------------------------------- Wie steht es
+
+   `nur_art` verengt die Seite auf eine Suche – so kommt man aus dem Dashboard einer Art
+   hierher. Was dabei ausgeblendet wird, wird benannt: der Satz darunter führt auf
+   dieselbe Seite ohne `art`. Eine Hälfte, die lautlos fehlt, ist schlimmer als eine
+   lange Seite – niemand vermisst, was er nicht sieht. #}
+{% if nur_art %}
+<p class="marke" style="margin-top:18px">Nur die {{ 'Arbeitssuche' if nur_art == 'job' else 'Wohnungssuche' }}
+  dieses Menschen – Zahlen, offene Angebote und Verlauf.
+  <a href="{{ url_for('taskforce_stand', kid=kunde.id) }}">auch die andere Suche zeigen →</a></p>
+{% endif %}
+{% for art, name in [('job', 'Arbeitssuche'), ('wohnung', 'Wohnungssuche')] if not nur_art or art == nur_art %}
 {% set b = bilanz[art] %}
 {% if b.profile or b.gefunden %}
 <section class="tf-abschnitt">
@@ -70,12 +88,22 @@
   {# Nach Relevanz sortiert, die besten oben. Wer 618 Stellen am Stück sieht, schreibt
      keine an; wer 25 durchsieht, arbeitet sie ab. Der Rest ist einen Klick entfernt. #}
   <p class="unterzeile" style="margin-top:0">Sortiert nach Relevanz – oben steht, was am besten passt.
-    <a href="{{ url_for('taskforce_stand', kid=kunde.id, alle=1) }}">alle {{ offen_gesamt }} anzeigen →</a></p>
+    {# `art` bleibt am Link: sonst hebt „alle anzeigen" die Verengung lautlos mit auf. #}
+    <a href="{{ url_for('taskforce_stand', kid=kunde.id, alle=1, art=nur_art) }}">alle {{ offen_gesamt }} anzeigen →</a></p>
   {% endif %}
 
+  {# Der Leerfall zählt dieselbe Menge wie die Liste darüber. `offen` ist artgefiltert,
+     `bilanz.gesamt` summiert beide Arten – aus dieser Schieflage kam der Satz „Die Agenten
+     haben alles abgearbeitet" für einen Menschen, für den in dieser Art nie jemand gesucht
+     hat. Ein leerer Stapel, der wie Erledigung aussieht, ist genau der Zustand, gegen den
+     das Leerlaufband gebaut wurde. #}
+  {% set profile_hier = bilanz[nur_art].profile if nur_art else bilanz.gesamt.profile %}
   {% if not offen %}
   <p class="leer">Nichts offen.
-    {% if not bilanz.gesamt.profile %}Für diesen Menschen ist noch kein Suchprofil angelegt –
+    {% if not profile_hier %}Für diesen Menschen ist
+      {%- if nur_art %} kein Suchprofil für die {{ 'Arbeitssuche' if nur_art == 'job' else 'Wohnungssuche' }} angelegt –
+        es sucht hier niemand für ihn.
+      {%- else %} noch kein Suchprofil angelegt –{% endif %}
       <a href="{{ url_for('taskforce_kunde', kid=kunde.id) }}">hier anlegen</a>.
     {% else %}Die Agenten haben alles abgearbeitet, was sie gefunden haben.{% endif %}</p>
   {% else %}

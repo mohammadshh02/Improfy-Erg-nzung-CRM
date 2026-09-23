@@ -30,6 +30,7 @@ Läuft gegen eine Kopie der Datenbank. Am Echtbestand ändert sich nichts.
 import atexit
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -54,12 +55,28 @@ _ziel.close()
 _quelle.close()
 os.environ["IMPROFY_OS_DB"] = KOPIE
 
+# Die Datenbank zeigte schon in den Papierkorb, die beiden Ordner nicht. Ein Lauf, der
+# jedes Kundenprofil durch jede Vorlage schickt, legte damit Hunderte PDFs ins
+# Live-Repo – und `betrieb` haette seine Sicherungen ins echte `sicherungen/` gelegt,
+# wo `aufraeumen()` bei sieben Staenden je eine echte Nachtsicherung herauswirft.
+# Beide Variablen werden beim Import gelesen, sie muessen darum vorher stehen.
+_papierkorb = os.path.join(tempfile.gettempdir(), "improfy_cv_serie_%d" % os.getpid())
+os.environ["OS_AUSGABE_ORDNER"] = os.path.join(_papierkorb, "ausgabe")
+os.environ["OS_SICHERUNG_ORDNER"] = os.path.join(_papierkorb, "sicherungen")
+atexit.register(lambda: shutil.rmtree(_papierkorb, ignore_errors=True))
+
 import app as A                     # noqa: E402
 import cv_pdf                       # noqa: E402
 import datenbank as db              # noqa: E402
 import lebenslauf_bauen as LB       # noqa: E402
 
-AUSGABE = os.path.join(HIER, "ausgabe", "serie")
+# Wohin gebaute Unterlagen gehen. Ableitbar aus dem eigenen Verzeichnis – aber dann
+# schreibt jeder Testlauf ins Live-Repo. Der Dateiname trägt Kundennummer und Datum,
+# also überschreibt ein Test ein am selben Tag echt gebautes Dokument desselben
+# Menschen. Dieselbe Fehlerklasse wie bei `sicherungen/`, darum dieselbe Lösung:
+# `OS_AUSGABE_ORDNER` setzen die Selbsttests auf einen Papierkorb.
+AUSGABE = os.path.join(os.environ.get("OS_AUSGABE_ORDNER")
+                       or os.path.join(HIER, "ausgabe"), "serie")
 MAX_SEITEN = 4
 MIN_LETZTE_SEITE = 300      # Zeichen; darunter gilt eine Seite als fast leer
 

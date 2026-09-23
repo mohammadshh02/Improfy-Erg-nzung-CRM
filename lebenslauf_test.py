@@ -44,6 +44,17 @@ os.environ["IMPROFY_OS_DB"] = kopie
 sicherungen = os.path.join(tempfile.gettempdir(),
                            "improfy_os_cv_test_sicherungen_%d" % os.getpid())
 os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
+
+# Dasselbe fuer die gebauten Unterlagen. Ohne diese Variable legt jeder Lauf zwei
+# echte Dateien in `ausgabe/lebenslaeufe/` des Live-Repos – belegt am 21.09.2026:
+# geloescht, Test erneut gelaufen, beide wieder da. Der Dateiname traegt Kundennummer
+# und Datum, ein Testlauf ueberschreibt also ein am selben Tag echt gebautes Dokument
+# desselben Menschen. Gelesen wird die Variable beim Import von `lebenslauf_bauen`
+# und `cv_pdf`, sie muss darum vorher stehen.
+ausgabe_ordner = os.path.join(tempfile.gettempdir(),
+                              "improfy_os_cv_test_ausgabe_%d" % os.getpid())
+os.environ["OS_AUSGABE_ORDNER"] = ausgabe_ordner
+atexit.register(lambda: shutil.rmtree(ausgabe_ordner, ignore_errors=True))
 atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
 
 import openpyxl                     # noqa: E402

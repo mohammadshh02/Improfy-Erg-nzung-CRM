@@ -47,6 +47,17 @@ os.environ["IMPROFY_OS_DB"] = kopie
 sicherungen = os.path.join(tempfile.gettempdir(),
                            "improfy_os_gesamt_test_sicherungen_%d" % os.getpid())
 os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
+
+# Dasselbe fuer die gebauten Unterlagen. Ohne diese Variable legt jeder Lauf zwei
+# echte Dateien in `ausgabe/lebenslaeufe/` des Live-Repos – belegt am 21.09.2026:
+# geloescht, Test erneut gelaufen, beide wieder da. Der Dateiname traegt Kundennummer
+# und Datum, ein Testlauf ueberschreibt also ein am selben Tag echt gebautes Dokument
+# desselben Menschen. Gelesen wird die Variable beim Import von `lebenslauf_bauen`
+# und `cv_pdf`, sie muss darum vorher stehen.
+ausgabe_ordner = os.path.join(tempfile.gettempdir(),
+                              "improfy_os_test_ausgabe_%d" % os.getpid())
+os.environ["OS_AUSGABE_ORDNER"] = ausgabe_ordner
+atexit.register(lambda: shutil.rmtree(ausgabe_ordner, ignore_errors=True))
 atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
 
 import app as A                     # noqa: E402
@@ -144,13 +155,17 @@ def main():
         _wege |= set(re.findall('href="(/[^"?#]*)', c.get(_p).get_data(as_text=True)))
     # /taskforce/tafel hat keinen Reiter: /taskforce zeigt jetzt den Einstieg. Die volle
     # Tafel muss von dort aus verlinkt bleiben, sonst ist sie praktisch geloescht.
+    # Dasselbe gilt seit dem 21.09.2026 fuer die beiden Arbeitsplaetze /taskforce/arbeit
+    # und /taskforce/wohnung: sie bekommen keinen achten Reiter, also muss der
+    # Schnellzugriff des Einstiegs sie tragen.
     for _ziel in ("/nachrichten", "/aktivitaet", "/protokoll", "/konten", "/betrieb",
-                  "/anbindung", "/aussen", "/lebenslauf/liste", "/taskforce/tafel"):
+                  "/anbindung", "/aussen", "/lebenslauf/liste", "/taskforce/tafel",
+                  "/taskforce/arbeit", "/taskforce/wohnung"):
         pruefe(f"{_ziel} ist ohne eigenen Reiter erreichbar", _ziel in _wege)
 
     print("\n4. Kein Platzhalter blieb stehen")
-    proben = ["/", "/kunden", "/taskforce", "/taskforce/tafel", "/lebenslauf", "/trichter",
-              "/aufgaben", "/aktivitaet", "/betrieb"]
+    proben = ["/", "/kunden", "/taskforce", "/taskforce/tafel", "/taskforce/arbeit",
+              "/lebenslauf", "/trichter", "/aufgaben", "/aktivitaet", "/betrieb"]
     for pfad in proben:
         t = c.get(pfad).get_data(as_text=True)
         pruefe(f"{pfad} ohne offene Jinja-Stelle",
@@ -301,6 +316,156 @@ def main():
     pruefe("Ohne Text wird nichts vermerkt",
            "fehler" in c.post("/nachrichten/vermerken",
                               data={"kunde": "1", "text": ""}).headers.get("Location", ""))
+
+    print("\n10. Einen Menschen erfassen, ohne das CRM nachzubauen")
+    # Angelegt wird ein Kunde eigentlich im CRM. Solange `CRM_BASIS` nicht in der .env
+    # steht, kommt von dort aber nichts zurueck – und fuer jemanden, den das OS nicht
+    # kennt, sucht die Taskforce nicht. Also geht es auch hier.
+    #
+    # Geprueft wird vor allem, was NICHT passieren darf: stilles Verdoppeln, stilles
+    # Zusammenfuehren, eine zweite Wahrheit unter derselben Kundennummer. Und die Grenze:
+    # erfasst wird, WER jemand ist – kein UE-Feld, kein Gutschein, kein Termin.
+    #
+    # Die Namen sind mit Absicht keine, die es geben kann. Ein echter Name im Testcode
+    # kollidiert eines Tages mit einem echten Kunden und steht dann unbemerkt zweimal da.
+    NAME = "Quintus Testbergmann"
+    NAME_B = "Radulf Prüfstein"
+    NAME_C = "Wendelin Ochsenfurt"
+    NUMMER = "IMP-TEST-0001"
+    testnamen = (NAME, NAME_B, NAME_C)
+
+    def anzahl():
+        return db.wert("SELECT COUNT(*) FROM kunde WHERE standort=?",
+                       (db.STANDORT_STANDARD,))
+
+    try:
+        vorher = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": "   "})
+        pruefe("Ohne Namen wird nichts angelegt",
+               r.status_code == 200 and anzahl() == vorher
+               and "Ohne Namen wird nichts angelegt" in r.get_data(as_text=True),
+               f"{vorher} Kunden vorher, {anzahl()} nachher")
+
+        r = c.post("/kunden/anlegen",
+                   data={"name": NAME, "telefon": "0221 000000", "stadt": "Köln"})
+        kid = db.wert("SELECT id FROM kunde WHERE name=?", (NAME,))
+        pruefe("Ein unbekannter Name wird ohne Rückfrage angelegt",
+               r.status_code == 302 and bool(kid) and anzahl() == vorher + 1
+               and r.headers.get("Location", "").endswith(f"/kunde/{kid}"),
+               r.headers.get("Location", ""))
+
+        # Herkunft und Status: „K – Lead ohne Antrag" ist der einzige Code, der heisst
+        # „ist da, noch nichts passiert". Leere Felder bleiben leer – nichts erfunden.
+        satz = db.eine("SELECT * FROM kunde WHERE id=?", (kid,)) or {}
+        pruefe("Der angelegte Kunde trägt seine Herkunft und den Lead-Status",
+               satz.get("quelle_stand") == A.ANLAGE_QUELLE
+               and satz.get("status_code") == "K" and satz.get("stadt") == "Köln"
+               and satz.get("sprache") is None and satz.get("kundennummer") is None,
+               f"{satz.get('quelle_stand')} / {satz.get('status_code')}")
+        pruefe("Die Plakette „vorläufig“ steht in Liste und Akte",
+               "vorläufig" in c.get("/kunden?q=Testbergmann").get_data(as_text=True)
+               and "vorläufig" in c.get(f"/kunde/{kid}").get_data(as_text=True))
+        pruefe("Das Anlegeformular steht offen, wenn der Schnellzugriff danach fragt",
+               '<details id="neu"' in c.get("/kunden?neu=1").get_data(as_text=True))
+
+        # Die Personensuche ist der Weg, auf dem die Taskforce ihn wiederfindet. Wer
+        # angelegt ist und nicht gefunden wird, ist so gut wie nicht angelegt.
+        gefunden = c.get("/api/kunden-suche?q=testbergmann").get_json() or {}
+        pruefe("Der angelegte Kunde ist über die Personensuche findbar",
+               any(k["id"] == kid for k in gefunden.get("kunden", [])),
+               [k["name"] for k in gefunden.get("kunden", [])][:3])
+
+        # Rueckfragen, nicht sperren: derselbe Name fuehrt zur Rueckfrage, nicht zum
+        # zweiten Datensatz – und „trotzdem anlegen" bleibt erreichbar. Verglichen wird
+        # unscharf (`tf.kunden_suchen`), weil ein exakter Vergleich zwei Namensteile
+        # nicht wiederfindet, wenn im Bestand drei stehen oder die zweite Schreibweise
+        # in Klammern dahinter.
+        zwischen = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": NAME.lower()})
+        text = r.get_data(as_text=True)
+        pruefe("Ein ähnlicher Name führt zur Rückfrage statt zum Datensatz",
+               r.status_code == 200 and anzahl() == zwischen
+               and "ähnliche Namen stehen schon im Bestand" in text
+               and "trotzdem anlegen" in text and NAME in text,
+               f"{zwischen} Kunden, unverändert: {anzahl() == zwischen}")
+        r = c.post("/kunden/anlegen", data={"name": NAME.lower(), "bestaetigt": "1"})
+        pruefe("„trotzdem anlegen“ legt den zweiten Datensatz wirklich an",
+               r.status_code == 302 and anzahl() == zwischen + 1,
+               f"{zwischen} → {anzahl()}")
+
+        # Eine Kundennummer gibt es einmal – dieselbe Regel wie in `api.py`. Hier gilt
+        # kein „trotzdem": zwei Datensaetze unter einer Nummer waeren im QM ein Befund.
+        c.post("/kunden/anlegen", data={"name": NAME_B, "kundennummer": NUMMER})
+        bid = db.wert("SELECT id FROM kunde WHERE kundennummer=?", (NUMMER,))
+        vor_dublette = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": NAME_C, "kundennummer": NUMMER})
+        text = r.get_data(as_text=True)
+        pruefe("Eine schon vergebene Kundennummer wird abgewiesen, mit Weg zum Vorhandenen",
+               r.status_code == 200 and anzahl() == vor_dublette
+               and NUMMER in text and f'/kunde/{bid}' in text
+               and not db.wert("SELECT COUNT(*) FROM kunde WHERE name=?", (NAME_C,)),
+               f"{vor_dublette} Kunden, unverändert: {anzahl() == vor_dublette}")
+
+        # Die Grenze aus docs/wissen/crm-abgleich-was-gehoert-wohin.md: das Formular
+        # erfasst, WER jemand ist. Alles, was das CRM verbindlich fuehrt, bleibt draussen –
+        # sonst gibt es zwei Wahrheiten und jemand muss spaeter entscheiden, welche gilt.
+        # Gemessen an den Feldern, die das Formular abschickt – nicht am Fliesstext.
+        # Am Wortlaut gemessen schlaegt jede Statusbezeichnung an, in der „Gutschein"
+        # vorkommt (G, H, I), und die Pruefung meldet Rot fuer eine Regel, die niemand
+        # gebrochen hat. Ein Test, der aus der eigenen Aufschrift einen Befund macht,
+        # wird abgeschaltet.
+        formular = c.get("/kunden?neu=1").get_data(as_text=True)
+        block = formular.split('<details id="neu"')[1].split("</details>")[0]
+        felder = set(re.findall(r'name="([a-z_]+)"', block))
+        pruefe("Das Formular erfasst nur, WER jemand ist – kein Stück der Akte aus dem CRM",
+               felder <= {"name", "telefon", "stadt", "sprache", "kundennummer",
+                          "status_code", "bestaetigt"},
+               sorted(felder))
+
+        # Die Feldnamen allein sind die halbe Regel. `status_code` steht erlaubt in der
+        # Liste – was er tragen DARF, entscheidet `ANLAGE_STATUS`, und genau das war
+        # bisher ungeprueft. Zwoelf Codes zur Auswahl waeren wieder die Akte: wer hier
+        # „H – Gutschein da, Massnahme laeuft" waehlen koennte, zaehlte ab dem naechsten
+        # Seitenaufruf als laufende Massnahme – ohne Gutschein, ohne Akte, ohne dass das
+        # CRM davon weiss.
+        angeboten = set(re.findall(r'<option value="([A-L])"', block))
+        pruefe("Zur Wahl stehen nur Status, die ohne Akte wahr sein können",
+               angeboten == set(A.ANLAGE_STATUS),
+               f"angeboten {sorted(angeboten)}, erlaubt {sorted(A.ANLAGE_STATUS)}")
+
+        # Und die Auswahlliste einzuengen reicht nicht: ein untergeschobenes Feld geht
+        # an ihr vorbei. Geprueft wird deshalb der Weg, den ein Angreifer nimmt – POST
+        # mit einem Code, den das Formular nie anbietet.
+        c.post("/kunden/anlegen", data={"name": NAME_C, "status_code": "H",
+                                        "bestaetigt": "1"})
+        geschmuggelt = db.eine("SELECT status_code FROM kunde WHERE name=?", (NAME_C,))
+        pruefe("Ein untergeschobener Status fällt auf den Lead-Status zurück",
+               bool(geschmuggelt) and geschmuggelt["status_code"] == "K",
+               (geschmuggelt or {}).get("status_code"))
+
+        # Der UNIQUE-Fall. `kunde` traegt UNIQUE(name, standort); bei exakt gleicher
+        # Schreibweise hilft „trotzdem anlegen" nicht, die Datenbank laesst den zweiten
+        # Satz nicht zu. Ohne Abfangen endete genau das auf einer 500er-Seite: kein
+        # Hinweis, kein Protokolleintrag, alles Eingetippte weg.
+        #
+        # Bisher lief der Test daran vorbei: die Rueckfrage-Pruefung oben nimmt
+        # `NAME.lower()`, und das ist fuer SQLite ein anderer Name. Der Griff, der
+        # wirklich kracht, ist die BUCHSTABENGLEICHE Wiederholung.
+        vor_unique = anzahl()
+        r = c.post("/kunden/anlegen", data={"name": NAME_B, "bestaetigt": "1"})
+        text = r.get_data(as_text=True)
+        pruefe("Derselbe Name buchstabengleich: abgewiesen mit Weg zum Vorhandenen,"
+               " nicht mit 500",
+               r.status_code == 200 and anzahl() == vor_unique
+               and "nicht möglich" in text and f'/kunde/{bid}' in text
+               and NAME_B in text,
+               f"{r.status_code}, {vor_unique} Kunden, unverändert:"
+               f" {anzahl() == vor_unique}")
+    finally:
+        # Der Bestand darf durch einen Testlauf nicht wachsen – auch nicht in der Kopie.
+        with db.offen() as con:
+            for n in testnamen:
+                con.execute("DELETE FROM kunde WHERE name=? COLLATE NOCASE", (n,))
 
     fehl = [n for n, ok in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

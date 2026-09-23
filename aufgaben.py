@@ -88,13 +88,25 @@ def laufende_massnahmen():
         "       (SELECT MAX(g.bis) FROM gutschein_zeile g WHERE g.kunde_id=k.id) AS endet,"
         "       (SELECT COUNT(*) FROM termin t WHERE t.kunde_id=k.id) AS termine,"
         "       (SELECT COUNT(*) FROM lebenslauf l WHERE l.kunde_id=k.id) AS lebenslaeufe,"
-        "       (SELECT COUNT(*) FROM tf_profil p WHERE p.kunde_id=k.id AND p.aktiv=1) AS profile,"
+        # **Gezählt wird JEDES Profil, auch ein pausiertes** – dieselbe Bedingung wie in
+        # `sammelanlage.vorschlaege()`, `sammelanlage.anlegen()`, der Kundenliste und
+        # dem Coaches-Überblick (`app.py`, `coaches.py`), dem Hinweis auf der Tafel und
+        # `taskforce.kunden_bilanz`. Das ist die eine Zählweise des Hauses – sie stand
+        # bis zum 22.09.2026 an fünf dieser Stellen NICHT, während dieser Kommentar das
+        # Gegenteil behauptete. Sie richtet sich nach dem, was der Knopf tun kann:
+        # `anlegen()` legt für jemanden mit pausiertem Profil kein zweites an. Stand hier
+        # `aktiv=1`, zeigte der Einstieg „19 ohne Jobprofil", und hinter dem Knopf standen
+        # 18 Zeilen – gemessen am 21.09.2026, ein Profil auf `aktiv=0` gesetzt.
+        #
+        # Pausiert heisst nicht „nichts da", sondern „steht still". Wer still steht,
+        # steht auf dem Arbeitsplatz seiner Art in der unteren Liste, mit der Plakette
+        # „pausiert – sucht nicht". Die Antwort darauf ist einschalten, nicht ein
+        # zweites Profil.
+        "       (SELECT COUNT(*) FROM tf_profil p WHERE p.kunde_id=k.id) AS profile,"
         # Die Jobprofile zusätzlich einzeln: Arbeitssuche und Wohnungssuche sind zwei
         # Arbeiten. Wer ein Wohnprofil hat, hat ein Profil – für seine Arbeitssuche sucht
-        # der Agent trotzdem nichts. Dieselbe Bedingung wie in `sammelanlage.vorschlaege()`,
-        # damit die Zahl auf dem Einstieg und die Liste hinter ihrem Knopf dieselbe Menge
-        # zählen.
-        "       (SELECT COUNT(*) FROM tf_profil p WHERE p.kunde_id=k.id AND p.aktiv=1"
+        # der Agent trotzdem nichts.
+        "       (SELECT COUNT(*) FROM tf_profil p WHERE p.kunde_id=k.id"
         "          AND p.art='job') AS jobprofile,"
         "       (SELECT COUNT(*) FROM kunde_profil p WHERE p.kunde_id=k.id"
         "          AND p.kurzprofil IS NOT NULL AND p.kurzprofil<>'') AS kurzprofil,"

@@ -20,6 +20,7 @@ Was geprüft wird:
 """
 import atexit
 import datetime
+import json
 import os
 import re
 import shutil
@@ -66,13 +67,44 @@ os.environ["IMPROFY_OS_DB"] = kopie
 sicherungen = os.path.join(tempfile.gettempdir(),
                            "improfy_os_test_sicherungen_%d" % os.getpid())
 os.environ["OS_SICHERUNG_ORDNER"] = sicherungen
+
+# Dasselbe fuer die gebauten Unterlagen. Ohne diese Variable legt jeder Lauf zwei
+# echte Dateien in `ausgabe/lebenslaeufe/` des Live-Repos – belegt am 21.09.2026:
+# geloescht, Test erneut gelaufen, beide wieder da. Der Dateiname traegt Kundennummer
+# und Datum, ein Testlauf ueberschreibt also ein am selben Tag echt gebautes Dokument
+# desselben Menschen. Gelesen wird die Variable beim Import von `lebenslauf_bauen`
+# und `cv_pdf`, sie muss darum vorher stehen.
+ausgabe_ordner = os.path.join(tempfile.gettempdir(),
+                              "improfy_tf_test_ausgabe_%d" % os.getpid())
+os.environ["OS_AUSGABE_ORDNER"] = ausgabe_ordner
+atexit.register(lambda: shutil.rmtree(ausgabe_ordner, ignore_errors=True))
 atexit.register(lambda: shutil.rmtree(sicherungen, ignore_errors=True))
 
 import app as A                    # noqa: E402
+import coaches                     # noqa: E402
 import datenbank as db             # noqa: E402
 import taskforce as tf             # noqa: E402
 
 ergebnis = []
+
+
+def hohle_beispiele(sammlung):
+    """Welche Eintraege der Beispielsammlung sind kein Treffer mit passender Quelle
+    und Fremd-ID?
+
+    `isinstance` statt `or ""`: steht in der Datei eine Zahl als `extern_id`, gaebe
+    `.strip()` einen `AttributeError` AUSSERHALB von `pruefe` – der ganze Lauf braeche
+    ab, statt einen roten Punkt zu melden. Eine Pruefung gegen eine ausgehoehlte Datei
+    muss die ausgehoehlte Datei ueberleben.
+
+    Steht hier oben und nicht in einem der Abschnitte, weil zwei Pruefungen sie
+    brauchen: die eine gegen die echte Sammlung, die andere gegen eine absichtlich
+    vergiftete. Stuende die Bedingung zweimal da, bliebe die zweite gruen, waehrend
+    die erste zurueckfaellt – gemessen am 22.09.2026: genau so war es."""
+    return sorted(q for q, x in sammlung.items()
+                  if not isinstance(x, dict) or x.get("quelle") != q
+                  or not isinstance(x.get("extern_id"), str)
+                  or not x["extern_id"].strip())
 
 
 def pruefe(name, bedingung, detail=""):
@@ -293,9 +325,14 @@ def main():
     pruefe("Nur Jobs / nur Wohnungen trennt sauber",
            zeilen("/taskforce?art=job") + zeilen("/taskforce?art=wohnung") >= alle
            and zeilen("/taskforce?art=wohnung") < alle)
+    # Die verengte TAFEL steht seit dem 21.09.2026 unter /taskforce/tafel?art=…;
+    # /taskforce/arbeit und /taskforce/wohnung sind die Arbeitsplaetze der beiden Suchen
+    # und zeigen keine Angebotstabelle mehr. Beide Adressen der Tafel muessen dieselbe
+    # Menge Zeilen zeigen – sonst filtert die eine anders als die andere, und welche
+    # stimmt, merkt niemand.
     pruefe("Die Aufspaltung hat eigene Adressen",
-           zeilen("/taskforce/arbeit") == zeilen("/taskforce?art=job")
-           and zeilen("/taskforce/wohnung") == zeilen("/taskforce?art=wohnung"))
+           zeilen("/taskforce/tafel?art=job") == zeilen("/taskforce?art=job")
+           and zeilen("/taskforce/tafel?art=wohnung") == zeilen("/taskforce?art=wohnung"))
     pruefe("Beide Halften und die Direktsuche stehen auf jeder Ansicht zur Wahl",
            all(all(w in c.get(u).text for w in ("/taskforce/arbeit", "/taskforce/wohnung",
                                                "/taskforce/suchen"))
@@ -303,6 +340,11 @@ def main():
     pruefe("In der Wohnungssuche stehen keine Stellenregler",
            "GEHALT AB" not in c.get("/taskforce/wohnung").text.upper()
            and "GEHALT AB" in c.get("/taskforce/arbeit").text.upper())
+    # Dieselbe Frage an die Tafel: die Reglerreihe fuer Stellen darf in der
+    # Wohnungsfassung nicht stehen und umgekehrt.
+    pruefe("Auch die verengte Tafel traegt nur die Regler ihrer Art",
+           "GEHALT AB" not in c.get("/taskforce/tafel?art=wohnung").text.upper()
+           and "GEHALT AB" in c.get("/taskforce/tafel?art=job").text.upper())
     print("\n9b. Direktsuche und Kontaktdaten")
     # Die Seite selbst darf ohne Eingabe nichts abfragen – sonst fragt jeder Aufruf zehn
     # Portale. Darum wird hier nur die leere Seite geprueft, nicht die Suche selbst.
@@ -467,10 +509,19 @@ def main():
            all(x in c.get("/taskforce/tafel").text for x in ("reglerbank", "alle Filter zurücksetzen",
                                                              "Relevanz ab", "Abgleich ab")))
 
-    print("\n10. Einstieg: der Leerlauf, nicht die Zahlen")
-    # Die Tafel meldete 754 gefundene Angebote und verschwieg, dass keine der 19 laufenden
-    # Massnahmen ein Suchprofil hat. Der Einstieg dreht das um: erst der Bruch, dann die
-    # Funde. Geprueft wird beides – dass er da ist und dass die Tafel nicht verschwunden ist.
+    print("\n10. Einstieg: erst der Schnellzugriff, dann die Ansichten")
+    # Zwei Umbauten stecken in diesem Abschnitt, und beide haben denselben Grund.
+    #
+    # Der erste: die Tafel meldete 754 gefundene Angebote und verschwieg, dass keine der 19
+    # laufenden Massnahmen ein Suchprofil hat. Der Einstieg dreht das um – erst der Bruch,
+    # dann die Funde. Geprueft wird beides: dass er da ist und dass die Tafel bleibt.
+    #
+    # Der zweite (21.09.2026): der erste anklickbare Knopf lag 340 px unter dem Fensterrand,
+    # auf einem 1366x768-Laptop also hinter mehr als der halben ersten Bildschirmhoehe
+    # Lesestoff. Ansage Masoud: oben der Schnellzugriff, die Ansichten kommen beim
+    # Weiterscrollen. Die Rangfolge lautet seitdem: Schnellzugriff, „Jetzt zu tun",
+    # Leerlaufband, wartende Arbeit, Tafelkostprobe. Entfernt wurde dabei nichts – und
+    # genau das misst dieser Abschnitt weiter, Stueck fuer Stueck.
     import aufgaben
     import einstieg
 
@@ -482,6 +533,12 @@ def main():
         # man vor sich hat, haelt keinen Umbau aus. `class="kette"` steht in keiner
         # anderen Vorlage – geprueft beim Umbau am 21.09.2026.
         return 'class="kette"' in t                    # nur taskforce_einstieg.html
+
+    def ist_dashboard(t):
+        # Dieselbe Regel fuer die dritte Ansicht: `tf-dashboard` traegt nur die neue
+        # Vorlage. Ohne eigenes Merkmal haetten die Pruefungen fuer Tafel und Einstieg
+        # bei jedem Umbau gleichzeitig Unsinn gemeldet, statt der einen Ursache.
+        return 'class="tf-dashboard"' in t              # nur taskforce_dashboard.html
 
     ein = c.get("/taskforce").text
     pruefe("/taskforce ohne Regler zeigt den Einstieg, nicht die Tafel",
@@ -497,6 +554,48 @@ def main():
                                   "/taskforce/suchen", "/taskforce/profile-anlegen")),
            [z for z in ("/taskforce/tafel", "/taskforce/arbeit", "/taskforce/wohnung",
                         "/taskforce/suchen", "/taskforce/profile-anlegen") if z not in ein])
+
+    # Masouds Regel vom 21.09.2026 als Messung, nicht als Wortlaut: vor der ersten
+    # Ueberschrift des Inhalts muessen die Handgriffe stehen. Am Wortlaut zu pruefen haelt
+    # keinen Umbau aus – an der Position schon, und sie ist das, worum es geht. Waechst
+    # wieder Lesestoff davor, faellt genau diese Pruefung um.
+    #
+    # Gemessen werden die Ziele, die im Schnellzugriff stehen. Seit dem 21.09.2026 sind das
+    # „Kunde anlegen", die zwei Arbeitsplaetze und die Tafel; „Suchprofil anlegen" ist aus
+    # Zeile B in die Kopfzeile der Arbeitsliste und in die beiden Dashboards gewandert –
+    # gemessen wird es weiter, nur eine Pruefung tiefer („Der Einstieg verlinkt alle fuenf
+    # Ziele"), wo es um Erreichbarkeit geht und nicht um die Hoehe.
+    _h2 = ein.find("<h2")
+    _oben = {z: ein.find('href="%s"' % z)
+             for z in ("/kunden?neu=1#neu", "/taskforce/arbeit", "/taskforce/wohnung",
+                       "/taskforce/tafel")}
+    pruefe("Der Schnellzugriff steht vor der ersten Überschrift des Inhalts",
+           _h2 > 0 and all(0 < stelle < _h2 for stelle in _oben.values()),
+           f"erstes h2 an {_h2}, " + ", ".join(f"{z} an {s}" for z, s in _oben.items()))
+
+    # Der Umschalter setzt `art` im SELBEN Formular. Vorher stand dort ein Einweg-Link
+    # „stattdessen Wohnung suchen": Klick, Seite laden, Beruf und Ort neu tippen. Geprueft
+    # wird darum nicht nur, dass beide Arten dastehen, sondern dass die Eingaben drueben
+    # ankommen – ein Umschalter, der das Getippte wegwirft, ist keiner.
+    pruefe("Der Umschalter bietet beide Arten im selben Formular an",
+           ein.count('id="schnellzugriff"') == 1
+           and 'name="art" value="job"' in ein and 'name="art" value="wohnung"' in ein,
+           ein.count('id="schnellzugriff"'))
+    _um = c.get("/taskforce/suchen?art=wohnung&wo=Köln").text
+    pruefe("Der Umschalter trägt die Eingaben mit – der Ort steht drüben im Feld",
+           'name="wo" value="Köln"' in _um and 'name="art" value="wohnung"' in _um,
+           "Ortsfeld kam leer zurück" if 'name="wo" value="Köln"' not in _um else "Köln")
+
+    # Menschen finden und Menschen erfassen ist derselbe Reflex und wird von allen sieben
+    # Reitern gebraucht – der Weg ins CRM klebt deshalb in der Topbar. Geprueft wird die
+    # Adresse aus der Einstellung: eine erfundene waere schlimmer als keine, weil sie
+    # aussieht, als fuehre sie irgendwohin.
+    _crm = A.CRM_URL + "/kunden"
+    _fehlt = [p for p in ("/", "/taskforce", "/taskforce/tafel", "/kunden", "/aufgaben",
+                          "/lebenslauf", "/trichter", "/coaches")
+              if f'href="{_crm}"' not in c.get(p).text]
+    pruefe("Der Weg ins CRM steht auf jeder Seite und zeigt auf die eingestellte Adresse",
+           A.CRM_URL.startswith("https://") and not _fehlt, _fehlt or _crm)
 
     k = einstieg.kette()
     lauf = aufgaben.laufende_massnahmen()
@@ -846,10 +945,14 @@ def main():
 
     # „Alle Filter zuruecksetzen" steht an zwei Stellen: unter der Reglerbank und im
     # Leertext „Nichts gefunden … zuruecksetzen". Beide muessen auf der Tafel bleiben.
+    # Seit dem 21.09.2026 ist die verengte Tafel /taskforce/tafel?art=… – der Ruecksetzknopf
+    # muss also dort landen und nicht im Dashboard: zurueckgesetzt waeren die Regler zwar,
+    # aber man stuende vor einer anderen Seite als der, auf der man gefiltert hat.
     for name, adresse, erwartet in (
             ("Gesamtbild", f"/taskforce?kunde={kid}&score=6", "/taskforce/tafel"),
-            ("Arbeitssuche", "/taskforce/arbeit?score=8", "/taskforce/arbeit"),
-            ("Wohnungssuche", "/taskforce/wohnung?miete=100", "/taskforce/wohnung")):
+            ("Arbeitssuche", "/taskforce/tafel?art=job&score=8", "/taskforce/tafel?art=job"),
+            ("Wohnungssuche", "/taskforce/tafel?art=wohnung&miete=100",
+             "/taskforce/tafel?art=wohnung")):
         t = c.get(adresse).text
         rueck = re.findall(r'href="([^"]+)"[^>]*>alle Filter zurücksetzen', t)
         leertext = re.findall(r'href="([^"]+)">zurücksetzen', t)
@@ -873,10 +976,12 @@ def main():
     # mit Regler ist die, ueber die das CRM und alte Lesezeichen hereinkommen. Genau dort
     # fehlte der Pfeil, weil das Makro nur den Pfad verglich.
     for adresse in ("/taskforce", "/taskforce/tafel", "/taskforce/arbeit", "/taskforce/wohnung",
+                    "/taskforce/tafel?art=job", "/taskforce/tafel?art=wohnung",
                     "/taskforce?art=job", "/taskforce?art=wohnung", "/taskforce?status=neu",
                     f"/taskforce?kunde={kid}",
                     "/taskforce/suchen", "/taskforce/suchen?art=wohnung",
                     "/taskforce/profile-anlegen", f"/taskforce/kunde/{kid}/stand",
+                    f"/taskforce/kunde/{kid}/stand?art=job",
                     f"/taskforce/kunde/{kid}", f"/taskforce/profil/{pj}"):
         t = c.get(adresse).text
         leisten = t.count('<nav class="pfad"')
@@ -906,6 +1011,1027 @@ def main():
            '<nav class="pfad"' in leiste and "pfad-zurueck" not in leiste
            and "/taskforce" not in leiste,
            leiste.strip()[:90])
+
+    print("\n11. Die zwei Arbeitsplätze: Arbeitssuche und Wohnungssuche")
+    # /taskforce/arbeit und /taskforce/wohnung waren bis zum 21.09.2026 die Tafel mit
+    # gesetztem Filter – dieselbe Wand aus Treffern, nur halbiert. Was fehlte, war die
+    # Stelle, an der steht, WONACH in dieser Art gesucht wird und FUER WEN nicht. Geprueft
+    # wird beides: dass der Arbeitsplatz das jetzt zeigt, und dass die Tafel dabei nicht
+    # verschwunden ist, sondern unter /taskforce/tafel?art=… weitersteht.
+    arb = c.get("/taskforce/arbeit").text
+    woh = c.get("/taskforce/wohnung").text
+    pruefe("Die Arbeitsplätze sind eine eigene Seite – nicht die Tafel, nicht der Einstieg",
+           ist_dashboard(arb) and ist_dashboard(woh)
+           and not any((ist_tafel(arb), ist_einstieg(arb), ist_tafel(woh), ist_einstieg(woh))))
+    pruefe("Der Weg auf die Tafel dieser Art steht auf beiden Arbeitsplätzen",
+           "/taskforce/tafel?art=job" in arb and "/taskforce/tafel?art=wohnung" in woh)
+
+    # Offen und nicht in einem <details>: was man erst aufklappen muss, tut niemand im
+    # Vorbeigehen. Gemessen an der Position, nicht am Wortlaut – dieselbe Messung wie beim
+    # Schnellzugriff des Einstiegs. Eingeklappt bleibt nur die Quellenliste, und die steht
+    # hinter den Reglern.
+    # Gemessen wird im Inhalt, nicht im ganzen Dokument: die Reiterleiste in `basis.html`
+    # hat selbst ein <details> („Einrichtung"), und das steht auf jeder Seite vor allem
+    # anderen. Der Inhalt beginnt am Merkmal der Vorlage.
+    _inhalt_a = arb[arb.find('class="tf-dashboard"'):]
+    _inhalt_w = woh[woh.find('class="tf-dashboard"'):]
+    pruefe("Die Spezifikation steht offen, nicht eingeklappt",
+           0 < _inhalt_a.find("Gehalt ab") < _inhalt_a.find("<details")
+           and 0 < _inhalt_w.find("Miete bis") < _inhalt_w.find("<details"),
+           f"Arbeit: Gehalt ab an {_inhalt_a.find('Gehalt ab')}, erstes <details an "
+           f"{_inhalt_a.find('<details')} · Wohnung: Miete bis an {_inhalt_w.find('Miete bis')}, "
+           f"erstes <details an {_inhalt_w.find('<details')}")
+    _job_regler = ("Gehalt ab", "nur Quereinstieg")
+    _wohn_regler = ("Miete bis", "Zimmer ab", "Fläche ab", "nur mit WBS")
+    pruefe("Das Wohnungs-Dashboard trägt keinen Arbeitsregler und umgekehrt",
+           all(r in arb and r not in woh for r in _job_regler)
+           and all(r in woh and r not in arb for r in _wohn_regler),
+           [r for r in _job_regler if r in woh] + [r for r in _wohn_regler if r in arb])
+
+    # Zwei Suchmasken, eine Adresse. Weichen die Feldnamen ab, sucht man von zwei Stellen
+    # verschieden, ohne dass es auffaellt – und die Abweichung faellt erst auf, wenn ein
+    # Treffer fehlt, den es gab.
+    def feldnamen(text, marke):
+        stueck = text[text.find(marke):]
+        return set(re.findall(r'name="([^"]+)"', stueck[:stueck.find("</form>")]))
+    _schnell = feldnamen(ein, 'id="schnellzugriff"')
+    _dash = feldnamen(arb, 'id="spezifikation"')
+    pruefe("Beide Suchmasken bauen dieselbe Adresse",
+           bool(_schnell) and _schnell <= _dash, sorted(_schnell - _dash) or sorted(_schnell))
+
+    # Wer aus der Arbeitssuche auf einen Namen klickt, will dessen Arbeitssuche sehen.
+    # Geprueft werden auch die Ziele der Personensuche – sie fuehrt an derselben Stelle
+    # auf dieselbe Seite und darf die Art nicht verlieren.
+    _kundenlinks = (re.findall(r'href="(/taskforce/kunde/\d+/stand[^"]*)"', arb)
+                    + re.findall(r'data-url="(/taskforce/kunde/\{id\}/stand[^"]*)"', arb))
+    pruefe("Die Kundenauswahl ist artgebunden",
+           bool(_kundenlinks) and all(z.endswith("art=job") for z in _kundenlinks),
+           [z for z in _kundenlinks if not z.endswith("art=job")][:3]
+           or f"{len(_kundenlinks)} Ziele, alle mit art=job")
+
+    # Der Stand eines Menschen laesst sich auf eine Art verengen – und sagt dann, dass er
+    # verengt ist. Eine Haelfte, die lautlos fehlt, ist schlimmer als eine lange Seite.
+    voll = c.get(f"/taskforce/kunde/{kid}/stand").text
+    nur_job = c.get(f"/taskforce/kunde/{kid}/stand?art=job").text
+    pruefe("Der Stand lässt sich verengen und verliert nichts",
+           "Arbeitssuche" in voll and "Wohnungssuche" in voll
+           and "Arbeitssuche" in nur_job and "Wohnungssuche" not in nur_job
+           and f'href="/taskforce/kunde/{kid}/stand"' in nur_job,
+           "volle Fassung nicht verlinkt"
+           if f'href="/taskforce/kunde/{kid}/stand"' not in nur_job else "")
+    pruefe("Der Nachweis verengt sich mit, aus derselben Abfrage",
+           all(z["art"] == "job" for z in tf.kunden_nachweis(kid, art="job"))
+           and len(tf.kunden_nachweis(kid)) >= len(tf.kunden_nachweis(kid, art="job")),
+           f"{len(tf.kunden_nachweis(kid))} gesamt, "
+           f"{len(tf.kunden_nachweis(kid, art='job'))} in der Arbeitssuche")
+
+    # Keine zweite Rechenart: die Zahlen des Arbeitsplatzes kommen aus derselben Funktion
+    # wie die der Tafel, nur mit `art` davor. Zwei Wege, dieselbe Zahl zu rechnen, gehen
+    # frueher oder spaeter auseinander – und dann steht auf zwei Seiten Verschiedenes.
+    pruefe("Keine zweite Rechenart: die Hälften ergeben das Ganze",
+           tf.anzahl_neu(art="job") + tf.anzahl_neu(art="wohnung") == tf.anzahl_neu(),
+           f"{tf.anzahl_neu(art='job')} + {tf.anzahl_neu(art='wohnung')}"
+           f" gegen {tf.anzahl_neu()}")
+
+    # Die vier Zahlen der Kopfzeile kommen aus genau den Funktionen, auf die sie sich
+    # berufen – gemessen an den gerenderten Zahlen, nicht an einer zweiten Rechnung im
+    # Test. „Angeschrieben" heisst dabei mindestens angeschrieben, dieselbe Lesart wie in
+    # `tf.kunden_bilanz`; sonst stuende dieselbe Sache auf zwei Seiten verschieden da.
+    _z = tf.angebote_zaehlen(art="job")
+    _erwartet = [len([p for p in tf.uebersicht(art="job") if p["aktiv"]]),
+                 tf.anzahl_neu(art="job"),
+                 sum(_z.get(s, 0) for s in ("angeschrieben", "antwort", "erfolg")),
+                 tf.anzahl_wiedervorlage(art="job")]
+    _gezeigt = [int(x) for x in re.findall(r'<div class="zahl"[^>]*>(\d+)</div>', arb)]
+    pruefe("Profile, neue Treffer, angeschrieben und Wiedervorlage sind die der Art",
+           _gezeigt == _erwartet, f"gezeigt {_gezeigt}, gerechnet {_erwartet}")
+
+    # Der Arbeitsplatz darf nicht die naechste Wand werden. Messpunkte am 21.09.2026:
+    # Einstieg 23,8 KB, Tafel 130,8 KB.
+    _gr = (len(arb.encode("utf-8")), len(woh.encode("utf-8")))
+    pruefe("Das Dashboard bleibt eine Seite, keine Wand",
+           all(g < 40 * 1024 for g in _gr),
+           "Arbeit %.1f KB, Wohnung %.1f KB" % (_gr[0] / 1024, _gr[1] / 1024))
+
+    # Aus der Spezifikation direkt ein Suchprofil – ohne den Umweg ueber die Trefferliste.
+    # Dieselbe Route wie auf der Direktsuche, damit es nur einen Weg gibt, der das tut.
+    c.post("/taskforce/suchen/als-profil",
+           data={"kunde": str(zweiter), "art": "wohnung", "was": "Dachgeschoss WBS",
+                 "wo": "Bonn", "km": "15", "miete": "900", "zimmer": "2", "flaeche": "55"})
+    _neu_p = [p for p in tf.profile_von(zweiter) if p["titel"] == "Dachgeschoss WBS"]
+    pruefe("Aus der Spezifikation wird ein Suchprofil dieser Art, mit ihren Reglern",
+           bool(_neu_p) and _neu_p[0]["art"] == "wohnung" and _neu_p[0]["ort"] == "Bonn"
+           and _neu_p[0]["umkreis_km"] == 15 and _neu_p[0]["max_miete"] == 900
+           and _neu_p[0]["min_zimmer"] == 2 and _neu_p[0]["min_flaeche"] == 55,
+           {x: _neu_p[0][x] for x in ("art", "ort", "umkreis_km", "max_miete", "min_zimmer",
+                                      "min_flaeche")} if _neu_p else "nichts angelegt")
+    _vorher = len(tf.profile_von(zweiter))
+    _ohne = c.post("/taskforce/suchen/als-profil",
+                   data={"art": "job", "was": "Ohne Menschen", "wo": "Köln",
+                         "zurueck": "/taskforce/arbeit"})
+    _ziel_ohne = _ohne.headers.get("Location", "")
+    pruefe("Ohne gewählten Menschen entsteht kein Profil, und es steht da",
+           _ohne.status_code == 302 and _ziel_ohne.startswith("/taskforce/arbeit")
+           and len(tf.profile_von(zweiter)) == _vorher
+           and "Kein Kunde gewählt" in c.get(_ziel_ohne).text,
+           _ziel_ohne or "keine Rücksprungadresse")
+
+    # Der Leerfall wird benannt. Es gibt heute zwei Suchprofile, beide fuer denselben
+    # Menschen – das Wohnungs-Dashboard zeigt am ersten Tag eine Zeile oder keine. Steht
+    # dort eine leere Liste ohne Satz, liest man Leere als Ruhe. Genau das ist der Fehler,
+    # den der Einstieg gerade behoben hat.
+    _ueber = tf.uebersicht
+    tf.uebersicht = lambda **_: []
+    try:
+        _leer_dash = c.get("/taskforce/wohnung").text
+    finally:
+        tf.uebersicht = _ueber
+    pruefe("Der Leerfall wird benannt statt leer gelassen",
+           "Für niemanden wird gerade eine Wohnung gesucht" in _leer_dash)
+
+    print("\n12. Der Umbau der Oberflaeche vom 21.09.2026")
+    import lxml.html
+    # --- Genau ein `h1` je Seite -----------------------------------------------------
+    # Entschieden ist Variante (A): die Topbar traegt den Titel. Sie klebt und steht auch
+    # nach 2.800 px Scrollhoehe noch da; eine zweite Ueberschrift im Inhalt wiederholte
+    # nur, was die Leiste und die Pfadleiste ohnehin sagen. Gestrichen ist der Seiten-h1
+    # deshalb genau dort, wo er sich wiederholte – Seiten, die einen MENSCHEN oder ein
+    # einzelnes Profil benennen, behalten ihren: der Name steht in der Leiste nie.
+    #
+    # **Und die Gegenrichtung.** `/taskforce/profile-anlegen` hatte danach GAR keine
+    # Überschrift: `sammelanlage_seite` beginnt nicht mit `taskforce`, die Regel in
+    # `basis.html:51` greift dort nicht, und `ns.titel` fällt auf die Vorgabe zurück.
+    # Geprüft wird darum nicht „höchstens einer", sondern: **der Ort steht genau
+    # einmal da** – in der Topbar, wenn die ihn kennt, sonst im Inhalt.
+    VORGABE = "Improfy-Ergänzung"
+    _falsch, _ohne_ort = [], []
+    for _pfad in ("/taskforce", "/taskforce/tafel", "/taskforce/arbeit",
+                  "/taskforce/wohnung", "/taskforce/suchen",
+                  "/taskforce/profile-anlegen"):
+        _t = c.get(_pfad).text
+        _b = lxml.html.fromstring(_t)
+        _topbar = " ".join(_b.xpath("//h1[contains(@class,'page-title')]")[0]
+                           .text_content().split())
+        _inhalt = len(_b.xpath("//main[@class='content']//h1"))
+        _erwartet = 0 if _topbar != VORGABE else 1
+        if _inhalt != _erwartet:
+            _falsch.append(f"{_pfad}: Topbar „{_topbar}“, {_inhalt} im Inhalt,"
+                           f" erwartet {_erwartet}")
+        if 'class="pfad"' not in _t:
+            _ohne_ort.append(_pfad)
+    pruefe("Jede Seite nennt ihren Ort genau einmal als Überschrift – und trägt eine Pfadleiste",
+           not _falsch and not _ohne_ort,
+           "; ".join(_falsch + _ohne_ort) or "6 Adressen geprüft")
+
+    # Die Ausnahme, und warum sie eine ist: hier steht ein NAME. Die Topbar sagt auf
+    # dieser Seite „Taskforce", nicht wen man vor sich hat – den Seiten-h1 zu streichen
+    # waere hier kein Aufraeumen, sondern Weglassen. Also zwei: der Reiter oben, der
+    # Mensch im Inhalt.
+    _person = c.get(f"/taskforce/kunde/{kid}/stand").text
+    _inhalt_h1 = re.findall(r"<h1(?![^>]*page-title)[^>]*>(.*?)</h1>", _person, re.S)
+    pruefe("Die Seite eines Menschen behält ihre Überschrift – sein Name steht nirgends sonst",
+           len(_inhalt_h1) == 1 and tf.kunden_info(kid)["name"] in _inhalt_h1[0],
+           _inhalt_h1 or "keine Inhaltsüberschrift")
+
+    # --- Die Liste „kein Profil" ist geschnitten, und sie sagt es ---------------------
+    # Dasselbe Muster wie auf dem Stand eines Kunden: die ersten acht, die echte
+    # Gesamtzahl danebengeschrieben, der Rest hinter `?alle=1`. Eine Grenze, die bei den
+    # heutigen Zahlen nicht greift, prueft nichts – darum hier erzwungen.
+    _alle_ohne = [z for z in sammelanlage.vorschlaege(art="job")
+                  if z["id"] not in {p["kunde_id"] for p in tf.uebersicht(art="job")}]
+    _grenze = A.DASHBOARD_OHNE_PROFIL
+    A.DASHBOARD_OHNE_PROFIL = 2
+    try:
+        _kurz = c.get("/taskforce/arbeit").text
+        _voll = c.get("/taskforce/arbeit?alle=1").text
+    finally:
+        A.DASHBOARD_OHNE_PROFIL = _grenze
+    pruefe("Die geschnittene Liste nennt die echte Gesamtzahl und den Weg zum Rest",
+           (bool(re.search(r"die ersten\s+2 von %d" % len(_alle_ohne), _kurz))
+            and f"alle {len(_alle_ohne)} anzeigen" in _kurz)
+           if len(_alle_ohne) > 2 else True,
+           f"{len(_alle_ohne)} ohne Jobprofil")
+    pruefe("Die Zeilen werden wirklich geschnitten, und `?alle=1` zeigt alle",
+           (_kurz.count('<span class="plakette p-rot">kein Profil</span>') == 2
+            and _voll.count('<span class="plakette p-rot">kein Profil</span>')
+            == len(_alle_ohne))
+           if len(_alle_ohne) > 2 else True,
+           f"{_kurz.count(chr(62) + 'kein Profil<')} geschnitten gegen "
+           f"{_voll.count(chr(62) + 'kein Profil<')} vollständig")
+
+    # --- Ein Ziel, ein Knopf ---------------------------------------------------------
+    # Je Zeile stand ein „Profil anlegen →" mit demselben `href` wie der Knopf im
+    # Listenkopf – bei 19 Zeilen zwanzigmal dieselbe Adresse auf einem Bildschirm. Der
+    # Weg selbst darf dabei nicht verschwinden: er steht oben, und zwar genau einmal.
+    _sammel = f'href="/taskforce/profile-anlegen?art=job"'
+    pruefe("Der Weg zur Sammelanlage steht einmal, nicht in jeder Zeile",
+           arb.count(_sammel) == 1, f"{arb.count(_sammel)}× auf /taskforce/arbeit")
+
+    # --- Höchstens eine gefüllte Farbe je Liste --------------------------------------
+    # Gefüllt (`btn-primary`) ist die Aufforderung, nicht die Zeile. Zehn gefüllte Knöpfe
+    # untereinander sind zehnmal das Lauteste auf der Seite und heben sich gegenseitig
+    # auf. Die Zeilenknöpfe bleiben – sie führen an zehn verschiedene Orte –, sie werden
+    # nur leise.
+    _laut = {p: c.get(p).text.count("btn-sm btn-primary")
+             for p in ("/taskforce", "/taskforce/arbeit", "/taskforce/wohnung")}
+    pruefe("Kein gefüllter Knopf in den Zeilen der Arbeitslisten",
+           not any(_laut.values()), _laut)
+
+    print("\n13. Korrekturrunde 21.09.2026")
+    from werkzeug.datastructures import MultiDict
+
+    # --- Beide Wege bauen dasselbe Profil --------------------------------------------
+    # Geprueft wird, was die SEITE schickt, nicht was der Test sich wuenscht: die Felder
+    # kommen aus dem gerenderten Formular, wie ein Browser sie eingesammelt haette. Die
+    # alte Fassung postete `miete/zimmer/flaeche` von Hand und sah deshalb nicht, dass
+    # `gehalt`, `quereinstieg`, `wbs` und `quelle` im Formular gar nicht standen. Ueber
+    # den Arbeitsplatz entstand `{"min_gehalt": 3000, "nur_quereinstieg": true}`, ueber
+    # die Direktsuche `kriterien=None` – ein Knopf, zwei verschiedene Profile.
+    _probe = [{"quelle": "x", "extern_id": "1", "titel": "Lagerhelfer A", "anbieter": "A",
+               "ort": "Köln", "zusatz": {"quereinstieg": True}},
+              {"quelle": "x", "extern_id": "2", "titel": "Lagerhelfer B", "anbieter": "B",
+               "ort": "Köln", "zusatz": {"quereinstieg": False}}]
+    _echte_suche = tf.direktsuche
+    tf.direktsuche = lambda p, quellen=None, grenze=200: (_probe, [])
+    try:
+        _adr = ("/taskforce/suchen?art=job&was=Lagerhelfer&wo=K%C3%B6ln&km=25"
+                "&gehalt=3000&quereinstieg=1&quelle=jobs.ba&quelle=jobs.indeed")
+        _baum = lxml.html.fromstring(c.get(_adr).text)
+        _form = [x for x in _baum.iter("form")
+                 if (x.get("action") or "").endswith("/taskforce/suchen/als-profil")][0]
+        # **Auch `<select>`.** Sechs derselben Regler (`km`, `gehalt`, `arbeitszeit`,
+        # `miete`, `zimmer`, `flaeche`) sind auf dem Arbeitsplatz Auswahlfelder – eine
+        # Prüfung, die nur `<input>` liest, übersähe dort genau den Verlust, gegen
+        # den sie geschrieben wurde. Gesammelt wird wie im Browser: ohne `selected`
+        # gilt die erste Zeile, abgewählte Häkchen bleiben weg.
+        _felder = []
+        for _i in _form.iter("input", "select"):
+            _n = _i.get("name")
+            if not _n:
+                continue
+            if _i.tag == "select":
+                _gew = ([o for o in _i.iter("option") if o.get("selected") is not None]
+                        or list(_i.iter("option"))[:1])
+                _felder += [(_n, o.get("value") or "") for o in _gew]
+                continue
+            if ((_i.get("type") or "").lower() in ("checkbox", "radio")
+                    and _i.get("checked") is None):
+                continue
+            _w = _i.get("value") or ""
+            _felder.append((_n, str(kid) if _n == "kunde"
+                            else ("Regler aus der Direktsuche" if _n == "titel" else _w)))
+        c.post("/taskforce/suchen/als-profil", data=MultiDict(_felder))
+    finally:
+        tf.direktsuche = _echte_suche
+    c.post("/taskforce/suchen/als-profil", data=MultiDict([
+        ("art", "job"), ("was", "Lagerhelfer"), ("wo", "Köln"), ("km", "25"),
+        ("gehalt", "3000"), ("quereinstieg", "1"),
+        ("quelle", "jobs.ba"), ("quelle", "jobs.indeed"),
+        ("kunde", str(kid)), ("titel", "Regler vom Arbeitsplatz")]))
+
+    def _regler_von(titel):
+        z = db.eine("SELECT kriterien, quellen FROM tf_profil WHERE kunde_id=? AND titel=?",
+                    (kid, titel))
+        return (json.loads(z["kriterien"]) if z and z["kriterien"] else None,
+                z["quellen"] if z else "kein Profil")
+
+    _aus_suche = _regler_von("Regler aus der Direktsuche")
+    _aus_platz = _regler_von("Regler vom Arbeitsplatz")
+    pruefe("Die feinen Regler überleben beide Wege – und beide bauen dasselbe Profil",
+           _aus_suche == _aus_platz
+           and _aus_suche[0] == {"min_gehalt": 3000, "nur_quereinstieg": True}
+           and _aus_suche[1] == "jobs.ba,jobs.indeed",
+           f"Direktsuche {_aus_suche} · Arbeitsplatz {_aus_platz}")
+    pruefe("Die Seite schickt jeden Regler mit, der keine eigene Spalte hat",
+           {"gehalt", "quereinstieg", "wbs", "quelle"} <= {n for n, _ in _felder},
+           sorted({n for n, _ in _felder}))
+
+    # --- Ein Schluessel fuer den Quereinstieg ----------------------------------------
+    # `_suchprofil` schrieb `quereinstieg`, `tf.job_filter` liest `nur_quereinstieg`:
+    # das gespeicherte Profil filterte, der Bildschirm nicht. Gemessen an denselben zwei
+    # Treffern – einer geeignet, einer nicht.
+    _p_bild = A._suchprofil("job", {"was": "Lagerhelfer", "wo": "Köln", "km": 25,
+                                    "quereinstieg": True})
+    _durch, _weg_zahl = tf.job_filter(_p_bild, list(_probe))
+    # `suchspalte` legt die Kriterien als JSON-Text ab – gelesen wird hier also derselbe
+    # Text, den auch `job_filter` auspackt.
+    _k_bild = json.loads(_p_bild["kriterien"] or "{}")
+    pruefe("„nur Quereinstieg“ filtert auch auf dem Bildschirm, nicht nur im Profil",
+           len(_durch) == 1 and _weg_zahl == 1
+           and _k_bild.get("nur_quereinstieg") is True,
+           f"{len(_durch)} durch, {_weg_zahl} aussortiert, Schlüssel {sorted(_k_bild)}")
+
+    # --- Eine Zaehlweise fuer „hat ein Profil dieser Art" ----------------------------
+    # `vorschlaege()` fragte nach Menschen ohne AKTIVES Profil, `anlegen()` nach Menschen
+    # ohne JEDES. Wer sein Profil pausiert hatte, wurde also angeboten und beim Anlegen
+    # mit „hat ein Profil, es ist pausiert" liegen gelassen – zwei Zahlen fuer dieselbe
+    # Menge, einen Klick auseinander. Der Fall kommt im Bestand nicht von selbst vor,
+    # also wird er hier hergestellt.
+    _wieder = []
+    _vorher_v = sammelanlage.vorschlaege(art="job")
+    if _vorher_v:
+        _opfer = _vorher_v[0]["id"]
+        _angelegt, _ = sammelanlage.anlegen([(_opfer, "Lagerhelfer", "Köln")], art="job")
+        _neu_pid = _angelegt[0][1] if _angelegt else None
+        if _neu_pid:
+            with db.offen() as _con:
+                _con.execute("UPDATE tf_profil SET aktiv=0 WHERE id=?", (_neu_pid,))
+        try:
+            _v = sammelanlage.vorschlaege(art="job")
+            # Erst vergleichen, dann anlegen: ein angelegtes Profil veraendert genau die
+            # Menge, um die es hier geht.
+            _dash = c.get("/taskforce/arbeit?alle=1").text
+            pruefe("Arbeitsplatz und Sammelanlage zählen dieselbe Menge",
+                   _dash.count(">kein Profil<") == len(_v),
+                   f"Arbeitsplatz {_dash.count(chr(62) + 'kein Profil<')}, "
+                   f"Sammelanlage {len(_v)}, davon pausiert 1")
+            _wieder, _uebersprungen = sammelanlage.anlegen(
+                [(z["id"], z["begriff"] or "Lagerhelfer", z["ort"]) for z in _v[:1]],
+                art="job")
+            pruefe("Was die Sammelanlage anbietet, lässt sich auch anlegen",
+                   _opfer not in {z["id"] for z in _v}
+                   and bool(_wieder)
+                   and not [g for _, g in _uebersprungen if "Profil" in g],
+                   f"{len(_vorher_v)} vorher, {len(_v)} nachher, "
+                   f"übersprungen {_uebersprungen or 'nichts'}")
+        finally:
+            with db.offen() as _con:
+                if _neu_pid:
+                    _con.execute("DELETE FROM tf_profil WHERE id=?", (_neu_pid,))
+                for _k, _p, _ in _wieder:
+                    _con.execute("DELETE FROM tf_profil WHERE id=?", (_p,))
+
+    # --- Was aus dem Formular kommt, ist nichts, worauf man blind zugreift -----------
+    # Vier gemessene Wege in eine 500er-Seite, alle mit gueltigem JSON. Ein `dict` ist
+    # wahr und kam am alten Guard vorbei; `sqlite3` kann es nicht binden, und `_score`
+    # ruft auf `zusatz` ein `.get` auf.
+    _pid_g = tf.profile_von(kid)[0]["id"]
+    _vorher_g = db.wert("SELECT COUNT(*) FROM tf_angebot WHERE profil_id=?", (_pid_g,))
+    _giftig, _kaputt = 0, []
+    for _satz in ({"quelle": {"x": 1}, "extern_id": "a"},
+                  {"quelle": "jobs.ba", "extern_id": "b", "titel": ["a", "b"]},
+                  {"quelle": "jobs.ba", "extern_id": "c", "entfernung_km": {"a": 1}},
+                  {"quelle": "jobs.ba", "extern_id": "d", "zusatz": ["a"]},
+                  ["gar kein Wörterbuch"], "auch nicht", 7):
+        _r = c.post("/taskforce/suchen/uebernehmen",
+                    data={"profil": str(_pid_g), "zurueck": "/taskforce/suchen",
+                          "treffer": "0", "t0": json.dumps(_satz)})
+        _giftig += 1
+        if _r.status_code >= 500:
+            _kaputt.append(f"{_satz} → {_r.status_code}")
+    pruefe(f"{_giftig} untergeschobene Treffer fallen weg, statt die Seite zu fällen",
+           not _kaputt
+           and db.wert("SELECT COUNT(*) FROM tf_angebot WHERE profil_id=?",
+                       (_pid_g,)) == _vorher_g,
+           "; ".join(_kaputt[:2]) or f"{_vorher_g} Angebote unverändert")
+
+    # --- Der Rueckweg bleibt im Haus -------------------------------------------------
+    # Dieselbe Regel wie in `_zurueck` und `_mit_meldung`. Ohne sie reichte ein
+    # Formularfeld, um jemanden nach dem Klick auf „übernehmen" nach draußen zu schicken.
+    _fremd = c.post("/taskforce/suchen/uebernehmen",
+                    data={"profil": str(_pid_g), "zurueck": "https://example.org/",
+                          "treffer": "0"})
+    pruefe("Eine fremde Rücksprungadresse wird nicht gefolgt",
+           _fremd.status_code == 302
+           and _fremd.headers.get("Location", "").startswith("/taskforce/suchen"),
+           _fremd.headers.get("Location"))
+
+    # --- Die 413-Wand sagt, was los ist ----------------------------------------------
+    # Die Treffer reisen im Formular mit, also hat der Rumpf eine Grenze:
+    # `max_form_memory_size` (500.000 B), mit echten Treffergroessen rund 575 Stueck.
+    # Heute unerreichbar, weil `tf.direktsuche` bei 200 abschneidet – aber genau eine
+    # Zahl entfernt. Ohne Griff kam die nackte englische Werkzeug-Seite: keine
+    # Erklaerung, kein Weg zurueck, alles Angehakte weg.
+    _zu_gross = c.post("/taskforce/suchen/uebernehmen",
+                       data={"profil": str(_pid_g), "zurueck": "/taskforce/suchen",
+                             "treffer": "0",
+                             "t0": json.dumps({"quelle": "a", "extern_id": "b",
+                                               "beschreibung": "x" * 600000})})
+    _t413 = _zu_gross.get_data(as_text=True)
+    pruefe("Ein zu grosser Rumpf endet auf einer deutschen Seite mit Weg zurück",
+           _zu_gross.status_code == 413 and "Zu viel auf einmal" in _t413
+           and 'href="/' in _t413,
+           f"{_zu_gross.status_code}, {len(_t413)} Zeichen")
+
+    # --- Der Schnitt bei `grenze` wird benannt ---------------------------------------
+    # Dubletten standen schon immer da („12 Dubletten ausgeblendet"), der Schnitt nicht:
+    # wer 340 Treffer hatte, sah 200 und hielt das für alles.
+    _viele = [{"quelle": "probe.schnitt", "extern_id": str(i),
+               "titel": "Stelle %04d Lagerhelfer" % i, "anbieter": "Firma%04d" % i,
+               "ort": "Köln", "zusatz": {}} for i in range(25)]
+    _alt_q, _alt_f = tf.QUELLEN, tf.quellen_fuer
+    tf.QUELLEN = dict(tf.QUELLEN)
+    tf.QUELLEN["probe.schnitt"] = ("Probe", "job", lambda p: list(_viele), lambda: True)
+    tf.quellen_fuer = lambda p: ["probe.schnitt"]
+    try:
+        _t, _m = tf.direktsuche(A._suchprofil("job", {"was": "Lagerhelfer", "wo": "Köln",
+                                                      "km": 25}), grenze=10)
+    finally:
+        tf.QUELLEN, tf.quellen_fuer = _alt_q, _alt_f
+    pruefe("Der Schnitt bei der Grenze wird benannt, nicht nur die Dubletten",
+           len(_t) == 10 and any("abgeschnitten" in z for z in _m),
+           f"{len(_t)} von {len(_viele)} · {_m}")
+
+
+    # --- Ein Schrägstrich, kein zweiter ---------------------------------------------
+    # `startswith("/")` reichte nicht: `//example.org` beginnt mit `/` und ist trotzdem
+    # eine fremde Adresse – ein Browser löst ein schema-relatives `Location` gegen
+    # `https:` auf. Die alte Prüfung maß ausgerechnet `https://example.org/`, also den
+    # einen Wert, der ohnehin hielt. Hier stehen die Formen, die durchkamen.
+    _rs = chr(92)
+    _fremd_wege = ("//example.org", "////example.org", "//example.org/x",
+                   "/" + _rs + "example.org", "/\t/example.org",
+                   "https://example.org/", "https:/example.org")
+    _durchgerutscht = []
+    for _w in _fremd_wege:
+        for _route in ("/taskforce/suchen/uebernehmen", "/taskforce/suchen/als-profil"):
+            _r = c.post(_route, data={"profil": str(_pid_g), "art": "job", "was": "x",
+                                      "zurueck": _w, "treffer": "0"})
+            _ziel = _r.headers.get("Location", "")
+            if not _ziel.startswith("/taskforce/suchen"):
+                _durchgerutscht.append(f"{_route} {_w!r} → {_ziel[:40]}")
+    pruefe(f"Keiner von {len(_fremd_wege)} fremden Rückwegen wird gefolgt",
+           not _durchgerutscht, "; ".join(_durchgerutscht[:3]))
+    # Und die Gegenrichtung: der eigene Weg muss durchkommen, samt Reglern.
+    _eigen = c.post("/taskforce/suchen/uebernehmen",
+                    data={"profil": str(_pid_g), "treffer": "0",
+                          "zurueck": "/taskforce/suchen?art=job&was=Lager"})
+    pruefe("Der eigene Rückweg kommt unverändert durch",
+           _eigen.headers.get("Location", "").startswith(
+               "/taskforce/suchen?art=job&was=Lager"),
+           _eigen.headers.get("Location"))
+
+    # --- Der Wächter geht bis in den Zusatz ------------------------------------------
+    # Die sieben Fälle oben gehen alle nur EINE Ebene tief und fallen schon an der
+    # Pflichtprüfung durch – die zweite Ebene fassten sie nie an. `_score` liest aus
+    # `zusatz` aber Text: `suchbegriff` mit `.casefold()`, `preis` mit `.split()`.
+    _pid_j = db.wert("SELECT id FROM tf_profil WHERE art='job' ORDER BY id LIMIT 1")
+    _pid_w = db.wert("SELECT id FROM tf_profil WHERE art='wohnung' ORDER BY id LIMIT 1")
+    # Echte Quellenschluessel, sonst faellt der Satz schon am Quellen-Riegel durch und
+    # die zweite Ebene wird nie angefasst – die Pruefung wuerde gruen melden, ohne zu
+    # pruefen, wogegen sie geschrieben wurde.
+    _tief = [
+        (_pid_j, {"quelle": "jobs.ba", "extern_id": "z1",
+                  "zusatz": {"suchbegriff": {"x": 1}}}),
+        (_pid_w, {"quelle": "wohnung.kleinanzeigen", "extern_id": "z2",
+                  "zusatz": {"preis": {"x": 1}}}),
+        (_pid_w, {"quelle": "wohnung.kleinanzeigen", "extern_id": "z3",
+                  "zusatz": {"preis": [1, 2]}}),
+        (_pid_j, {"quelle": "jobs.ba", "extern_id": "z4",
+                  "entfernung_km": float("inf")}),
+        (_pid_j, {"quelle": "jobs.ba", "extern_id": "z5",
+                  "entfernung_km": float("nan")}),
+        # Jenseits von 64 Bit. Ein Python-`int` ist unbegrenzt und `math.isfinite`
+        # sagt `True`; `sqlite3` wirft dann `OverflowError` beim Binden – mitten in
+        # `_ablegen`, also mitten in der Transaktion. Weil `db.offen()` nur bei
+        # sauberem Durchlauf committet, wäre der ganze Stapel weg, nicht nur dieser
+        # Satz. Genau der Schaden, gegen den der Wächter geschrieben ist.
+        (_pid_j, {"quelle": "jobs.ba", "extern_id": "z6",
+                  "entfernung_km": 2 ** 63}),
+        (_pid_j, {"quelle": "jobs.ba", "extern_id": "z7",
+                  "entfernung_km": 10 ** 30}),
+        # Und unter null. Stürzt nichts ab – aber `_score` gibt dafür +2 („nah"),
+        # jeder `max_km`-Filter nimmt die Zeile mit, und die Sortierung nach Nähe
+        # stellt sie vor jeden echten Treffer. Ein Satz, der sich selbst nach oben
+        # nagelt.
+        (_pid_j, {"quelle": "jobs.ba", "extern_id": "z8", "entfernung_km": -5}),
+        (_pid_j, {"quelle": "jobs.ba", "extern_id": "z9", "score": -3}),
+    ]
+    _tief_kaputt, _abgelegt = [], []
+    for _ziel_pid, _satz in _tief:
+        if _ziel_pid is None:
+            continue
+        _vor = db.wert("SELECT COUNT(*) FROM tf_angebot WHERE profil_id=?", (_ziel_pid,))
+        _r = c.post("/taskforce/suchen/uebernehmen",
+                    data={"profil": str(_ziel_pid), "zurueck": "/taskforce/suchen",
+                          "treffer": "0", "t0": json.dumps(_satz)})
+        if _r.status_code >= 500 or A._treffer_sauber(_satz):
+            _tief_kaputt.append(f"{_satz.get('extern_id')} → {_r.status_code}")
+        if db.wert("SELECT COUNT(*) FROM tf_angebot WHERE profil_id=?",
+                   (_ziel_pid,)) != _vor:
+            _abgelegt.append(_satz.get("extern_id"))
+    pruefe("Auch die zweite Ebene im Zusatz fällt weg, statt die Seite zu fällen",
+           not _tief_kaputt and not _abgelegt,
+           "; ".join(_tief_kaputt + _abgelegt) or f"{len(_tief)} Formen geprüft")
+    pruefe("Eine gewöhnliche Entfernung und eine Null kommen weiter durch",
+           A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "ok1",
+                              "entfernung_km": 25})
+           and A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "ok2",
+                                  "entfernung_km": 0, "score": 7.5})
+           and A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "ok3",
+                                  "entfernung_km": None}))
+
+    # --- Ein Text, der als Zahl gelesen wird, hat eine Laenge ----------------------
+    # `_score` macht aus `zusatz.preis` mit `int(…)` eine Zahl, und Python 3.12 wirft bei
+    # mehr als 4.300 Ziffern – ungefangen, mitten in `_ablegen` und damit mitten in der
+    # Transaktion: `db.offen()` committet nur bei sauberem Durchlauf, also faellt der
+    # GANZE Stapel zurueck. Rund 5 kB Nutzlast genuegen, weit unter der 500-kB-Grenze.
+    #
+    # Die Zeile laeuft nur fuer ein Wohnprofil MIT `max_miete` – ohne das wird `int()` gar
+    # nicht erreicht, und die Pruefung waere gruen, ohne etwas zu pruefen.
+    _pid_wm = db.wert("SELECT id FROM tf_profil WHERE art='wohnung' ORDER BY id LIMIT 1")
+    _alte_miete = db.wert("SELECT max_miete FROM tf_profil WHERE id=?", (_pid_wm,))
+    with db.offen() as _con:
+        _con.execute("UPDATE tf_profil SET max_miete=900 WHERE id=?", (_pid_wm,))
+    try:
+        _lang = [
+            (_pid_wm, {"quelle": "jobs.ba", "extern_id": "L1",
+                       "zusatz": {"preis": "9" * 5000}}),
+            (_pid_wm, {"quelle": "jobs.ba", "extern_id": "L2",
+                       "zusatz": {"preis": "9" * 4301}}),
+            (_pid_j, {"quelle": "jobs.ba", "extern_id": "L3",
+                      "zusatz": {"suchbegriff": "x" * 5000}}),
+        ]
+        _lang_kaputt = []
+        for _ziel, _satz in _lang:
+            _r_l = c.post("/taskforce/suchen/uebernehmen",
+                          data={"profil": str(_ziel), "zurueck": "/taskforce/suchen",
+                                "treffer": "0", "t0": json.dumps(_satz)})
+            if (_r_l.status_code >= 500 or A._treffer_sauber(_satz)
+                    or db.wert("SELECT COUNT(*) FROM tf_angebot WHERE extern_id=?",
+                               (_satz["extern_id"],))):
+                _lang_kaputt.append(f"{_satz['extern_id']} → {_r_l.status_code}")
+        pruefe("Ein überlanger Zusatztext fällt weg, statt den ganzen Stapel zu kippen",
+               not _lang_kaputt, _lang_kaputt or f"{len(_lang)} Formen geprüft")
+        # Und die Gegenrichtung: ein echter Preis muss durchkommen \u2013 der laengste im
+        # Bestand hat 7 Zeichen, die Grenze liegt bei 200.
+        pruefe("Ein echter Preis und ein echter Suchbegriff bleiben erlaubt",
+               A._treffer_sauber({"quelle": "wohnung.kleinanzeigen", "extern_id": "L4",
+                                  "zusatz": {"preis": "1.480 €"}})
+               and A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "L5",
+                                      "zusatz": {"suchbegriff": "Lagerhelfer",
+                                                 "arbeitszeit": "Vollzeit, Schicht"}}))
+    finally:
+        with db.offen() as _con:
+            _con.execute("UPDATE tf_profil SET max_miete=? WHERE id=?",
+                         (_alte_miete, _pid_wm))
+
+    # --- `json.loads` wirft nicht nur `ValueError` ---------------------------------
+    # Tief verschachteltes JSON bricht im C-Scanner mit `RecursionError` ab \u2013 kein
+    # `ValueError`, also vom alten `except` nicht gefangen. Gemessen mit CPython 3.12.10:
+    # Tiefe 2.000 geht durch, Tiefe 5.000 wirft, bei 10 kB Nutzlast. Hier geht nichts
+    # verloren, der Abbruch liegt vor `_ablegen` \u2013 aber die Zusage „lieber ein Treffer
+    # weniger als eine 500er-Seite" gilt auch fuer diesen Weg.
+    _tief_json = []
+    for _t in (2000, 5000, 20000):
+        _r_t = c.post("/taskforce/suchen/uebernehmen",
+                      data={"profil": str(_pid_j), "zurueck": "/taskforce/suchen",
+                            "treffer": "0", "t0": "[" * _t + "]" * _t})
+        if _r_t.status_code >= 500:
+            _tief_json.append(f"Tiefe {_t} → {_r_t.status_code}")
+    pruefe("Tief verschachteltes JSON fällt weg, statt die Seite zu fällen",
+           not _tief_json, _tief_json or "Tiefe 2.000 / 5.000 / 20.000 geprüft")
+
+    # --- Eine ausgehöhlte Beispieldatei muss gemeldet werden, nicht den Lauf abbrechen -
+    # `(t.get("extern_id") or "").strip()` gab bei einer Zahl einen `AttributeError`
+    # AUSSERHALB von `pruefe` \u2013 der ganze Lauf braech ab, statt einen roten Punkt zu
+    # melden. Eine Pruefung gegen eine ausgehoehlte Datei muss sie ueberleben.
+    _vergiftet = {"jobs.ba": {"quelle": "jobs.ba", "extern_id": 12345},
+                  "jobs.stepstone": {"quelle": "jobs.stepstone", "extern_id": " "},
+                  "jobs.meinestadt": "gar kein Wörterbuch"}
+    try:
+        _gemeldet = hohle_beispiele(_vergiftet)
+    except Exception as e:
+        _gemeldet = "ABBRUCH: %s" % type(e).__name__
+    pruefe("Eine ausgehöhlte Beispieldatei wird gemeldet, nicht mit einem Absturz quittiert",
+           _gemeldet == ["jobs.ba", "jobs.meinestadt", "jobs.stepstone"], _gemeldet)
+
+    # Der eine Listenfall, der erlaubt bleiben MUSS: `arbeitszeit_codes` aus der BA.
+    pruefe("Die eine erlaubte Liste bleibt erlaubt",
+           A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "ok", "titel": "T",
+                              "zusatz": {"arbeitszeit_codes": ["vz", "tz"]}}))
+
+    # --- Kein Profil nagelt sich auf die heute verbundenen Portale fest --------------
+    # Eine nicht verbundene Quelle trägt im Formular `disabled`, der Browser schickt sie
+    # nicht mit – `gewaehlt` kannte sie nie, `moeglich` zählte sie mit. Damit war
+    # `passend < moeglich` immer wahr. Folge: Sobald der IS24-Zugang steht, bliebe jedes
+    # heute angelegte Wohnprofil dafür dauerhaft stumm, und niemand sähe, warum.
+    _echt_stand = tf.quellen_stand
+    _stumm = "wohnung.mail"
+    tf.quellen_stand = lambda nur_art=None: [
+        dict(q, bereit=False if q["schluessel"] == _stumm else q["bereit"])
+        for q in _echt_stand(nur_art)]
+    try:
+        _verbunden = [q["schluessel"] for q in tf.quellen_stand("wohnung") if q["bereit"]]
+        _felder_w = [("art", "wohnung"), ("wo", "Köln"), ("km", "25"),
+                     ("kunde", str(kid)), ("titel", "Quellenprobe Wohnung")]
+        _felder_w += [("quelle", q) for q in _verbunden]
+        c.post("/taskforce/suchen/als-profil", data=MultiDict(_felder_w))
+    finally:
+        tf.quellen_stand = _echt_stand
+    _q = db.eine("SELECT quellen FROM tf_profil WHERE kunde_id=? AND titel=?",
+                 (kid, "Quellenprobe Wohnung"))
+    pruefe("Alle verbundenen Quellen angehakt heißt weiter „alle“, keine Festnagelung",
+           _q is not None and _q["quellen"] is None,
+           f"quellen={(_q or {}).get('quellen')!r}, nicht verbunden: {_stumm}")
+
+    # --- Die CRM-Naht schreibt denselben Schlüssel wie die Oberfläche ----------------
+    # `api.py` trug eine wortgleiche zweite Fassung von `_suchprofil` – und den toten
+    # Schlüssel `quereinstieg`. Die Naht sagte dem CRM „nur Quereinstieg" zu und lieferte
+    # alles. Gemessen an denselben zwei Treffern wie oben.
+    _gesehen = {}
+
+    def _merken(p, quellen=None, grenze=200):
+        _gesehen["p"] = p
+        return tf.job_filter(p, list(_probe))[0], []
+
+    tf.direktsuche = _merken
+    try:
+        _api = c.get("/api/taskforce/suche?art=job&was=Lagerhelfer&wo=K%C3%B6ln"
+                     "&quereinstieg=1").get_json()
+    finally:
+        tf.direktsuche = _echte_suche
+    _k_api = json.loads((_gesehen.get("p") or {}).get("kriterien") or "{}")
+    pruefe("Die Schnittstelle filtert, was sie zusagt – mit dem Schlüssel der Seite",
+           _k_api.get("nur_quereinstieg") is True and len(_api.get("daten", [])) == 1,
+           f"Kriterien {sorted(_k_api)}, "
+           f"{len(_api.get('daten', []))} von {len(_probe)} Treffern")
+
+    # --- Indeed hält den Parallellauf nicht mehr fest --------------------------------
+    # Die Leiter (0, 5, 12 s) bleibt – am Bildschirm gilt aber ein Zeitbudget, und was
+    # getragen hat, steht in den Meldungen und damit im Protokoll der Route.
+    # Die Wartestufen liegen seit dem 22.09.2026 in einer Liste JE AUFRUF, nicht in
+    # einer Modulliste: `betrieb` startet den Nachtlauf als Thread im selben Prozess,
+    # und dessen Zeilen landeten sonst in der Direktsuche eines Menschen.
+    def _indeed_probe(p, max_seiten=2, budget=None, protokoll=None):
+        if protokoll is not None:
+            protokoll.append("403 nach 0 s" if budget else "nach 12 s")
+        if budget:
+            raise RuntimeError("Indeed blockt gerade (403)")
+        return [{"quelle": "jobs.indeed", "extern_id": "1", "titel": "T",
+                 "anbieter": "A", "zusatz": {}}]
+
+    _alt_q, _alt_f = tf.QUELLEN, tf.quellen_fuer
+    tf.QUELLEN = dict(tf.QUELLEN)
+    tf.QUELLEN["jobs.indeed"] = ("Indeed", "job", _indeed_probe, lambda: True)
+    tf.quellen_fuer = lambda p: ["jobs.indeed"]
+    try:
+        _t_i, _m_i = tf.direktsuche(A._suchprofil("job", {"was": "Lagerhelfer",
+                                                          "wo": "Köln", "km": 25}))
+    finally:
+        tf.QUELLEN, tf.quellen_fuer = _alt_q, _alt_f
+    pruefe("Am Bildschirm bekommt Indeed ein Budget, und die Wartestufe wird festgehalten",
+           tf.BUDGET_QUELLEN == ("jobs.indeed",) and tf.BUDGET_BILDSCHIRM > 0
+           and any("403 nach 0 s" in z for z in _m_i)
+           and not hasattr(tf, "INDEED_LEITER"),
+           f"Budget {tf.BUDGET_BILDSCHIRM} s · Meldungen {_m_i}")
+    # Zwei Läufe dürfen sich die Zeilen nicht teilen: die zweite Suche darf genau eine
+    # eigene Zeile tragen, nicht zwei.
+    tf.QUELLEN = dict(tf.QUELLEN)
+    tf.QUELLEN["jobs.indeed"] = ("Indeed", "job", _indeed_probe, lambda: True)
+    tf.quellen_fuer = lambda p: ["jobs.indeed"]
+    try:
+        _t_i2, _m_i2 = tf.direktsuche(A._suchprofil("job", {"was": "Lagerhelfer",
+                                                            "wo": "Köln", "km": 25}))
+    finally:
+        tf.QUELLEN, tf.quellen_fuer = _alt_q, _alt_f
+    pruefe("Die Wartestufen gehören dem einzelnen Lauf, nicht dem Prozess",
+           len([z for z in _m_i2 if "403 nach 0 s" in z]) == 1,
+           _m_i2)
+
+    print("\n14. Der Ortsname und die Sichtbarkeit der Quellen (22.09.2026)")
+    # --- Umlaute gehoeren nicht prozentkodiert in eine Adressbahn -------------------
+    # Der teuerste stille Ausfall dieser Sitzung: StepStone antwortet auf
+    # `/jobs/lagerhelfer/in-k%C3%B6ln` mit einer GUELTIGEN Seite, in der die Trefferliste
+    # leer ist. Keine 404, keine Ausnahme – also keine Meldung, und der Bildschirm zeigte
+    # 94 Treffer statt 140, als waere das alles. Gemessen am 22.09.2026, viermal
+    # abwechselnd im selben Prozess: `in-k%C3%B6ln` 0 Eintraege, `in-koeln` 25.
+    #
+    # Geprueft wird die Ursache, nicht das Portal: kein Umlaut darf in eine Adressbahn
+    # geraten. Das laeuft ohne Netz und haelt auch dann, wenn StepStone morgen umbaut.
+    _umlautorte = ("Köln", "Düsseldorf", "Münster", "Mönchengladbach", "Osnabrück",
+                   "Bäcker", "Weißenfels")
+    _mit_umlaut = [o for o in _umlautorte
+                   if any(z in tf._slug(o) for z in "äöüßÄÖÜ") or "%" in tf._slug(o)]
+    pruefe("Keine Adressbahn traegt einen Umlaut – sonst antwortet StepStone leer",
+           not _mit_umlaut,
+           _mit_umlaut or {o: tf._slug(o) for o in _umlautorte[:3]})
+    pruefe("Die Umschrift steht an einer Stelle, nicht an dreien",
+           tf._slug("Köln") == "koeln" and tf._is24_slug("Köln") == "koeln"
+           and tf.UMSCHRIFT == (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")),
+           f"_slug {tf._slug('Mönchengladbach')!r} · _is24_slug "
+           f"{tf._is24_slug('Mönchengladbach')!r}")
+
+    # Und die Gegenrichtung, die genauso wichtig ist: **die Portale, die den Ort im
+    # ABFRAGETEIL bekommen, duerfen den Umlaut NICHT verlieren.** Die BA liefert fuer
+    # „Köln" 5 Treffer und fuer „Koeln" 0 – wer dort umschreibt, dreht den Fehler nur um.
+    _gesehen_ort = {}
+
+    def _merk_ort(name):
+        def _f(p, **_):
+            _gesehen_ort[name] = p.get("ort")
+            return []
+        return _f
+
+    _alt_q2, _alt_f2 = tf.QUELLEN, tf.quellen_fuer
+    tf.QUELLEN = dict(tf.QUELLEN)
+    tf.QUELLEN["jobs.ba"] = ("Bundesagentur", "job", _merk_ort("ba"), lambda: True)
+    tf.quellen_fuer = lambda p: ["jobs.ba"]
+    try:
+        tf.direktsuche(A._suchprofil("job", {"was": "Lagerhelfer", "wo": "Köln", "km": 25}))
+    finally:
+        tf.QUELLEN, tf.quellen_fuer = _alt_q2, _alt_f2
+    pruefe("Wer den Ort im Abfrageteil bekommt, bekommt ihn mit Umlaut",
+           _gesehen_ort.get("ba") == "Köln", _gesehen_ort)
+
+    # --- Eine stumme Quelle ist auf dem Bildschirm zu sehen -------------------------
+    # Null Treffer sind kein Fehler – sie koennen stimmen. Aber eine Quelle, die still
+    # nichts liefert, waehrend die anderen liefern, ist von einem vollstaendigen Ergebnis
+    # nicht zu unterscheiden. Genau so lag StepStone fuer jeden Umlautort auf Null.
+    def _liefert(n):
+        def _f(p, **_):
+            return [{"quelle": "x", "extern_id": "%s-%d" % (n, i),
+                     "titel": "Stelle %s %d" % (n, i), "anbieter": "Firma%s%d" % (n, i),
+                     "ort": "Köln", "zusatz": {}} for i in range(n)]
+        return _f
+
+    _alt_q3, _alt_f3 = tf.QUELLEN, tf.quellen_fuer
+    tf.QUELLEN = dict(tf.QUELLEN)
+    tf.QUELLEN["probe.laut"] = ("Lautes Portal", "job", _liefert(7), lambda: True)
+    tf.QUELLEN["probe.stumm"] = ("Stummes Portal", "job", _liefert(0), lambda: True)
+    tf.quellen_fuer = lambda p: ["probe.laut", "probe.stumm"]
+    try:
+        _t_q, _m_q = tf.direktsuche(A._suchprofil("job", {"was": "Lagerhelfer",
+                                                          "wo": "Köln", "km": 25}))
+    finally:
+        tf.QUELLEN, tf.quellen_fuer = _alt_q3, _alt_f3
+    _quellzeile = next((z for z in _m_q if z.startswith("Quellen:")), "")
+    pruefe("Die stumme Quelle steht mit ihrer Null auf dem Bildschirm",
+           "Lautes Portal 7" in _quellzeile and "Stummes Portal 0" in _quellzeile
+           and _m_q and _m_q[0].startswith("Quellen:"),
+           _quellzeile or _m_q)
+
+    # Und sie steht auch auf der Seite – gemessen am gerenderten BLOCK, nicht am
+    # Seitentext. „Stummes Portal 0" wird auch dann gefunden, wenn die Zeile zurueck
+    # im Fliesstext der uebrigen Meldungen steht; genau dort soll sie nicht stehen.
+    _echte_suche2 = tf.direktsuche
+    tf.direktsuche = lambda p, quellen=None, grenze=200: (
+        [], ["Quellen: Stummes Portal 0, Lautes Portal 7", "9 Dubletten ausgeblendet"])
+    try:
+        _seite_q = c.get("/taskforce/suchen?art=job&was=Lagerhelfer&wo=K%C3%B6ln").text
+        # „beides" laeuft zweimal – zwei Quellenzeilen, zwei Bloecke.
+        _seite_b = c.get("/taskforce/suchen?art=beides&was=Lagerhelfer&wo=K%C3%B6ln").text
+    finally:
+        tf.direktsuche = _echte_suche2
+    _bloecke = re.findall(r'<p class="unterzeile quellzeile"[^>]*>(.*?)</p>',
+                          _seite_q, re.S)
+    pruefe("Die Quellenzeile steht als eigener Block, nicht im Fließtext",
+           len(_bloecke) == 1 and "Stummes Portal 0" in _bloecke[0]
+           and "Dubletten" not in _bloecke[0],
+           _bloecke or "kein Block gefunden")
+    _bloecke_b = re.findall(r'<p class="unterzeile quellzeile"[^>]*>(.*?)</p>',
+                            _seite_b, re.S)
+    pruefe("Bei „beides“ bekommt jede der zwei Suchen ihre eigene Quellenzeile",
+           len(_bloecke_b) == 2, f"{len(_bloecke_b)} Blöcke")
+
+    print("\n15. Dritte Korrekturrunde (22.09.2026)")
+    # --- Ein ECHTER Treffer muss durchkommen ----------------------------------------
+    # Der teuerste Fehler dieser Sitzung, und er lag daran, dass jede Pruefung zu
+    # `_treffer_sauber` nur in die ABWEHRRICHTUNG mass. Die Probetreffer der Bedienprobe
+    # und der einzige positive Fall hier hatten jedes Textfeld gefuellt – echte Treffer
+    # haben das nicht. `jobs_kleinanzeigen` und `wohnung_kleinanzeigen` setzen
+    # `veroeffentlicht` fest auf `None`, meinestadt ebenso, `anbieter` fehlt bei anonymen
+    # Anzeigen. Gemessen am 22.09.2026 an einer Koelner Suche, wie viele echte Treffer
+    # durch den Waechter kamen: BA 5/5, StepStone 50/50, meinestadt 0/40,
+    # Kleinanzeigen 0/54, Wohnungen 0/52 – 146 von 201 waren unuebernehmbar.
+    # Nach der Reparatur: 199 von 199 (die Zahlen schwanken mit dem Angebot).
+    #
+    # Darum je Adapter ein echter, unveraenderter Treffer als festgehaltener Datensatz.
+    # Laeuft ohne Netz. Setzt ein Adapter kuenftig ein Feld auf `None`, faellt es hier auf.
+    with open(os.path.join(HIER, "pruefdaten", "adapter_beispiele.json"),
+              encoding="utf-8") as _f:
+        _beispiele = json.load(_f)
+    _durchgefallen = [q for q, t in _beispiele.items() if not A._treffer_sauber(t)]
+    pruefe(f"Ein echter Treffer aus jedem der {len(_beispiele)} Adapter kommt durch",
+           not _durchgefallen and len(_beispiele) >= 5,
+           _durchgefallen or sorted(_beispiele))
+
+    # Die Beispielsammlung darf nicht heimlich veralten – aber sie darf den Push auch
+    # nicht blockieren, sobald eine Quelle dazukommt, von der sich nichts festhalten
+    # liess. Offen sind heute `jobs.indeed` (sperrt uns mit 403 aus) und
+    # `jobs.arbeitnow` (liefert für Köln nichts); dazu kommen `jobs.adzuna`,
+    # `jobs.jooble` und `wohnung.mail`, sobald die Zugangsdaten in der `.env` stehen –
+    # der IS24-IMAP-Zugang steht unmittelbar bevor.
+    #
+    # Eine offene Stelle ist kein Fehler; sie wird BENANNT, damit sie beim nächsten
+    # Fang mitgeholt wird. **Geprüft wird dafür, was der Name zusagt:** dass die
+    # Sammlung da ist und dass jeder Eintrag ein Treffer mit passender Quelle und
+    # Fremd-ID ist. Eine ausgehöhlte Datei fällt damit hier auf, nicht erst nebenan.
+    _ohne = sorted(q["schluessel"] for q in tf.quellen_stand()
+                   if q["bereit"] and q["schluessel"] not in _beispiele)
+    # `isinstance` statt `or ""`: steht in der Datei eine Zahl als `extern_id`, gaebe
+    # `.strip()` einen `AttributeError` AUSSERHALB von `pruefe` – der ganze Lauf braeche
+    # ab, statt einen roten Punkt zu melden. Eine Pruefung gegen eine ausgehoehlte
+    # Datei muss die ausgehoehlte Datei ueberleben.
+    _hohl = hohle_beispiele(_beispiele)
+    pruefe("Die Beispielsammlung ist da, und jeder Eintrag ist wirklich ein Treffer",
+           len(_beispiele) >= 5 and not _hohl,
+           _hohl or (f"noch ohne Beispiel: {_ohne}" if _ohne
+                     else "alle verbundenen Quellen abgedeckt"))
+
+    # Der ganze Weg, nicht nur der Waechter: ein Kleinanzeigen-Treffer muss wirklich
+    # in `tf_angebot` ankommen. Genau hier stand 1325 vorher und 1325 nachher.
+    # Gefragt wird, ob die Zeile ANKOMMT – nicht, ob sie `neu` heisst. Ob `_ablegen` sie
+    # als Dublette markiert, entscheidet der Bestand des Profils und ist eine andere
+    # Frage (die Bedienprobe misst sie). Hier geht es um den Waechter davor.
+    _pid_k = tf.profile_von(kid)[0]["id"]
+    _vor_k = db.wert("SELECT COUNT(*) FROM tf_angebot WHERE profil_id=?", (_pid_k,))
+    _echt = dict(_beispiele["jobs.kleinanzeigen"], extern_id="R3-PROBE-1")
+    _r_k = c.post("/taskforce/suchen/uebernehmen",
+                  data={"profil": str(_pid_k), "zurueck": "/taskforce/suchen",
+                        "treffer": "0", "t0": json.dumps(_echt)})
+    _zeile_k = db.eine("SELECT status, titel FROM tf_angebot"
+                       " WHERE profil_id=? AND extern_id=?", (_pid_k, "R3-PROBE-1"))
+    pruefe("Ein echter Kleinanzeigen-Treffer landet wirklich auf der Tafel",
+           _r_k.status_code == 302 and _zeile_k is not None
+           and _zeile_k["titel"] == _echt["titel"]
+           and _echt["veroeffentlicht"] is None,
+           f"{db.wert('SELECT COUNT(*) FROM tf_angebot WHERE profil_id=?', (_pid_k,)) - _vor_k}"
+           f" Zeile(n) dazu, Status {(_zeile_k or {}).get('status')!r},"
+           f" veroeffentlicht={_echt['veroeffentlicht']!r}")
+
+    # `None` ja, alles andere an einem Textfeld nein.
+    pruefe("`None` ist an einem Textfeld erlaubt, eine Zahl oder Liste nicht",
+           A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "b", "anbieter": None,
+                              "veroeffentlicht": None, "beschreibung": None, "ort": None})
+           and not A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "b", "titel": 7})
+           and not A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "b",
+                                      "ort": ["a"]})
+           and not A._treffer_sauber({"quelle": None, "extern_id": "b"})
+           # Und der Schluessel, den es nicht gibt.
+           and not A._treffer_sauber({"quelle": "boese.quelle", "extern_id": "b"}))
+
+    # --- Ende ist Ende: `\Z` statt `$` ----------------------------------------------
+    # `$` matcht in Python auch VOR einem abschliessenden Zeilenumbruch. `"/x\n"` kam
+    # damit durch den Riegel; Werkzeug weist den Kopfzeilenwert danach ab – ein 500er
+    # NACH dem Schreiben, mit einer Absturzseite fuer jemanden, der nicht weiss, ob
+    # etwas passiert ist.
+    _mit_steuerzeichen = ("/x\n", "/x\r", "/x\r\n", "/taskforce/suchen\n", "/x\n\n")
+    _schlecht = [w for w in _mit_steuerzeichen if A.INTERNER_WEG.match(w)]
+    pruefe("Ein Rueckweg mit Steuerzeichen am Ende wird abgewiesen",
+           not _schlecht, _schlecht or f"{len(_mit_steuerzeichen)} Formen geprüft")
+    _nach_schreiben = c.post("/taskforce/suchen/uebernehmen",
+                             data={"profil": str(_pid_k), "treffer": "0",
+                                   "zurueck": "/taskforce/suchen\n"})
+    pruefe("Und die Route faellt darueber nicht um, nachdem sie geschrieben hat",
+           _nach_schreiben.status_code == 302
+           and "\n" not in _nach_schreiben.headers.get("Location", ""),
+           f"{_nach_schreiben.status_code} → "
+           f"{_nach_schreiben.headers.get('Location', '')[:40]!r}")
+
+    # --- Die eine Zaehlweise erreicht jetzt jede Stelle ------------------------------
+    # Heute fallen die Zahlen zusammen, weil beide Bestandsprofile aktiv sind. Die
+    # Abweichung entsteht beim ersten Klick auf „pausieren" – also wird er hier getan.
+    _pausiert_pid = None
+    _v0 = sammelanlage.vorschlaege(art="job")
+    if _v0:
+        _angelegt2, _ = sammelanlage.anlegen([(_v0[0]["id"], "Lagerhelfer", "Köln")],
+                                             art="job")
+        _pausiert_pid = _angelegt2[0][1] if _angelegt2 else None
+    if _pausiert_pid:
+        _wer = db.wert("SELECT kunde_id FROM tf_profil WHERE id=?", (_pausiert_pid,))
+        with db.offen() as _con:
+            _con.execute("UPDATE tf_profil SET aktiv=0 WHERE id=?", (_pausiert_pid,))
+        try:
+            _stellen = {
+                "Sammelanlage": _wer in {z["id"] for z in
+                                         sammelanlage.vorschlaege(art="job")},
+                "Einstieg": any(not z["jobprofile"] and z["id"] == _wer
+                                for z in aufgaben.laufende_massnahmen()),
+                "Kundenliste": _wer in {z["id"] for z in db.hole(
+                    "SELECT k.id FROM kunde k WHERE k.standort=? AND NOT EXISTS"
+                    " (SELECT 1 FROM tf_profil p WHERE p.kunde_id=k.id)",
+                    (db.STANDORT_STANDARD,))},
+                "Kundenstand": tf.kunden_bilanz(_wer)["job"]["profile"] == 0,
+                # Die Coachseite schreibt daraus die graue Plakette „keins",
+                # die Kopfsuche wörtlich „kein Profil" (`basis.html`).
+                "Coachseite": any(
+                    z["id"] == _wer and not z["profile"]
+                    for z in coaches.kunden(db.wert(
+                        "SELECT coach_id FROM kunde WHERE id=?", (_wer,)))),
+                "Kopfsuche": any(
+                    z["id"] == _wer and not z["profile"] for z in tf.kunden_suchen(
+                        db.wert("SELECT name FROM kunde WHERE id=?", (_wer,)))),
+            }
+            _tafel = c.get("/taskforce?art=job").text
+            _dash = c.get("/taskforce/arbeit?alle=1").text
+            # Die zwei Zahlen an den Umschaltknoepfen. Sie filterten in Python statt
+            # in SQL und sind deshalb bei der Erhebung der Zaehlstellen zweimal
+            # durchgerutscht – einmal beim Bauen, einmal beim Pruefen. Gemessen wird
+            # die gerenderte Zahl gegen `tf.uebersicht`, damit ein Rueckfall auf
+            # `if p["aktiv"]` rot wird und nicht wieder unsichtbar bleibt.
+            _soll = len(tf.uebersicht(art="job"))
+            for _name, _text in (("Tafel-Knopf", _tafel),
+                                 ("Einstieg-Knopf", c.get("/taskforce").text)):
+                _m = re.search(r"<strong>Arbeitssuche</strong>\s*<span>(\d+) Profile",
+                               _text)
+                _stellen[_name] = not _m or int(_m.group(1)) != _soll
+            _stellen["Tafel-Hinweis"] = (
+                str(len(sammelanlage.vorschlaege(art="job"))) + " laufende Maßnahmen"
+                not in _tafel)
+            pruefe("Kein pausiertes Profil gilt irgendwo als „kein Profil“",
+                   not any(_stellen.values()),
+                   {k: v for k, v in _stellen.items() if v} or
+                   f"{len(_stellen)} Stellen einig, Profil {_pausiert_pid} pausiert")
+            pruefe("Der Arbeitsplatz sagt stattdessen, dass es stillsteht",
+                   "pausiert" in _dash)
+        finally:
+            with db.offen() as _con:
+                _con.execute("DELETE FROM tf_profil WHERE id=?", (_pausiert_pid,))
+
+    # --- Die gebaute Adresse, nicht nur `_slug` -------------------------------------
+    # Abschnitt 14 misst `_slug`. Wuerde jemand in `jobs_stepstone` den Ort direkt
+    # einsetzen, blieben alle fuenf Pruefungen dort gruen. Hier wird die Adresse
+    # abgefangen, die wirklich hinausgeht.
+    _adressen = []
+    _echt_get = tf._get
+    tf._get = lambda url, hdr=None, timeout=25: (_adressen.append(url), (_ for _ in ()).throw(
+        RuntimeError("Probe: keine Abfrage")))[0]
+    try:
+        for _ort in ("Köln", "Düsseldorf", "Münster"):
+            try:
+                tf.jobs_stepstone(tf.suchspalte(art="job", begriffe="Bürokauffrau",
+                                                ort=_ort, umkreis_km=25))
+            except RuntimeError:
+                pass
+    finally:
+        tf._get = _echt_get
+    pruefe("Die gebaute StepStone-Adresse trägt Ort und Beruf in Umschrift",
+           _adressen and "/in-koeln" in _adressen[0]
+           and "buerokauffrau" in _adressen[0]
+           and any("/in-duesseldorf" in a for a in _adressen)
+           and any("/in-muenster" in a for a in _adressen)
+           and not any("%C3%" in a for a in _adressen),
+           _adressen[0] if _adressen else "keine Adresse gebaut")
+
+    # --- Eine eingeengte Quellenwahl wird festgehalten -------------------------------
+    # Gemessen wird der Fall, der vorkommt: ein paar Portale angehakt, der Rest nicht.
+    #
+    # **Was hier NICHT geprueft wird, und warum nicht:** alle Haekchen abwaehlen. Der
+    # Browser schickt abgewaehlte Kaestchen gar nicht mit – „keine Quelle gewaehlt" und
+    # „das Formular hat kein Quellenfeld" kommen als dieselbe leere Menge an, und die
+    # ist falsy: `_such_regler` laesst das Feld dann leer, das Profil sucht bei allen.
+    # Unterscheidbar waere das nur mit einem Marker im Formular. Das ist bewusst
+    # offen: ein Profil mit null Quellen ist ein Profil, das nichts tut, und der
+    # Rueckfall auf „alle" ist dafuer die harmlosere Antwort. Steht als Befund beim
+    # Planer, nicht als stille Luecke hier.
+    c.post("/taskforce/suchen/als-profil", data=MultiDict([
+        ("art", "job"), ("was", "Lagerhelfer"), ("wo", "Köln"), ("km", "25"),
+        ("kunde", str(kid)), ("titel", "Nur eine Quelle"), ("quelle", "jobs.ba")]))
+    _eine = db.eine("SELECT quellen FROM tf_profil WHERE kunde_id=? AND titel=?",
+                    (kid, "Nur eine Quelle"))
+    pruefe("Eine bewusst eingeengte Quellenwahl wird festgehalten",
+           _eine is not None and _eine["quellen"] == "jobs.ba",
+           f"quellen={(_eine or {}).get('quellen')!r}")
+
+
+    # --- Der Waechter haelt, was sein Docstring zusagt ------------------------------
+    # `_einfacher_wert` erlaubte `int`, `float` und `bool` – und `tf._score` ruft auf
+    # genau diesen Werten `.casefold()` bzw. `.split()` auf. Fuenf gemessene 500er auf der
+    # echten Route, alle mit gueltigem JSON und alle am Waechter vorbei. Der Absturz lag
+    # in `_ablegen` mitten in der Transaktion: verloren ging ein ganzer Stapel, nicht nur
+    # der vergiftete Satz. Es gibt keinen CSRF-Token, ein fremdes Formular genuegt.
+    #
+    # Gemessen wird die WIRKUNG: die Route darf nicht auf 500 gehen, und es darf keine
+    # Zeile entstehen. Beide Profilarten, sonst faengt man nur die Haelfte.
+    _pid_jj = db.wert("SELECT id FROM tf_profil WHERE art='job' ORDER BY id LIMIT 1")
+    _pid_ww = db.wert("SELECT id FROM tf_profil WHERE art='wohnung' ORDER BY id LIMIT 1")
+    _gift = [
+        (_pid_jj, {"quelle": "jobs.ba", "extern_id": "g1", "zusatz": {"suchbegriff": 1}}),
+        (_pid_jj, {"quelle": "jobs.ba", "extern_id": "g2", "zusatz": {"suchbegriff": True}}),
+        (_pid_jj, {"quelle": "jobs.ba", "extern_id": "g3", "zusatz": {"suchbegriff": 1.5}}),
+        (_pid_jj, {"quelle": "jobs.ba", "extern_id": "g4", "zusatz": {"arbeitszeit": 3}}),
+        (_pid_ww, {"quelle": "wohnung.kleinanzeigen", "extern_id": "g5",
+                   "zusatz": {"preis": 530}}),
+        (_pid_ww, {"quelle": "wohnung.kleinanzeigen", "extern_id": "g6",
+                   "zusatz": {"preis": True}}),
+        # Zwei Nebenbefunde derselben Funktion: Text in einer Zahlenspalte (die Tafel
+        # schrieb danach „abc km", und `entfernung_km <= ?` traf die Zeile nie wieder)
+        # und ein Quellenschluessel, den `tf.QUELLEN` gar nicht kennt.
+        (_pid_jj, {"quelle": "jobs.ba", "extern_id": "g7", "entfernung_km": "abc"}),
+        (_pid_jj, {"quelle": "boese.quelle", "extern_id": "g8"}),
+    ]
+    _gift_kaputt, _gift_drin = [], []
+    for _ziel, _satz in _gift:
+        if _ziel is None:
+            continue
+        _r_g = c.post("/taskforce/suchen/uebernehmen",
+                      data={"profil": str(_ziel), "zurueck": "/taskforce/suchen",
+                            "treffer": "0", "t0": json.dumps(_satz)})
+        if _r_g.status_code >= 500 or A._treffer_sauber(_satz):
+            _gift_kaputt.append(f"{_satz['extern_id']} → {_r_g.status_code}")
+        if db.wert("SELECT COUNT(*) FROM tf_angebot WHERE extern_id=?",
+                   (_satz["extern_id"],)):
+            _gift_drin.append(_satz["extern_id"])
+    pruefe(f"{len(_gift)} vergiftete Zusatzfelder fällen die Route nicht und legen nichts ab",
+           not _gift_kaputt and not _gift_drin,
+           "; ".join(_gift_kaputt + _gift_drin) or f"{len(_gift)} Formen geprüft")
+
+    # Und die Gegenrichtung: ein `bool` an einem Schluessel, der NICHT als Text gelesen
+    # wird, muss bleiben – `quereinstieg` ist bei der BA wirklich einer.
+    pruefe("Ein Wahrheitswert an `quereinstieg` bleibt erlaubt",
+           A._treffer_sauber({"quelle": "jobs.ba", "extern_id": "ok",
+                              "zusatz": {"quereinstieg": True, "arbeitszeit": "Vollzeit"}}))
 
     fehl = [n for n, ok, _ in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

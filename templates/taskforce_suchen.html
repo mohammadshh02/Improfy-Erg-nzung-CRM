@@ -15,10 +15,13 @@
           ("Arbeitssuche" if art == 'job' else ("Wohnungssuche" if art == 'wohnung'
            else "Arbeit und Wohnung"), None)]) }}
 
-<h1>Selbst suchen</h1>
 <p class="unterzeile">Jetzt sofort bei den Portalen nachfragen – ohne Kunde, ohne angelegtes
   Profil. Wer den Treffer behalten will, legt daraus unten ein Suchprofil an oder übergibt
   ihn einem bestehenden.</p>
+
+{# Ohne diese Zeile endete ein fehlgeschlagenes „übernehmen" auf derselben Seite ohne
+   jedes Zeichen: die Route leitete mit `?meldung=…` zurück, hier las es niemand. #}
+{% if meldung %}<div class="hinweis">{{ meldung }}</div>{% endif %}
 
 <nav class="modus" aria-label="Was gesucht wird">
   <a class="modus-knopf{{ ' an' if art=='job' }}" href="{{ url_for('taskforce_suchen', art='job') }}">
@@ -96,8 +99,28 @@
 
 {% else %}
 <section class="tf-abschnitt">
+  {# Die Quellenzeile steht für sich. Sie beantwortet „habe ich alles gesehen?" –
+     und ging zwischen den übrigen Meldungen unter, weil beide mit „ · " getrennt
+     wurden: wo die Quellenliste aufhörte, war nicht zu sehen. Jetzt eigene Zeile,
+     und die Portale innen mit Komma. Für die wichtigere Hälfte des Befunds vom
+     22.09.2026 – ein Totalausfall soll auffallen – war das zu dünn. #}
+  {# **Alle** Quellenzeilen, nicht die erste. Bei „beides" laufen zwei Suchen, jede
+     bringt ihre eigene „Quellen: …"-Zeile mit, und `_suchen` haengt beide Listen
+     aneinander. Wer nur `meldungen[0]` liest, schiebt die Wohnungshaelfte zurueck in
+     den Fliesstext – also genau dorthin, wo ein stummer Totalausfall nicht auffaellt.
+     Jinja hat keinen Test auf Zeichenketten-Anfang, darum die Schleife. #}
+  {% set ns = namespace(quell=[], rest=[]) %}
+  {% for m in meldungen %}
+    {% if m.startswith('Quellen: ') %}{% set ns.quell = ns.quell + [m] %}
+    {% else %}{% set ns.rest = ns.rest + [m] %}{% endif %}
+  {% endfor %}
+  {% set uebrige = ns.rest %}
   <h2>{{ treffer|length }} Treffer
-    <span class="marke">– {{ '%.1f'|format(dauer) }} Sekunden{% if meldungen %} · {{ meldungen|join(' · ') }}{% endif %}</span></h2>
+    <span class="marke">– {{ '%.1f'|format(dauer) }} Sekunden{% if uebrige %} · {{ uebrige|join(' · ') }}{% endif %}</span></h2>
+  {% for z in ns.quell %}
+  <p class="unterzeile quellzeile" style="margin:-12px 0 16px">
+    <strong>{{ z.split(': ', 1)[0] }}:</strong> {{ z.split(': ', 1)[1] }}</p>
+  {% endfor %}
 
   {% if not treffer %}
   <p class="leer">Nichts gefunden. Das liegt fast immer an den Stichworten: die Portale suchen
@@ -116,7 +139,28 @@
           <th>Rel.</th><th>Angebot</th><th>Anbieter · Ort</th><th>Quelle</th><th>online seit</th></tr>
       {% for x in treffer %}
       <tr>
-        <td>{% if profile %}<input type="checkbox" name="treffer" value="{{ loop.index0 }}">{% endif %}</td>
+        {# Der Treffer selbst reist neben seinem Haekchen mit. Vorher lag die Liste in
+           der Sitzung und damit im Cookie – 23.094 Bytes in 4.096, der Browser warf
+           sie stumm weg.
+
+           **Maskiert wird von `tojson`, nicht vom Attribut.** Flasks `tojson` ist
+           `htmlsafe_json_dumps`: es schreibt `<`, `>`, `&` und `'` als \u003c, \u003e,
+           \u0026 und \u0027 in den JSON-Text, und Zeilenumbrueche als \n. Aus der
+           Ausgabe kann also nichts herausbrechen. Die aeusseren EINFACHEN
+           Anfuehrungszeichen sind noetig, weil JSON doppelte benutzt.
+
+           Hier stand zusaetzlich `|forceescape`. Das maskierte ein zweites Mal, was
+           schon maskiert war – gemessen an 136 echten Treffern 117.667 statt 88.115
+           Bytes, also 34 Prozent mehr ohne einen Gewinn. Wer den Filter vermisst:
+           er war nie das Glied, das die Luecke schliesst.
+
+           **ACHTUNG, genau EIN Handgriff bricht das auf:** die aeusseren
+           Anfuehrungszeichen auf doppelte umstellen. `tojson` maskiert `"` NICHT –
+           es braucht sie selbst fuer JSON –, und der erste Titel mit einem
+           Anfuehrungszeichen schliesst dann das Attribut mitten im Wert. Die
+           einfachen Anfuehrungszeichen hier sind kein Stil, sie sind der Riegel. #}
+        <td>{% if profile %}<input type="checkbox" name="treffer" value="{{ loop.index0 }}">
+          <input type="hidden" name="t{{ loop.index0 }}" value='{{ x|tojson }}'>{% endif %}</td>
         <td><span class="plakette {{ 'p-gruen' if (x.score or 0) >= 6 else ('p-gelb' if (x.score or 0) >= 3 else 'p-grau') }}" title="Relevanz 0–10">{{ (x.score or 0)|round(0)|int }}</span></td>
         <td><a href="{{ x.url }}" target="_blank" rel="noopener"><strong>{{ x.titel }}</strong></a>
           {% set z = x.zusatz or {} %}
@@ -164,6 +208,21 @@
       <input type="hidden" name="miete" value="{{ f.miete or '' }}">
       <input type="hidden" name="zimmer" value="{{ f.zimmer or '' }}">
       <input type="hidden" name="flaeche" value="{{ f.flaeche or '' }}">
+      {# Die feinen Regler. Ohne sie war der Satz unten gelogen: Gehalt,
+         Quereinstieg, WBS und die Quellenwahl haben keine eigene Spalte, sie gehen
+         ueber `_such_regler` in `tf_profil.kriterien` bzw. `tf_profil.quellen`.
+         Fehlten sie hier, entstand ueber diesen Weg ein Profil mit
+         `kriterien=None, quellen=None` – waehrend derselbe Knopf auf dem
+         Arbeitsplatz `{"min_gehalt": 3000, "nur_quereinstieg": true}` anlegte.
+         Zwei Wege, ein Formular, zwei verschiedene Profile.
+
+         Leer heisst aus: `_such_regler` schreibt nur, was nicht leer ist. Die
+         Quellen kommen als je ein Feld, weil `tf._mehrfach` eine Liste liest –
+         `dict(request.form)` haette alle bis auf die letzte verschluckt. #}
+      <input type="hidden" name="gehalt" value="{{ f.gehalt or '' }}">
+      <input type="hidden" name="quereinstieg" value="{{ '1' if f.quereinstieg }}">
+      <input type="hidden" name="wbs" value="{{ '1' if f.wbs }}">
+      {% for q in f.quellen or [] %}<input type="hidden" name="quelle" value="{{ q }}">{% endfor %}
       <input type="hidden" name="zurueck" value="{{ request.full_path }}">
       <div class="ksuche ksuche-klein" data-ziel="filter" style="min-width:260px"
            data-api="{{ url_for('api_kunden_suche') }}">

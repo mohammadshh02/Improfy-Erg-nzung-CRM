@@ -8,3 +8,8 @@ pypdf>=4.0           # Rückfall für PDF
 python-docx>=1.1     # Word
 odfpy>=1.4           # OpenOffice
 pillow>=10.0         # Bewerbungsfoto auf Druckgröße bringen
+
+# Für die Selbsttests. `bedienprobe.py` parst damit die gerenderten Seiten und
+# drückt jeden Knopf so, wie ein Browser ihn abschickt. Ohne das Paket stirbt der
+# Test, der vor jedem Push laufen soll, vor der ersten Prüfung.
+lxml>=5.0            # geprüft gegen 6.1.2

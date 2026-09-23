@@ -419,9 +419,15 @@ IS24_LAND = {"köln": "nordrhein-westfalen", "duisburg": "nordrhein-westfalen", 
              "kassel": "hessen", "wiesbaden": "hessen", "darmstadt": "hessen"}
 
 
+# Umlaute in der Schreibweise, die eine Adress-BAHN verträgt. Steht hier einmal, weil
+# drei Stellen sie brauchen (`_is24_slug`, `_slug`, und über `_slug` auch meinestadt)
+# und weil drei eigene Fassungen genau so auseinanderlaufen, wie sie es getan haben.
+UMSCHRIFT = (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss"))
+
+
 def _is24_slug(ort):
     o = (ort or "Köln").strip().casefold()
-    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+    for a, b in UMSCHRIFT:
         o = o.replace(a, b)
     return re.sub(r"[^a-z0-9]+", "-", o).strip("-")
 
@@ -816,7 +822,10 @@ def kunden_bilanz(kunde_id, seit=None, bis=None, standort=db.STANDORT_STANDARD):
         angeschrieben = stufen["angeschrieben"] + stufen["antwort"] + stufen["erfolg"]
         antwort = stufen["antwort"] + stufen["erfolg"]
         bilanz[art] = {
-            "profile": zahl("SELECT COUNT(*) FROM tf_profil WHERE kunde_id=? AND art=? AND aktiv=1",
+            # Jedes Profil dieser Art, auch ein pausiertes: die Zeile heisst „Profile".
+            # Mit `aktiv=1` stand auf dem Stand eines Menschen „0 Profile", während
+            # dieselbe Seite sein pausiertes Profil auflistete.
+            "profile": zahl("SELECT COUNT(*) FROM tf_profil WHERE kunde_id=? AND art=?",
                             (kunde_id, art)),
             "laeufe": zahl("SELECT COUNT(*) FROM tf_lauf l JOIN tf_profil p ON p.id=l.profil_id"
                            " WHERE p.kunde_id=? AND p.art=?", (kunde_id, art)),
@@ -834,12 +843,16 @@ def kunden_bilanz(kunde_id, seit=None, bis=None, standort=db.STANDORT_STANDARD):
     return bilanz
 
 
-def kunden_nachweis(kunde_id, seit=None, bis=None, standort=db.STANDORT_STANDARD):
+def kunden_nachweis(kunde_id, seit=None, bis=None, standort=db.STANDORT_STANDARD, art=None):
     """Die Liste hinter den Zahlen: jedes Angebot, bei dem etwas passiert ist.
 
     Bewusst nur, was angefasst wurde. Eine Liste aller 700 gefundenen Angebote weist nichts
     nach – sie zeigt, dass eine Maschine lief. Nachgewiesen wird die Arbeit: angeschrieben,
-    nachgefasst, Rückmeldung, Ergebnis."""
+    nachgefasst, Rückmeldung, Ergebnis.
+
+    `art` verengt den Nachweis auf eine Suche. Wer den Stand eines Menschen als
+    Arbeitssuche aufschlägt, soll dort keine Wohnung im Verlauf stehen haben – und das
+    aus dieser einen Abfrage, nicht aus einer zweiten, die anders zählen könnte."""
     sql = ("SELECT a.id, a.titel, a.anbieter, a.ort, a.url, a.quelle, a.status, a.bearbeiter,"
            "  a.notiz, a.status_am, a.gefunden_am, a.kontakt_mail, a.kontakt_tel,"
            "  p.art, p.titel AS profil"
@@ -847,6 +860,9 @@ def kunden_nachweis(kunde_id, seit=None, bis=None, standort=db.STANDORT_STANDARD
            " WHERE p.kunde_id=? AND p.standort=?"
            "   AND a.status IN ('angeschrieben','antwort','erfolg','verworfen')")
     args = [kunde_id, standort]
+    if art in ("job", "wohnung"):
+        sql += " AND p.art=?"
+        args.append(art)
     if seit:
         sql += " AND COALESCE(a.status_am, a.gefunden_am) >= ?"
         args.append(seit)
@@ -965,7 +981,35 @@ def jobs_ba(p, tage=14, max_seiten=3):
 # ------------------------------------------------------- Jobs: StepStone
 
 def _slug(s):
-    return re.sub(r"[^a-z0-9äöüß]+", "-", s.casefold()).strip("-")
+    """Ein Stück Adress-BAHN: klein, ASCII, mit Bindestrichen – Umlaute umgeschrieben.
+
+    Das gilt für **beide** Stücke, die hier durchgehen: den Ortsnamen und den
+    SUCHBEGRIFF. „Bürokauffrau" wird zu `buerokauffrau`, aus demselben Grund – auch
+    der Beruf steht bei StepStone in der Bahn (`/jobs/buerokauffrau/in-koeln`).
+
+    **Warum die Umschrift hier steht und nicht beim Aufrufer.** Der Ortsname landet bei
+    StepStone und meinestadt im PFAD der Adresse (`/jobs/lagerhelfer/in-koeln`), nicht
+    im Abfrageteil. Ein Umlaut wird dort prozentkodiert (`in-k%C3%B6ln`) – und genau
+    das ist die Falle: **StepStone antwortet darauf mit einer gültigen Seite, in der
+    die Trefferliste leer ist.** Keine 404, keine Ausnahme, kein Fehler, den irgendwer
+    bemerken könnte. Gemessen am 22.09.2026, viermal abwechselnd im selben Prozess:
+
+        /jobs/lagerhelfer/in-k%C3%B6ln   1.289.408 B, "items":[ vorhanden,  0 Einträge
+        /jobs/lagerhelfer/in-koeln       1.277.117 B, "items":[ vorhanden, 25 Einträge
+
+    Dasselbe für Düsseldorf, Münster, Mönchengladbach und Osnabrück.
+
+    `meinestadt` schrieb dieselbe Umschrift bisher hinter seinem eigenen `_slug`-Aufruf
+    noch einmal hin – zwei Stellen, eine Regel, und StepStone hatte die zweite nicht.
+    Jetzt steht sie hier, einmal.
+
+    **Nicht angefasst sind die Portale, die den Ort im ABFRAGETEIL bekommen** (BA,
+    Kleinanzeigen, Indeed, Adzuna, Jooble). Dort ist die Prozentkodierung richtig, und
+    die BA braucht den Umlaut sogar: gemessen Köln 5 Treffer, „Koeln" 0."""
+    o = (s or "").casefold()
+    for a, b in UMSCHRIFT:
+        o = o.replace(a, b)
+    return re.sub(r"[^a-z0-9]+", "-", o).strip("-")
 
 
 def jobs_stepstone(p, max_seiten=2):
@@ -1007,8 +1051,58 @@ def jobs_stepstone(p, max_seiten=2):
 
 # --------------------------------------------------------- Jobs: Indeed
 
-def jobs_indeed(p, max_seiten=2):
-    """Indeed-Ergebnisliste: die Seite trägt ihre Treffer als JSON ("results":[...])."""
+# Welche Wartestufe bei Indeed getragen hat. Die Leiter (0, 5, 12 s) steht seit dem
+# ersten Tag da, und **niemand weiss, ob sie je hilft** – gemessen sind bisher nur
+# Fehlschläge (9 Versuche über 3 Runden, immer 403). Blind kürzen hiesse eine
+# Vermutung gegen eine andere tauschen. Also wird mitgeschrieben, wer trägt.
+#
+# **Die Zeilen gehören dem einzelnen Lauf, nicht dem Prozess.** Hier stand eine
+# Modulliste – in einem Server, der `alle_laufen` per `threading.Thread` im selben
+# Prozess startet (`betrieb.py`). Wer den Nachtlauf von Hand anstoßst und gleich
+# danach sucht, bekam dessen Zeilen in seine Direktsuche gemischt: „Indeed: nach 12 s"
+# für eine Suche, die höchstens 5 s warten durfte – und `notieren` schrieb das so ins
+# Protokoll. Ausgerechnet die Zeile, die die Frage beantworten soll, war damit
+# verunreinigt; dazu wuchs die Liste unbegrenzt. Jeder Aufruf bringt jetzt seine
+# eigene Liste mit (`protokoll=`), siehe `_abfragen`.
+
+# Was eine Suche AM BILDSCHIRM für Indeed übrig hat. Gemessen am 21.09.2026 über den
+# laufenden Server, dieselbe Suche, derselbe Moment: mit Indeed 17,27 s / 136 Treffer,
+# ohne Indeed 3,98 s / 136 Treffer. Die 17 s sind fast vollständig die eigene Leiter
+# (0+5+12 s `sleep` plus 0,2 s für drei 403-Runden), nicht das Portal. Alle anderen
+# Quellen sind nach rund 4 s fertig; Indeed hält den Parallellauf also allein fest.
+#
+# **Der Nachtlauf behält die volle Leiter** (`lauf` gibt kein Budget mit): dort wartet
+# niemand vor dem Bildschirm, und nur dort kann sich zeigen, ob Warten je hilft.
+BUDGET_BILDSCHIRM = 5
+BUDGET_QUELLEN = ("jobs.indeed",)
+
+
+def _abfragen(schluessel, p, budget=None, notiz=None):
+    """Eine Quelle fragen und dabei mitschreiben, was ihre Wartestufen gekostet haben.
+
+    `notiz` ist die Liste DIESES Aufrufs; sie gehört dem Aufrufer, damit sie auch dann
+    noch lesbar ist, wenn die Quelle mit einer Ausnahme endet – und gerade dann ist sie
+    interessant, weil dort steht, wie lange vergeblich gewartet wurde.
+
+    Eine frische Liste je Aufruf: darum können Direktsuche und Nachtlauf gleichzeitig
+    laufen, ohne sich zu vermischen."""
+    funktion = QUELLEN[schluessel][2]
+    if notiz is None:
+        notiz = []
+    if schluessel in BUDGET_QUELLEN:
+        return funktion(p, budget=budget, protokoll=notiz), notiz
+    return funktion(p), notiz
+
+
+def jobs_indeed(p, max_seiten=2, budget=None, protokoll=None):
+    """Indeed-Ergebnisliste: die Seite trägt ihre Treffer als JSON ("results":[...]).
+
+    `budget` ist die Zeit in Sekunden, die dieser Aufruf insgesamt warten darf. Ohne
+    Budget läuft die Leiter ganz durch – das ist der Nachtlauf.
+
+    `protokoll` ist die Liste DIESES Aufrufs: welche Wartestufe getragen hat. Sie
+    gehört dem Lauf, damit sich zwei gleichzeitige Läufe nicht vermischen."""
+    beginn = time.time()
     gesehen, treffer = set(), []
     dec = json.JSONDecoder()
     for begriff in _begriffe(p):
@@ -1017,17 +1111,28 @@ def jobs_indeed(p, max_seiten=2):
                 {"q": begriff, "l": p.get("ort") or "Köln", "radius": p.get("umkreis_km") or 25,
                  "fromage": 14, "start": seite * 10})
             body = None
+            getragen = None
             for warte in (0, 5, 12):          # Indeeds Bot-Schutz ist launisch: bis zu dreimal
+                # Das Budget gilt für das WARTEN, nicht für den Abruf: eine Stufe, die
+                # erst nach Ablauf fände, wird gar nicht erst betreten. Ohne Budget
+                # ändert sich nichts.
+                if warte and budget and (time.time() - beginn) + warte > budget:
+                    break
                 try:
                     if warte:
                         time.sleep(warte)
                         _OPENER.handlers[0].cookiejar.clear() if hasattr(_OPENER.handlers[0], "cookiejar") else None
                     _, body = _get(url)
+                    getragen = warte
                     break
                 except urllib.error.HTTPError as e:
                     if e.code != 403:
                         raise
                     letzter = e
+            if protokoll is not None:
+                protokoll.append(
+                    ("nach %d s" % getragen) if getragen is not None
+                    else ("403 nach %.0f s" % (time.time() - beginn)))
             if body is None:
                 raise RuntimeError("Indeed blockt gerade (403) – beim nächsten Lauf wieder versuchen")
             i = body.find('"results":[')
@@ -1070,7 +1175,9 @@ MS_BEI = re.compile(r"^Job als .*? bei (.+?) in (.+)$")
 def jobs_meinestadt(p, max_seiten=2):
     """jobs.meinestadt.de liefert die Treffer als schema.org-OfferCatalog im Seitenkopf."""
     gesehen, treffer = set(), []
-    stadt = _slug(p.get("ort") or "Köln").replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    # Die Umschrift steckt seit dem 22.09.2026 in `_slug` selbst – hier stand sie ein
+    # zweites Mal, und StepStone hatte sie nicht. Eine Regel, eine Stelle.
+    stadt = _slug(p.get("ort") or "Köln")
     for begriff in _begriffe(p):
         for seite in range(1, max_seiten + 1):
             url = (f"https://jobs.meinestadt.de/{stadt}/suche?"
@@ -1768,15 +1875,22 @@ def lauf(pid):
         name, _, funktion, bereit = QUELLEN[schluessel]
         if not bereit():
             continue                         # nicht konfiguriert – still überspringen
+        notiz = []
         try:
-            treffer = funktion(p)
+            # Ohne Budget: im Nachtlauf wartet niemand vor dem Bildschirm, und nur
+            # dort kann sich zeigen, ob die Wartestufen je tragen. Was sie gekostet
+            # haben, landet unten in `tf_lauf.meldung`.
+            treffer, _ = _abfragen(schluessel, p, notiz=notiz)
             treffer, weg = job_filter(p, treffer)
             neu = _ablegen(pid, treffer)
-            meldung = f"{weg} durch die Filter aussortiert" if weg else ""
+            meldung = "; ".join(
+                ([f"{weg} durch die Filter aussortiert"] if weg else []) + notiz)
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-            treffer, neu, meldung = [], 0, f"{name}: nicht erreichbar ({e})"
+            treffer, neu = [], 0
+            meldung = "; ".join([f"{name}: nicht erreichbar ({e})"] + notiz)
         except Exception as e:
-            treffer, neu, meldung = [], 0, f"{name}: {e}"
+            treffer, neu = [], 0
+            meldung = "; ".join([f"{name}: {e}"] + notiz)
         if meldung:
             meldungen.append(meldung)
         gesamt += len(treffer)
@@ -1824,27 +1938,63 @@ def direktsuche(p, quellen=None, grenze=200):
     für den Nachtlauf gleichgültig, aber niemand wartet am Bildschirm zwanzig Sekunden.
     Nebeneinander gefragt antworten alle in der Zeit der langsamsten.
 
-    Gibt (treffer, meldungen) zurück. Nichts wird gespeichert – eine Suche ist eine Frage,
-    keine Ablage. Übernommen wird ein Treffer erst mit einem Klick."""
+    Gibt (treffer, meldungen) zurück. **Kein Treffer wird gespeichert** – eine Suche ist
+    eine Frage, keine Ablage; übernommen wird erst mit einem Klick. Eine Zeile entsteht
+    trotzdem: die Route schreibt jede Suche ins Protokoll (wer, wonach, wie lange, mit
+    welchen Meldungen). Das ist Nachweis, kein Bestand."""
     schluessel = [s for s in quellen_fuer(p)
                   if (not quellen or s in quellen) and QUELLEN[s][3]()]
     treffer, meldungen = [], []
 
+    je_quelle = {}
+
     def fragen(s):
-        name, _, funktion, _ = QUELLEN[s]
+        name = QUELLEN[s][0]
+        notiz = []
         try:
-            return s, funktion(p), None
+            # Eine Quelle darf den Parallellauf nicht allein festhalten. Die mit einer
+            # Wartestufenleiter bekommen am Bildschirm ein Zeitbudget mit – siehe
+            # `BUDGET_BILDSCHIRM`. Alle anderen laufen unverändert.
+            gefunden, _ = _abfragen(s, p, budget=BUDGET_BILDSCHIRM, notiz=notiz)
+            return s, gefunden, None, notiz
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-            return s, [], f"{name}: nicht erreichbar ({e})"
+            return s, [], f"{name}: nicht erreichbar ({e})", notiz
         except Exception as e:
-            return s, [], f"{name}: {e}"
+            return s, [], f"{name}: {e}", notiz
 
     if schluessel:
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(schluessel)) as pool:
-            for _, gefunden, meldung in pool.map(fragen, schluessel):
+            for s, gefunden, meldung, notiz in pool.map(fragen, schluessel):
                 treffer.extend(gefunden)
+                je_quelle[s] = len(gefunden)
                 if meldung:
                     meldungen.append(meldung)
+                for zeile in notiz:
+                    meldungen.append(f"{QUELLEN[s][0]}: {zeile}")
+
+    # **Welche Quelle wie viel geliefert hat, steht auf dem Bildschirm.**
+    #
+    # Null Treffer sind kein Fehler – sie können stimmen. Aber eine Quelle, die still
+    # nichts liefert, während die anderen liefern, ist von einem vollständigen Ergebnis
+    # nicht zu unterscheiden. Genau so lag StepStone für jeden Umlautort auf Null: die
+    # Seite kam, die Trefferliste war leer, keine Ausnahme, keine Meldung. Der Nutzer
+    # sah 94 Treffer und hielt das für alles; 136 waren es.
+    #
+    # Gezählt wird, was das Portal geliefert hat – vor Reglern und Dublettenabgleich.
+    # Die Frage lautet „hat es geantwortet", nicht „was ist am Ende übrig".
+    #
+    # **Der Agentenlauf zählt an dieser Stelle anders**, und das ist kein Versehen:
+    # `lauf()` schreibt in `tf_lauf.gefunden` die Zahl NACH `job_filter`, weil dort die
+    # Frage „wie viel ist für diesen Menschen übrig geblieben" lautet. Wer die beiden
+    # Zahlen vergleicht, vergleicht zwei verschiedene Fragen.
+    # Ganz nach vorn: das ist die Antwort auf „habe ich alles gesehen?", und sie muss
+    # vor den Einzelmeldungen stehen, nicht hinter ihnen.
+    if je_quelle:
+        # Komma innen, damit die Zeile nicht im Trennzeichen der uebrigen
+        # Meldungen untergeht – die werden mit „ · " verbunden.
+        meldungen.insert(0, "Quellen: " + ", ".join(
+            f"{QUELLEN[s][0]} {n}" for s, n in
+            sorted(je_quelle.items(), key=lambda x: (-x[1], QUELLEN[x[0]][0]))))
 
     treffer, weg = job_filter(p, treffer)
     if weg:
@@ -1864,6 +2014,15 @@ def direktsuche(p, quellen=None, grenze=200):
     if doppelt:
         meldungen.append(f"{doppelt} Dubletten aus anderen Portalen ausgeblendet")
     einmalig.sort(key=lambda x: (-(x.get("score") or 0), x.get("titel") or ""))
+    # Dieselbe Ehrlichkeit wie bei den Dubletten. Der Schnitt bei `grenze` stand bisher
+    # nirgends: wer 340 Treffer hatte, sah 200 und hielt das für alles. Sortiert ist
+    # nach Relevanz, oben steht also das Beste – aber das muss dastehen, nicht geraten
+    # werden. **Wer `grenze` anhebt, hebt auch den POST-Rumpf beim Übernehmen an**;
+    # ab rund 575 Treffern greift `max_form_memory_size` (siehe `zu_viel_auf_einmal`
+    # in `app.py`).
+    if len(einmalig) > grenze:
+        meldungen.append(f"{len(einmalig) - grenze} weitere Treffer abgeschnitten"
+                         f" – gezeigt werden die {grenze} bestbewerteten")
     return einmalig[:grenze], meldungen
 
 
@@ -2305,7 +2464,10 @@ def kunden_suchen(text, standort=db.STANDORT_STANDARD, limit=12):
         return []
     zeilen = db.hole(
         "SELECT k.id, k.name, k.ort_jc, k.kundennummer, k.status_code, m.name AS coach,"
-        "  (SELECT COUNT(*) FROM tf_profil t WHERE t.kunde_id=k.id AND t.aktiv=1) AS profile,"
+        # Jedes Profil, auch ein pausiertes: die Vorschlagszeile der Kopfsuche schreibt
+        # daraus wörtlich „N Profile" bzw. „kein Profil" (`basis.html`). Das ist die
+        # eine Zählweise des Hauses – siehe `sammelanlage.vorschlaege`.
+        "  (SELECT COUNT(*) FROM tf_profil t WHERE t.kunde_id=k.id) AS profile,"
         "  (SELECT COUNT(*) FROM tf_angebot a JOIN tf_profil t ON t.id=a.profil_id"
         "     WHERE t.kunde_id=k.id AND a.status='neu') AS neu"
         "  FROM kunde k LEFT JOIN mitarbeiter m ON m.id=k.coach_id"
