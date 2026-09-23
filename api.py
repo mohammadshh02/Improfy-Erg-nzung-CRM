@@ -43,7 +43,7 @@ import json
 import os
 import time
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request
 
 import crm_karte
 import datenbank as db
@@ -170,13 +170,53 @@ def _text(name):
     return (request.args.get(name) or "").strip() or None
 
 
+@api.errorhandler(400)
+def _schlechte_anfrage(fehler):
+    """Auch die Absage ist JSON. Wer eine Schnittstelle bedient, liest keine HTML-Seite.
+
+    Greift für jedes `abort(400, …)` aus diesem Blueprint – also auch für alles, was
+    künftig dazukommt, ohne dass die einzelne Route etwas davon wissen muss."""
+    return jsonify({"fehler": getattr(fehler, "description", None)
+                    or "Die Anfrage ist nicht lesbar"}), 400
+
+
 def eingang():
     """Was hereinkommt – als JSON-Körper oder als Formular, beides gilt.
 
     Das CRM schickt JSON. Ein Mensch, der die Schnittstelle mit curl ausprobiert, tippt
-    eher `-d feld=wert`. Beides anzunehmen kostet nichts und erspart Rückfragen."""
+    eher `-d feld=wert`. Beides anzunehmen kostet nichts und erspart Rückfragen.
+
+    **Heraus kommt immer eine Abbildung.** JSON kennt auf oberster Ebene auch Listen,
+    Text, Zahlen und Wahrheitswerte, und `get_json` gibt genau das zurück – jedes
+    `daten.get(…)` danach ist dann ein `AttributeError` und damit ein 500er. Gemessen
+    am 23.09.2026 auf `/api/taskforce/profil/1/uebernehmen`, alles mit
+    `Content-Type: application/json`:
+
+        [{"quelle": "jobs.ba", "extern_id": "N9"}]   → 500  'list' hat kein .get
+        "hallo"                                      → 500
+        7                                            → 500
+        true                                         → 500
+
+    Die erste Form ist die, die ein CRM-Entwickler **zuerst** schickt:
+    `/api/taskforce/suche` antwortet mit `{"stand":…, "anzahl":…, "daten":[…]}`, und wer
+    `daten` nimmt und roh weiterreicht, hat genau diese Liste im Körper. Statt einer
+    nackten Absturzseite bekommt er jetzt 400 und den Satz, was erwartet wird.
+
+    Der Fang steht **hier** und nicht in einer Route: `_fehlt()` liest dieselbe
+    Funktion, und jede künftige Route erbte den Fehler sonst mit."""
     if request.is_json:
-        return request.get_json(silent=True) or {}
+        try:
+            daten = request.get_json(silent=True)
+        # Tief verschachteltes JSON bricht im C-Scanner mit `RecursionError` ab, und das
+        # ist **kein** `ValueError`: `silent=True` fängt es nicht.
+        except (ValueError, RecursionError):
+            abort(400, "Der Körper der Anfrage ist kein lesbares JSON.")
+        if daten is None:                      # unlesbar oder leer – wie ein leeres Formular
+            return {}
+        if not isinstance(daten, dict):
+            abort(400, "Der Körper muss ein JSON-Objekt sein (geschweifte Klammern),"
+                       " kein %s. Beispiel: {\"treffer\": [ … ]}" % type(daten).__name__)
+        return daten
     return {k: v for k, v in request.form.items()}
 
 
@@ -583,10 +623,26 @@ def tf_angebote_status():
 @schreibend("Abgleich nachgeladen")
 def tf_angebot_abgleich(aid):
     """Beschreibung beim Portal nachladen und gegen den Kunden abgleichen.
-    Dabei fallen auch die Kontaktdaten an – Mail, Telefon, Ansprechpartner."""
+    Dabei fallen auch die Kontaktdaten an – Mail, Telefon, Ansprechpartner.
+
+    **Hier wird nach draußen gegriffen, und draußen geht vieles schief.** Die Adresse
+    des Angebots kommt vom Aufrufer (über `…/uebernehmen`) und ist zu Recht nur auf
+    „Text" geprüft – eine abgelaufene Anzeige, ein Portal in Wartung, ein Tippfehler:
+    `tf.abgleich` wirft dann. Ungefangen war das ein 500er, während derselbe Griff am
+    Bildschirm (`app.taskforce_angebot_abgleich`) längst eine Fehlermeldung zeigt.
+    Gemessen am 23.09.2026 mit einer StepStone-Adresse, die es nicht gibt: Bildschirm
+    302 mit Meldung, Schnittstelle 500.
+
+    Gleiche Behandlung, nur maschinenlesbar: 400 mit `grund`. Der Aufrufer hat die
+    Adresse mitgebracht, und die Antwort soll ihm sagen, woran es lag – nicht, dass
+    dieses Haus kaputt ist."""
     if not db.eine("SELECT id FROM tf_angebot WHERE id=?", (aid,)):
         return jsonify({"fehler": "Angebot nicht gefunden"}), 404
-    ergebnis = tf.abgleich(aid)
+    try:
+        ergebnis = tf.abgleich(aid)
+    except Exception as e:
+        return jsonify({"fehler": "Abgleich nicht möglich",
+                        "grund": f"{type(e).__name__}: {e}"[:200]}), 400
     if not ergebnis:
         return jsonify({"fehler": "Abgleich nicht möglich"}), 400
     abgleich, match = ergebnis
@@ -669,6 +725,24 @@ def tf_suche():
                  sekunden=round(time.time() - begonnen, 1))
 
 
+# Wie viele Treffer ein Aufruf mitbringen darf. Der Bildschirmweg hat diese Grenze
+# geschenkt bekommen: Die Treffer reisen dort im Formular mit, und Werkzeug weist ab
+# 500.000 Bytes (`max_form_memory_size`) mit **413** ab – gemessen bei rund 1.370
+# echten Treffern, und es entsteht keine einzige Zeile. Die Schnittstelle hatte gar
+# keine: `MAX_CONTENT_LENGTH` ist `None`, und 100.000 Sätze in einem 36-MB-Körper
+# liefen am 23.09.2026 mit HTTP 200 in 4,2 Sekunden durch – 100.000 Zeilen auf der
+# Tafel eines Kunden, ohne Fehler, ohne Meldung. Ein verirrter CRM-Aufruf schüttet so
+# eine Tafel zu, und gesehen hätte es erst, wer sie öffnet.
+#
+# 1.000 ist gemessen, nicht geraten: `tf.direktsuche` schneidet bei 200 Treffern ab
+# (bei „beides" 100 je Art), mehr kann aus einer Suche gar nicht kommen – die Grenze
+# liegt also beim Fünffachen dessen, was der Normalfall hergibt, und unter der des
+# Formularwegs, damit beide Wege dieselbe Zusage machen. Der Bestand der größten Tafel
+# im Echtbestand: 1.424 Zeilen, gewachsen über viele Läufe, nie über einen Aufruf.
+# Wer wirklich mehr hat, schickt zwei Aufrufe; die Antwort nennt die Zahl.
+TREFFER_JE_AUFRUF = 1000
+
+
 @api.route("/taskforce/profil/<int:pid>/uebernehmen", methods=["POST"])
 @schreibend("Treffer übernommen")
 def tf_uebernehmen(pid):
@@ -699,16 +773,16 @@ def tf_uebernehmen(pid):
     Treffer fallen still weg. Das CRM bekommt stattdessen eine Zahl: `abgewiesen` sagt,
     wie viele Sätze der Riegel aussortiert hat, und fällt gar nichts durch, kommt ein
     400 mit Begründung statt einer stillen Weiterleitung. Ein Programm kann eine
-    Meldung auf einer Seite nicht lesen – eine Zahl im Körper schon."""
+    Meldung auf einer Seite nicht lesen – eine Zahl im Körper schon.
+
+    **Und es geht nur eine Handvoll auf einmal** (`TREFFER_JE_AUFRUF`, siehe dort):
+    darüber 413 mit der Grenze und der bekommenen Zahl, und es wird nichts abgelegt –
+    dieselbe Antwort, die der Formularweg an seiner Grenze gibt."""
     if not tf.profil(pid):
         return jsonify({"fehler": "Profil nicht gefunden"}), 404
-    # Der Körper selbst kann schon der Angriff sein: Tief verschachteltes JSON bricht
-    # im C-Scanner mit `RecursionError` ab, und das ist **kein** `ValueError` – der
-    # `silent=True`-Fang in `eingang()` greift dafür nicht.
-    try:
-        daten = eingang()
-    except (ValueError, RecursionError):
-        return jsonify({"fehler": "Der Körper der Anfrage ist kein lesbares JSON"}), 400
+    # Ein Körper, der gar keine Abbildung ist, endet in `eingang()` mit 400 – dort und
+    # nicht hier, damit jede Route dasselbe tut (siehe `eingang`).
+    daten = eingang()
     treffer = daten.get("treffer") or []
     if isinstance(treffer, str):
         # Als Formularfeld (`-d treffer=[…]`) kommt die Liste als Text an.
@@ -721,6 +795,16 @@ def tf_uebernehmen(pid):
     if not isinstance(treffer, list):
         return jsonify({"fehler": "'treffer' muss eine Liste sein",
                         "bekommen": type(treffer).__name__}), 400
+    # **Die Menge wird gezählt, bevor irgendetwas geprüft oder abgelegt wird.** Sonst
+    # geht ein Aufruf mit 100.000 Sätzen still durch (gemessen: 36 MB Körper, HTTP 200
+    # nach 4,2 s, 100.000 Zeilen auf der Tafel eines Kunden – kein Fehler, keine
+    # Meldung, gesehen hätte es erst, wer die Tafel öffnet).
+    if len(treffer) > TREFFER_JE_AUFRUF:
+        return jsonify({"fehler": "zu viele Treffer auf einmal",
+                        "grenze": TREFFER_JE_AUFRUF, "bekommen": len(treffer),
+                        "abgelegt": 0,
+                        "hinweis": "in mehreren Aufrufen schicken; es wurde nichts"
+                                   " abgelegt"}), 413
     brauchbar = [t for t in treffer if tf.treffer_sauber(t)]
     abgewiesen = len(treffer) - len(brauchbar)
     if not brauchbar:

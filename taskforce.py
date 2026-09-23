@@ -1706,19 +1706,22 @@ ZUSATZ_TEXT = ("suchbegriff", "arbeitszeit", "preis")
 # sauberem Durchlauf, also fällt der GANZE Stapel zurück. Gemessen mit rund 5 kB
 # Nutzlast, weit unter der 500-kB-Grenze des Formulars.
 #
-# 200 ist gemessen, nicht geraten: der längste Wert dieser drei Schlüssel im echten
-# Bestand hat 17 Zeichen („Vollzeit, Schicht"), der längste Wert in `zusatz`
-# überhaupt 38; der Tester hat 561 echte Treffer aus sechs Portalen gemessen, der
-# längste Wert dort hatte 24 Zeichen. Die Grenze gilt **nur für diese drei**, weil
-# eine zu enge Grenze genau die Sorte Verlust erzeugt, die heute schon 146 Treffer
-# gekostet hat.
+# 200 ist gemessen, nicht geraten – und am 23.09.2026 am ganzen Echtbestand
+# nachgemessen (1.424 Angebote): Von den drei Schlüsseln hier ist `arbeitszeit` mit
+# 45 Zeichen der längste (`suchbegriff` 24, `preis` 6). Der längste Wert in `zusatz`
+# überhaupt hat 97 Zeichen (`beruf`, dann `merkmale` mit 83) – die Zahlen 17 und 38,
+# die hier bis dahin standen, galten für einen kleineren Bestand und stimmen nicht
+# mehr. An der Grenze ändert das nichts: 200 liegt weiterhin gut über allem, was
+# wirklich vorkommt. Sie gilt **nur für diese drei**, weil eine zu enge Grenze genau
+# die Sorte Verlust erzeugt, die schon einmal 146 Treffer gekostet hat.
 #
 # ACHTUNG, hier stand bis zum 22.09.2026 „alles andere in `zusatz` bleibt unbegrenzt,
-# weil dort kein `int(…)` wartet". Das ist FALSCH. In `_abgleich_wohnung`
-# (`_abgleich_wohnung`, weiter unten in dieser Datei) warten zwei weitere: `warmmiete` und `etage`.
-# Beide sind hier NICHT begrenzt. Der Schaden ist milder – `app.py` und
-# `taskforce.py:2414` fangen dort je Satz, es gibt also keine 500er-Seite und keinen
-# Stapelverlust – aber der Satz bekommt `abgleich={"fehler": …}`, und
+# weil dort kein `int(…)` wartet". Das ist FALSCH. In `_abgleich_wohnung` (weiter unten
+# in dieser Datei) warten zwei weitere: `warmmiete` und `etage`.
+# Beide sind hier NICHT begrenzt. Der Schaden ist milder – der Bildschirmweg in
+# `app.py` und die Schleife in `abgleich_profil` fangen dort je Satz, es gibt also
+# keine 500er-Seite und keinen Stapelverlust – aber der Satz bekommt
+# `abgleich={"fehler": …}`, und
 # `abgleich_profil` sucht nur `WHERE abgleich IS NULL`: die Zeile wird nie wieder
 # angefasst. Wer `zusatz` um einen Schlüssel erweitert, der irgendwo in eine Zahl
 # umgewandelt wird, gehört in `ZUSATZ_TEXT` – nicht weil hier eine Regel steht,

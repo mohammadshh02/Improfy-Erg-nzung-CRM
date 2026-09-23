@@ -54,6 +54,7 @@ os.environ["OS_SICHERUNG_ORDNER"] = pruefkopie.papierkorb("sicherungen")
 # und `cv_pdf`, sie muss darum vorher stehen.
 os.environ["OS_AUSGABE_ORDNER"] = pruefkopie.papierkorb("ausgabe")
 
+import api as api_modul            # noqa: E402  (die Grenze `TREFFER_JE_AUFRUF`)
 import app as A                    # noqa: E402
 import coaches                     # noqa: E402
 import datenbank as db             # noqa: E402
@@ -2294,6 +2295,90 @@ def main():
            and _r_form.status_code < 500 and _r_api.status_code == 400
            and not db.wert("SELECT COUNT(*) FROM tf_angebot WHERE extern_id='BEIDE-WEGE-1'"),
            f"Formular {_r_form.status_code} · Schnittstelle {_r_api.status_code}")
+
+    # **Die neunte Form, und sie steht vor allen acht anderen.** JSON kennt auf oberster
+    # Ebene auch Listen, Text, Zahlen und `true`; `eingang()` reichte das durch, und
+    # `daten.get(…)` war dann ein `AttributeError` – 500 statt 400. Die Liste ist dabei
+    # die wahrscheinlichste Form von allen: `/api/taskforce/suche` antwortet mit
+    # `{"daten": [ … ]}`, und wer `daten` nimmt und roh zurückschickt, schickt genau sie.
+    #
+    # Gemessen wird ueber MEHRERE Routen, denn der Fang sitzt in `eingang()` und gilt
+    # damit fuer jede – auch fuer die, die es morgen gibt.
+    _formen = [("Liste", [{"quelle": "jobs.ba", "extern_id": "N9"}]),
+               ("Text", "hallo"), ("Zahl", 7), ("Wahrheitswert", True)]
+    _routen = [f"/api/taskforce/profil/{_pid_j_api}/uebernehmen",
+               "/api/kunde",
+               "/api/taskforce/profil",
+               "/api/taskforce/angebote/status"]
+    _koerper_kaputt = []
+    _vor_koerper = db.wert("SELECT COUNT(*) FROM tf_angebot")
+    for _weg in _routen:
+        for _was, _koerper in _formen:
+            _r_k = c.post(_weg, json=_koerper)
+            if _r_k.status_code != 400 or not (_r_k.get_json() or {}).get("fehler"):
+                _koerper_kaputt.append(f"{_weg} {_was} → {_r_k.status_code}")
+    pruefe(f"{len(_formen)} Körperformen, die keine Abbildung sind, geben auf"
+           f" {len(_routen)} Routen 400 mit Begründung",
+           not _koerper_kaputt
+           and db.wert("SELECT COUNT(*) FROM tf_angebot") == _vor_koerper,
+           "; ".join(_koerper_kaputt)
+           or f"{len(_formen) * len(_routen)} Aufrufe, je 400 mit Begründung")
+
+    # **Der Griff nach draussen faellt nicht mehr ins Haus.** Die Adresse eines Angebots
+    # kommt vom Aufrufer und ist zu Recht nur auf „Text" geprueft. Eine abgelaufene
+    # Anzeige, ein Portal in Wartung, ein Tippfehler – `tf.abgleich` wirft, und
+    # ungefangen war das ein 500er, waehrend derselbe Griff am Bildschirm laengst eine
+    # Fehlermeldung zeigt. Gemessen wird die ganze Kette ueber die Schnittstelle:
+    # uebernehmen, dann abgleichen. Die Adresse zeigt auf `.invalid` – der Name wird nie
+    # aufgeloest, der Lauf braucht also kein Netz und keine Wartezeit.
+    c.post(f"/api/taskforce/profil/{_pid_j_api}/uebernehmen", json={"treffer": [{
+        "quelle": "jobs.stepstone", "extern_id": "KETTE-1", "titel": "Lagerhelfer",
+        "url": "https://kein-portal.invalid/gibtesnicht-xyz.html"}]})
+    _aid_kette = db.wert("SELECT id FROM tf_angebot WHERE extern_id='KETTE-1'", (), None)
+    _r_kette = c.post(f"/api/taskforce/angebot/{_aid_kette}/abgleich")
+    _r_kette_form = c.post(f"/taskforce/angebot/{_aid_kette}/abgleich",
+                           data={"zurueck": "/taskforce/tafel"})
+    _json_kette = _r_kette.get_json() or {}
+    pruefe("Eine nicht erreichbare Adresse fällt auf beiden Wegen weich – 400 mit Grund"
+           " statt 500",
+           bool(_aid_kette) and _r_kette.status_code == 400 and _json_kette.get("grund")
+           and _r_kette_form.status_code < 500,
+           f"Schnittstelle {_r_kette.status_code} ({_json_kette.get('grund')})"
+           f" · Bildschirm {_r_kette_form.status_code}")
+
+    # **Und es geht nur eine Handvoll auf einmal.** Ohne Grenze lief ein Aufruf mit
+    # 100.000 Saetzen still durch: HTTP 200, 4,2 Sekunden, 100.000 Zeilen auf der Tafel
+    # eines Kunden – kein Fehler, keine Meldung. Der Formularweg ist an seiner Grenze
+    # laut (413), die Schnittstelle war stumm. Geprueft wird die Wirkung: laute Antwort
+    # mit der Zahl, und keine einzige Zeile.
+    _zuviel = [{"quelle": "jobs.ba", "extern_id": "MENGE-%d" % i, "titel": "Lagerhelfer"}
+               for i in range(api_modul.TREFFER_JE_AUFRUF + 1)]
+    _vor_menge = db.wert("SELECT COUNT(*) FROM tf_angebot")
+    _r_menge = c.post(f"/api/taskforce/profil/{_pid_j_api}/uebernehmen",
+                      json={"treffer": _zuviel})
+    _json_menge = _r_menge.get_json() or {}
+    pruefe(f"Mehr als {api_modul.TREFFER_JE_AUFRUF} Treffer auf einmal werden laut"
+           " abgewiesen, und es entsteht keine Zeile",
+           _r_menge.status_code == 413
+           and _json_menge.get("grenze") == api_modul.TREFFER_JE_AUFRUF
+           and _json_menge.get("bekommen") == len(_zuviel)
+           and db.wert("SELECT COUNT(*) FROM tf_angebot") == _vor_menge
+           and not db.wert("SELECT COUNT(*) FROM tf_angebot WHERE extern_id LIKE 'MENGE-%'"),
+           f"{_r_menge.status_code} · {_json_menge.get('fehler')}"
+           f" · {db.wert('SELECT COUNT(*) FROM tf_angebot') - _vor_menge} Zeilen dazu")
+
+    # Die Gegenrichtung zur Grenze: genau an der Grenze muss alles durchgehen. Eine
+    # Obergrenze ist der naheliegendste Weg, den 146-Treffer-Fehler ein zweites Mal zu
+    # bauen – diesmal nicht am Typ, sondern an der Menge.
+    _genau = [dict(_beispiele["jobs.ba"], extern_id="MENGE-OK-%d" % i)
+              for i in range(api_modul.TREFFER_JE_AUFRUF)]
+    _r_genau = c.post(f"/api/taskforce/profil/{_pid_j_api}/uebernehmen",
+                      json={"treffer": _genau})
+    _drin_genau = db.wert("SELECT COUNT(*) FROM tf_angebot WHERE extern_id LIKE 'MENGE-OK-%'")
+    pruefe(f"Genau {api_modul.TREFFER_JE_AUFRUF} echte Treffer kommen restlos durch",
+           _r_genau.status_code == 200 and not (_r_genau.get_json() or {}).get("abgewiesen")
+           and _drin_genau == len(_genau),
+           f"{_r_genau.status_code} · {_drin_genau} von {len(_genau)} auf der Tafel")
 
     fehl = [n for n, ok, _ in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")
