@@ -716,6 +716,24 @@ def tf_profil_schreiben():
                   "notiz", "standort"):
         if _feld in d:
             d[_feld] = feld_text(d, _feld)
+    # **Eine Zahl als TEXT umging die 64-Bit-Grenze.** `_bindbar` gibt für jeden `str`
+    # sofort „bindbar" zurück – zu Recht, SQLite nimmt jeden Text. Dass aus diesem Text
+    # gleich `tf._zahl` eine Zahl macht, sieht ihm niemand an: `{"umkreis_km": 10**20}`
+    # gab 400, `{"umkreis_km": "100000000000000000000"}` gab 500 (OverflowError mitten
+    # in der Transaktion), und der Formularweg schickt grundsätzlich Text.
+    #
+    # `tf._zahl` lässt seit dem 30.09.2026 keinen solchen Wert mehr durch – aber
+    # stillschweigend auf die Vorgabe zurückzufallen wäre die falsche Antwort: An einer
+    # Schreibschnittstelle muss der Aufrufer erfahren, dass sein Wert nicht angekommen
+    # ist. Abgewiesen wird nur, was als Zahl lesbar, aber zu groß oder unendlich ist;
+    # unlesbarer Text (`max_miete: "900 €"`) wird weiter behandelt wie bisher.
+    for _feld, _typ in (("umkreis_km", int), ("max_miete", int),
+                        ("min_flaeche", int), ("min_zimmer", float)):
+        if _feld in d and not tf.zahl_bindbar(tf._zahl_roh(d[_feld], _typ)):
+            return jsonify({"fehler": "'%s' trägt eine Zahl, die die Datenbank nicht"
+                                      " aufnehmen kann (bis 64 Bit, keine unendlichen)."
+                                      % _feld,
+                            "bekommen": repr(d[_feld])[:80]}), 400
     # **Eine Quelle, die es nicht gibt, wird nicht stillschweigend gespeichert.** Das
     # ist keine Typfrage mehr, sondern eine Wertfrage, und die gehört zum Feld: Ein
     # Profil mit `quellen='5'` fragt kein Portal und sucht damit nichts – und niemand

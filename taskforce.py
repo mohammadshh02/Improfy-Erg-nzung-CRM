@@ -175,10 +175,23 @@ def _get(url, hdr=None, timeout=25):
 
 
 def _post_json(url, daten, timeout=25):
+    """JSON hinschicken, JSON zurückbekommen.
+
+    **Die Antwort kann gepackt kommen, und dann muss sie ausgepackt werden.** `UA`
+    trägt `Accept-Encoding: gzip` – das gilt auch hier, und wer danach fragt, bekommt
+    es. `_get` packt seit jeher aus, diese Schwester nicht: `json.loads` bekäme die
+    gepackten Bytes und fiele mit `UnicodeDecodeError` um. Belegt am 30.09.2026 an
+    Jooble: die Antwort auf einen POST kam gzip-gepackt zurück (gemessen am Rumpf der
+    403-Antwort, die einzige, die sich ohne Schlüssel messen lässt). Der einzige
+    Nutzer dieser Funktion ist der Jooble-Adapter – die Quelle wäre also auch mit
+    gültigem Schlüssel nicht angelaufen."""
     req = urllib.request.Request(url, data=json.dumps(daten).encode("utf-8"), headers={
         **UA, "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8"))
+        roh = r.read()
+        if r.headers.get("Content-Encoding") == "gzip":
+            roh = gzip.decompress(roh)
+        return json.loads(roh.decode("utf-8", "replace"))
 
 
 # ------------------------------------------------------------------ Profile
@@ -188,11 +201,50 @@ FELDER = ("kunde_id", "art", "titel", "suchbegriffe", "ort", "umkreis_km", "arbe
           "aktiv", "quellen")
 
 
-def _zahl(v, typ=int):
+def _zahl_roh(v, typ=int):
+    """Aus einem Wert eine Zahl machen – ohne Urteil darüber, wie groß sie ist.
+
+    Gibt `None`, wenn gar keine Zahl darin steht oder das Feld leer ist. Getrennt von
+    `_zahl`, damit die Schnittstelle den Unterschied sieht: „da steht keine Zahl" (das
+    war immer schon egal) und „die Zahl passt nicht in die Datenbank" (das muss der
+    Aufrufer erfahren) sind zwei verschiedene Auskünfte."""
     try:
         return typ(str(v).replace(",", ".")) if str(v).strip() else None
     except ValueError:
         return None
+
+
+def zahl_bindbar(z):
+    """Kann SQLite diese Zahl aufnehmen, und lässt sich mit ihr rechnen?
+
+    Über 64 Bit wirft das Binden `OverflowError`, und zwar mitten in der Transaktion –
+    dieselbe Grenze, die `api._bindbar` für Zahlen zieht. `inf` bindet SQLite dagegen
+    klaglos, und danach trifft ein Profil mit `min_zimmer=inf` nie wieder eine Wohnung,
+    lautlos."""
+    if z is None:
+        return True
+    if isinstance(z, float) and not math.isfinite(z):
+        return False
+    return abs(z) <= db.SQLITE_MAX
+
+
+def _zahl(v, typ=int):
+    """Ein Zahlenfeld des Profils lesen. Unbrauchbar heisst `None`.
+
+    **Und unbrauchbar ist auch, was zu groß ist.** Hier stand nur `typ(str(v))`, und
+    genau darüber lief die Textform in einen 500er: `api._bindbar` gibt für jeden `str`
+    sofort „bindbar" zurück – einem Text sieht man nicht an, dass hier gleich eine Zahl
+    daraus wird. Gemessen am 30.09.2026 auf `/api/taskforce/profil`:
+
+        {"umkreis_km": 100000000000000000000}    -> 400, abgefangen
+        {"umkreis_km": "100000000000000000000"}  -> 500, OverflowError beim Binden
+        Formularweg  umkreis_km=99999999…        -> 500, derselbe Weg
+
+    Die Textform ist der Normalfall: Jedes Formular schickt Text. Die Grenze gehört
+    deshalb dorthin, wo aus Text eine Zahl wird – dann gilt für beide Wege dieselbe
+    Regel, und die nächste Route erbt sie, ohne dass jemand daran denken muss."""
+    z = _zahl_roh(v, typ)
+    return z if zahl_bindbar(z) else None
 
 
 def profil_speichern(daten, pid=None):
@@ -240,8 +292,24 @@ def profil_speichern(daten, pid=None):
         d[f] = (d.get(f) or "").strip() or None
     # Kriterien nur anfassen, wenn welche mitkommen – sonst bliebe beim Ändern eines
     # anderen Feldes die ganze Reglerstellung auf der Strecke.
-    if not pid or vom_formular or any(str(f).startswith("k_") for f in daten):
-        krit = kriterien_aus_formular(daten, d["art"])
+    #
+    # **Zwei Wege führen hier herein**, und bis zum 30.09.2026 kannte diese Stelle nur
+    # einen: Das Formular schickt seine Regler einzeln als `k_<schlüssel>`, das CRM
+    # schickt sie als ein Objekt `kriterien` (das `/api/taskforce/profil` ausdrücklich
+    # erlaubt). Der zweite Weg endete im Nichts – `kriterien` steht nicht in `FELDER`,
+    # und der Zweig hier setzte das Feld für ein neues Profil auf `None`. Angekommen
+    # ist nichts, gemeldet wurde nichts.
+    #
+    # Kommt beides, gewinnt der einzelne Regler: Wer ein Kästchen anklickt, meint
+    # dieses Kästchen – das Objekt ist die Grundstellung, auf der er aufsetzt.
+    # `None` heisst hier „nicht mitgeschickt", nicht „leeren": Beim Ändern bleibt
+    # stehen, was nicht im Körper steht – dieselbe Zusage wie für alle anderen Felder.
+    mitgeschickt = (kriterien_normalisieren(daten.get("kriterien"), d["art"])
+                    if daten.get("kriterien") is not None else None)
+    if not pid or vom_formular or mitgeschickt is not None \
+            or any(str(f).startswith("k_") for f in daten):
+        krit = dict(mitgeschickt or {})
+        krit.update(kriterien_aus_formular(daten, d["art"]))
         d["kriterien"] = json.dumps(krit, ensure_ascii=False) if krit else None
     else:
         d["kriterien"] = vorhanden.get("kriterien")
@@ -375,7 +443,10 @@ def kriterien_aus_formular(daten, art="wohnung"):
     for schl, _, typ, _ in kriterien_liste(art):
         v = daten.get("k_" + schl)
         if typ == "ja":
-            if str(v or "") in ("1", "on", "ja", "true"):
+            # `casefold`, weil hier nicht nur Formulartext ankommt: Aus einem
+            # JSON-Körper wird aus `true` der Text „True", und der stand vorher nicht
+            # in der Liste – der Haken wäre lautlos ausgeblieben.
+            if str(v or "").strip().casefold() in ("1", "on", "ja", "true"):
                 krit[schl] = True
         elif typ == "zahl":
             z = _zahl(v)
@@ -401,6 +472,36 @@ def kriterien_aus_formular(daten, art="wohnung"):
             if t:
                 krit[schl] = t
     return krit
+
+
+def kriterien_normalisieren(roh, art="wohnung"):
+    """Ein fertiges Kriterien-Objekt (aus der Schnittstelle) auf dieselbe Form bringen,
+    die das Formular erzeugt.
+
+    **Warum es das braucht.** `/api/taskforce/profil` erlaubt `kriterien` ausdrücklich
+    als Objekt – und warf es weg: `kriterien` steht nicht in `FELDER`, und danach
+    setzte `profil_speichern` das Feld in jedem Zweig neu, bei einem neuen Profil auf
+    `None`. Gemessen am 30.09.2026: `{"kunde":5,"art":"wohnung","kriterien":
+    {"wbs":true,"balkon":true}}` → HTTP 200, Profil angelegt, `tf_profil.kriterien`
+    NULL. Das CRM schickt WBS und Balkon, die Suche lief ohne beides, und niemand sah
+    es.
+
+    **Eine Regel, nicht zwei.** Geprüft wird über `kriterien_aus_formular`: Dem
+    Schlüssel wird `k_` vorangestellt, und danach gilt Zeichen für Zeichen dasselbe wie
+    für das Formular – bekannte Schlüssel der richtigen Art, Zahlen als Zahlen, Listen
+    gegen die erlaubten Werte. Zwei eigene Fassungen liefen in diesem Haus schon
+    zweimal auseinander.
+
+    Nimmt auch den JSON-Text entgegen, den die Schnittstelle daraus macht. Was nicht
+    lesbar ist, ergibt ein leeres Ergebnis – nicht einen Absturz."""
+    if isinstance(roh, str):
+        try:
+            roh = json.loads(roh or "{}")
+        except ValueError:
+            return {}
+    if not isinstance(roh, dict):
+        return {}
+    return kriterien_aus_formular({"k_" + str(s): w for s, w in roh.items()}, art)
 
 
 def kriterien(p):
@@ -451,6 +552,79 @@ def _is24_slug(ort):
     for a, b in UMSCHRIFT:
         o = o.replace(a, b)
     return re.sub(r"[^a-z0-9]+", "-", o).strip("-")
+
+
+# ------------------------------------------------- Ortsnamen vergleichen
+# **Derselbe Ort, drei Schreibweisen – und unser Vergleich kannte nur eine.**
+#
+# Der Ortsfilter von Arbeitnow prüfte `"köln"` MIT Umlaut gegen das `location`-Feld des
+# Portals. Gemessen am 30.09.2026 an der Rohantwort: 326 Stellen weltweit, davon vier im
+# Kölner Raum – dreimal „Köln", einmal „Cologne". Der englische Name fiel damit immer
+# durch, still und ohne Meldung. Ein weltweites Board schreibt mal deutsch, mal englisch,
+# mal beides in einem Feld („Deutschland / Köln").
+#
+# Die Regel ist deshalb: **umgeschrieben wird zum Vergleichen, nicht zum Abfragen.** Was
+# in eine Adressbahn geht, läuft weiter über `_slug`; was in den Abfrageteil geht, behält
+# seinen Umlaut (siehe `_is24_slug` und den Kopf von `ba_parameter`). Hier geht es allein
+# darum, zwei Texte nebeneinanderzulegen.
+#
+# Verglichen wird auf einen **Wortanfang**, nicht auf ein ganzes Wort: „Kölner Umland"
+# zählt als Köln, „Köln-Mülheim" auch. Ein zu Unrecht ausgeblendetes Angebot sieht
+# niemand mehr, ein zu viel gezeigtes kostet einen Blick.
+#
+# Vorher stand hier ein blankes `ort[:5] in text`, und das war an beiden Enden falsch:
+# Es nahm „Neukölln" für eine Kölner Stelle (der Wortanfang fehlt) und „Frankenthal" für
+# Frankfurt (fünf Zeichen sind kein Ort) – und ließ „Cologne" liegen.
+ORTSNAMEN = {          # deutscher Name (umgeschrieben) -> Schreibweisen, die dasselbe meinen
+    "koeln": ("cologne",),
+    "muenchen": ("munich",),
+    "nuernberg": ("nuremberg",),
+    "hannover": ("hanover",),
+    "braunschweig": ("brunswick",),
+    "frankfurt am main": ("frankfurt",),
+}
+
+
+def _ort_schluessel(s):
+    """Ein Ortsname in Vergleichsform: klein, ohne Umlaut, ohne Satzzeichen.
+
+    „Deutschland / Köln" wird zu „deutschland koeln", „Köln-Mülheim" zu
+    „koeln muelheim". Damit vergleicht sich jede Schreibweise mit jeder."""
+    o = (s or "").strip().casefold()
+    for a, b in UMSCHRIFT:
+        o = o.replace(a, b)
+    return re.sub(r"[^a-z0-9]+", " ", o).strip()
+
+
+def ort_varianten(ort):
+    """Alle Schreibweisen, unter denen dieser Ort im Feld eines Portals stehen kann.
+
+    Beide Richtungen: Wer „Köln" eintippt, findet „Cologne"; wer „Cologne" eintippt,
+    findet „Köln". Die Umschrift (`Koeln`) fällt von selbst an, weil der Schlüssel
+    umgeschrieben ist."""
+    schl = _ort_schluessel(ort)
+    if not schl:
+        return []
+    namen = [schl]
+    for deutsch, fremde in ORTSNAMEN.items():
+        if schl == deutsch or schl in fremde:
+            namen += [deutsch, *fremde]
+    return list(dict.fromkeys(namen))       # Reihenfolge behalten, Dubletten weg
+
+
+def ort_passt(ort, text):
+    """Steht dieser Ort – in irgendeiner seiner Schreibweisen – in diesem Feld?
+
+    Ohne Ortswunsch passt jedes Feld (dann filtert niemand). Ein **leeres** Feld passt
+    nicht: Eine Stelle ohne Ortsangabe auf einem weltweiten Board ist keine Kölner
+    Stelle, und die Suche hat einen Ort bekommen."""
+    varianten = ort_varianten(ort)
+    if not varianten:
+        return True
+    ziel = _ort_schluessel(text)
+    if not ziel:
+        return False
+    return any(re.search(r"\b" + re.escape(v), ziel) for v in varianten)
 
 
 def is24_url(p):
@@ -930,8 +1104,32 @@ BA_BASIS = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs
 BA_KEY = "jobboerse-jobsuche"      # öffentlicher Schlüssel der BA-App, kein Geheimnis
 BA_STELLE = "https://www.arbeitsagentur.de/jobsuche/jobdetail/"
 
+# Das Zeitfenster, mit dem wir die BA fragen, wenn das Profil keines vorgibt.
+#
+# **Hier stand 14, und das kostete rund vier Fünftel der Treffer.** Gemessen am
+# 30.09.2026, dieselbe Suche (Lagerhelfer, Köln, 25 km), derselbe Moment, nur dieser
+# eine Parameter verändert:
+#
+#     veroeffentlichtseit=7    ->  6 Treffer
+#     veroeffentlichtseit=14   ->  8 Treffer      (der alte Vorgabewert)
+#     veroeffentlichtseit=21   -> 38 Treffer
+#     veroeffentlichtseit=30   -> 38 Treffer      (dieser Wert)
+#     ohne den Parameter       -> 38 Treffer
+#
+# Ab 21 Tagen ist der ganze Bestand da: Die BA hält nicht mehr vor, der Parameter
+# schneidet nur noch nichts weg. 30 ist deshalb dasselbe Ergebnis wie „ohne
+# Zeitfenster" – aber als Zahl, die dasteht und sich ändern lässt, statt als
+# weggelassener Parameter, dessen Vorgabe die BA jederzeit anders setzen kann.
+#
+# **Eine Stelle, nicht zwei.** `ba_parameter` und `jobs_ba` haben beide einen
+# Vorgabewert; standen dort zwei Zahlen, liefen sie beim nächsten Mal auseinander.
+#
+# Der Regler des Profils sticht weiter (`k_tage`): Wer bewusst nur die letzte Woche
+# sehen will, bekommt die letzte Woche.
+BA_TAGE = 30
 
-def ba_parameter(p, tage=14):
+
+def ba_parameter(p, tage=BA_TAGE):
     """Die Regler des Profils als Parameter der BA-Jobsuche.
 
     Was die Schnittstelle selbst filtern kann, soll sie filtern – das spart Abrufe und
@@ -953,7 +1151,7 @@ def ba_parameter(p, tage=14):
     return params
 
 
-def jobs_ba(p, tage=14, max_seiten=3):
+def jobs_ba(p, tage=BA_TAGE, max_seiten=3):
     gesehen, treffer = set(), []
     for begriff in _begriffe(p):
         for seite in range(1, max_seiten + 1):
@@ -1341,18 +1539,28 @@ def wohnung_kleinanzeigen(p):
 # ------------------------------------------------------ Jobs: Arbeitnow
 
 def jobs_arbeitnow(p):
-    """Kostenlose API, Suche ist unscharf – deshalb lokal nach Begriff und Ort filtern."""
-    ort = (p.get("ort") or "Köln").casefold()
+    """Kostenlose API, Suche ist unscharf – deshalb lokal nach Begriff und Ort filtern.
+
+    **Wie unscharf, ist gemessen:** Am 30.09.2026 kamen auf `search=Lagerhelfer&
+    location=Köln` dieselben 326 Stellen zurück wie auf jede andere Anfrage – das
+    Portal beachtet beide Parameter nicht. Der Ortsfilter hier ist also nicht
+    Feinschliff, sondern der einzige, den es gibt.
+
+    Er verglich `"köln"` MIT Umlaut gegen das Ortsfeld des Portals. Von den vier
+    Kölner Stellen im Bestand steht eine als „Cologne" da; die fiel damit immer
+    durch, still. Verglichen wird deshalb über `ort_passt` – dort stehen die
+    Schreibweisen an einer Stelle."""
+    ort = p.get("ort") or "Köln"
     gesehen, treffer = set(), []
     for begriff in _begriffe(p):
         url = "https://www.arbeitnow.com/api/job-board-api?" + urllib.parse.urlencode(
-            {"search": begriff, "location": p.get("ort") or "Köln"})
+            {"search": begriff, "location": ort})
         _, body = _get(url)
         for s in json.loads(body).get("data") or []:
             slug = s.get("slug") or s.get("url")
             if not slug or slug in gesehen:
                 continue
-            if not _passt(s.get("title"), begriff) or ort[:5] not in (s.get("location") or "").casefold():
+            if not _passt(s.get("title"), begriff) or not ort_passt(ort, s.get("location")):
                 continue
             gesehen.add(slug)
             treffer.append({"quelle": "jobs.arbeitnow", "extern_id": slug,
@@ -1366,17 +1574,57 @@ def jobs_arbeitnow(p):
 
 
 # --------------------------------------------- Jobs: Adzuna / Jooble (Key)
+#
+# **Beide sind nicht verbunden, weil die Zugangsdaten fehlen – nicht, weil etwas kaputt
+# wäre.** Masoud holt sie sich (der Weg steht in `env.beispiel`), eintragen muss er sie
+# selbst. Erfunden wird hier nichts.
+#
+# Gegengelesen am 30.09.2026 gegen die heutige Dokumentation beider Anbieter
+# (developer.adzuna.com/docs/search, help.jooble.org REST API): Endpunkt, Parameter und
+# Antwortfelder stimmen. Was sich OHNE Schlüssel messen lässt, ist der Fehlerweg – und
+# genau der war die teure Stelle:
+#
+#     Adzuna, erfundener Schlüssel -> HTTP 401 {"display":"Authorisation failed", ...}
+#     Adzuna, ganz ohne Schlüssel  -> HTTP 400
+#     Jooble, erfundener Schlüssel -> HTTP 403
+#
+# `direktsuche` und `lauf` fangen `HTTPError` als „nicht erreichbar" – das ist bei einem
+# abgelehnten Schlüssel die falsche Auskunft und schickt den Leser zum Netz statt zur
+# `.env`. Darum wird hier übersetzt, bevor die Meldung nach oben geht.
+
+# Ein abgelehnter Zugang sieht bei beiden gleich aus: 401 oder 403.
+ZUGANG_ABGELEHNT = (401, 403)
+
+
+def _zugang_pruefen(fehler, name, felder, wo):
+    """Aus einem 401/403 eine Meldung machen, die sagt, was zu tun ist.
+
+    Gibt den Fehler unverändert weiter, wenn es kein Zugangsproblem ist – ein 500 des
+    Anbieters ist kein falscher Schlüssel, und beides zu vermengen hiesse, den
+    nächsten Ausfall an der falschen Stelle zu suchen."""
+    if fehler.code not in ZUGANG_ABGELEHNT:
+        return fehler
+    return RuntimeError(
+        "%s weist den Zugang ab (HTTP %d). %s in der .env prüfen – neu holen bei %s."
+        " Möglich ist auch, dass das kostenlose Kontingent aufgebraucht ist."
+        % (name, fehler.code, felder, wo))
+
 
 def jobs_adzuna(p):
     app_id, key = os.environ.get("ADZUNA_APP_ID"), os.environ.get("ADZUNA_APP_KEY")
     if not (app_id and key):
-        raise RuntimeError("Adzuna: ADZUNA_APP_ID und ADZUNA_APP_KEY fehlen in der .env")
+        raise RuntimeError("Adzuna: ADZUNA_APP_ID und ADZUNA_APP_KEY fehlen in der .env"
+                           " – kostenlos zu holen bei developer.adzuna.com")
     gesehen, treffer = set(), []
     for begriff in _begriffe(p):
         url = "https://api.adzuna.com/v1/api/jobs/de/search/1?" + urllib.parse.urlencode(
             {"app_id": app_id, "app_key": key, "what": begriff, "where": p.get("ort") or "Köln",
              "distance": p.get("umkreis_km") or 25, "results_per_page": 50, "max_days_old": 14})
-        _, body = _get(url, {"Accept": "application/json"})
+        try:
+            _, body = _get(url, {"Accept": "application/json"})
+        except urllib.error.HTTPError as e:
+            raise _zugang_pruefen(e, "Adzuna", "ADZUNA_APP_ID und ADZUNA_APP_KEY",
+                                  "developer.adzuna.com") from None
         for s in json.loads(body).get("results") or []:
             sid = str(s.get("id") or "")
             if not sid or sid in gesehen:
@@ -1394,12 +1642,17 @@ def jobs_adzuna(p):
 def jobs_jooble(p):
     key = os.environ.get("JOOBLE_KEY")
     if not key:
-        raise RuntimeError("Jooble: JOOBLE_KEY fehlt in der .env")
+        raise RuntimeError("Jooble: JOOBLE_KEY fehlt in der .env"
+                           " – kostenlos anzufragen auf de.jooble.org/api/about")
     gesehen, treffer = set(), []
     for begriff in _begriffe(p):
-        d = _post_json("https://de.jooble.org/api/" + key,
-                       {"keywords": begriff, "location": p.get("ort") or "Köln",
-                        "radius": p.get("umkreis_km") or 25, "page": 1})
+        try:
+            d = _post_json("https://de.jooble.org/api/" + key,
+                           {"keywords": begriff, "location": p.get("ort") or "Köln",
+                            "radius": p.get("umkreis_km") or 25, "page": 1})
+        except urllib.error.HTTPError as e:
+            raise _zugang_pruefen(e, "Jooble", "JOOBLE_KEY",
+                                  "de.jooble.org/api/about") from None
         for s in d.get("jobs") or []:
             sid = str(s.get("id") or s.get("link") or "")
             if not sid or sid in gesehen:

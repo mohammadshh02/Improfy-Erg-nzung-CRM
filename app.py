@@ -708,7 +708,12 @@ def crm_verweis():
     einzeln zu hängen wäre dieselbe Zeile achtmal. `kunde_detail` gibt ihn weiter mit:
     ein ausdrücklich übergebener Wert überschreibt den Kontext, der alte Weg gilt also
     unverändert weiter."""
-    return {"crm_url": CRM_URL, "anlage_quelle": ANLAGE_QUELLE}
+    # `ba_tage` ist der Vorgabewert des Zeitfensters der BA-Jobsuche (`tf.BA_TAGE`). Die
+    # Jobregler-Vorlage zeigt ihn als Platzhalter im leeren Feld – aus dem Modul, nicht
+    # als abgetippte Zahl. Dort stand die 14 abgeschrieben; beim Umstellen auf 30 am
+    # 30.09.2026 wäre sie ohne diesen Weg stehen geblieben, und ein Platzhalter, der
+    # eine andere Zahl nennt als die, mit der gesucht wird, ist schlimmer als keiner.
+    return {"crm_url": CRM_URL, "anlage_quelle": ANLAGE_QUELLE, "ba_tage": tf.BA_TAGE}
 
 
 @app.before_request

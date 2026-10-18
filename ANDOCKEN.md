@@ -119,16 +119,24 @@ Portale angebunden sind.
 - **Höchstens 1000 Treffer je Aufruf**, darüber 413 mit Angabe der Grenze. Eine normale Suche
   liefert rund 150.
 
-### Zwei bekannte Stellen, an denen gerade gearbeitet wird
+### Zwei bekannte Stellen — seit dem 30.09.2026 geschlossen
 
-Ehrlichkeit vor Politur — beide sind gemessen und in Arbeit (Zweig `api-haertung`):
+Beide standen hier als offene Löcher; beide sind repariert und geprüft:
 
-1. **Eine Zahl als Text umgeht die Größenprüfung.** `{"umkreis_km": 25}` ist geprüft,
-   `{"umkreis_km": "25"}` nicht. Normale Werte sind unbetroffen; eine absurd große Zahl
-   als Text lässt die Route abstürzen.
-2. **`kriterien` als verschachteltes Objekt wird angenommen und verworfen.**
-   `{"kriterien": {"wbs": true}}` antwortet mit Erfolg und speichert nichts. Bis das behoben
-   ist, bitte die einzelnen `k_*`-Felder benutzen.
+1. **Eine Zahl als Text umging die Größenprüfung.** `{"umkreis_km": 25}` war geprüft,
+   `{"umkreis_km": "25"}` nicht — und eine absurd große Zahl als Text ließ die Route
+   abstürzen (500 mitten in der Transaktion). Die Grenze steht jetzt dort, wo aus Text eine
+   Zahl wird (`taskforce._zahl`), gilt also für den JSON- und den Formularweg gleich.
+   **Neu für Aufrufer:** Eine Zahl jenseits von 64 Bit — und `1e400` für `min_zimmer` —
+   antwortet mit **400 und Begründung**, statt stillschweigend auf die Vorgabe
+   zurückzufallen. Normale Werte sind unverändert; `"25"` ist und bleibt gültig.
+2. **`kriterien` als verschachteltes Objekt wurde angenommen und verworfen.**
+   `{"kriterien": {"wbs": true}}` antwortete mit Erfolg und speicherte nichts. Das Objekt
+   wird jetzt gespeichert und wirkt im Filter. Es gilt dieselbe Prüfung wie für die
+   `k_*`-Felder: unbekannte Schlüssel und unpassende Werte fallen weg, statt als erfundenes
+   Kriterium in der Suche zu landen. Kommen Objekt und einzelnes `k_*`-Feld zusammen,
+   sticht das einzelne Feld. Ein Änderungsaufruf **ohne** `kriterien` lässt die
+   Reglerstellung stehen — dieselbe Zusage wie für jedes andere Feld.
 
 ---
 

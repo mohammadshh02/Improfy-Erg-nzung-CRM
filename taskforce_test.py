@@ -19,6 +19,7 @@ Was geprüft wird:
     jede Taskforce-Seite hat genau eine Pfadleiste mit einem Weg zurück, der trägt
 """
 import datetime
+import gzip
 import json
 import os
 import re
@@ -26,8 +27,9 @@ import sqlite3
 import sys
 import time
 import urllib.error
+import urllib.request
 
-HIER = os.path.dirname(os.path.abspath(__file__))
+HIER =os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
 import pruefkopie                # noqa: E402
 # Warum die Arbeitskopie über `sqlite3.backup` läuft und nicht über `shutil.copy`,
@@ -2715,6 +2717,348 @@ def main():
     finally:
         with db.offen() as _con:
             _con.execute("DELETE FROM kunde WHERE kundennummer=?", (_dopp_nr,))
+
+    print("\n17. Die Portalverbindungen (30.09.2026)")
+    # --- MUSS 1: das Zeitfenster der Bundesagentur ---------------------------------
+    # `veroeffentlichtseit=14` kostete bei gleicher Suche (Lagerhelfer, Köln, 25 km)
+    # vier Fünftel der Treffer. Viermal gemessen am 30.09.2026 über `jobs_ba`:
+    # 14 Tage → 8 Treffer, 30 Tage → 38. Ab 21 Tagen ist der ganze Bestand da.
+    #
+    # Geprüft wird der Parameter, nicht das Portal: Das läuft ohne Netz und hält auch
+    # dann, wenn die BA morgen andere Zahlen liefert.
+    _ba_p = tf.ba_parameter(tf.suchspalte(begriffe="Lagerhelfer", ort="Köln"))
+    pruefe("Die BA wird mit 30 Tagen gefragt, nicht mit 14",
+           _ba_p.get("veroeffentlichtseit") == 30 and tf.BA_TAGE == 30,
+           f"veroeffentlichtseit={_ba_p.get('veroeffentlichtseit')}")
+    # **Ein Vorgabewert, nicht zwei.** `ba_parameter` und `jobs_ba` haben beide einen –
+    # zwei abgetippte Zahlen laufen auseinander, sobald jemand nur die eine ändert.
+    pruefe("Beide Vorgabewerte kommen aus derselben Stelle",
+           tf.ba_parameter.__defaults__ == (tf.BA_TAGE,)
+           and tf.jobs_ba.__defaults__[0] == tf.BA_TAGE,
+           f"{tf.ba_parameter.__defaults__} · {tf.jobs_ba.__defaults__}")
+    # Der Regler des Profils sticht weiter: Wer bewusst nur die letzte Woche sehen
+    # will, bekommt die letzte Woche.
+    _ba_7 = tf.ba_parameter(tf.suchspalte(begriffe="Lagerhelfer", kriterien={"tage": 7}))
+    pruefe("Der eingetragene Zeitraum des Profils sticht die Vorgabe",
+           _ba_7.get("veroeffentlichtseit") == 7, _ba_7.get("veroeffentlichtseit"))
+    # **Die Gegenrichtung, und die ist Hauspolitik, nicht Technik:** Zeitarbeit bleibt
+    # ausgeschlossen. Wer das Zeitfenster aufmacht, darf nicht nebenbei den
+    # Zeitarbeitsriegel aufmachen.
+    pruefe("Zeitarbeit bleibt ausgeschlossen, solange das Profil sie nicht will",
+           _ba_p.get("zeitarbeit") == "false"
+           and "zeitarbeit" not in tf.ba_parameter(
+               dict(tf.suchspalte(begriffe="x"), zeitarbeit=1)),
+           _ba_p.get("zeitarbeit"))
+    # Und am Bildschirm muss dieselbe Zahl stehen. Im leeren Feld stand „14" als
+    # Platzhalter, während gesucht wurde mit 30 – ein Platzhalter, der eine andere
+    # Zahl nennt als die geltende, ist schlimmer als gar keiner.
+    _seite_regler = c.get(f"/taskforce/profil/{pj}").text
+    pruefe("Das leere Tage-Feld zeigt den geltenden Vorgabewert",
+           'name="k_tage"' in _seite_regler
+           and ('placeholder="%d"' % tf.BA_TAGE) in _seite_regler,
+           "Platzhalter %s" % re.findall(r'name="k_tage"[^>]*?placeholder="([^"]*)"',
+                                         _seite_regler))
+
+    # --- MUSS 2: Arbeitnow verwarf eigene Treffer am Umlaut ------------------------
+    # Gemessen am 30.09.2026 an der Rohantwort: 326 Stellen weltweit, davon vier im
+    # Kölner Raum – dreimal „Köln", einmal „Cologne". Verglichen wurde `"köln"` MIT
+    # Umlaut, also fiel „Cologne" immer durch, still und ohne Meldung.
+    _orte_ja = [("Köln", "Cologne"), ("Köln", "Deutschland / Köln"),
+                ("Köln", "Köln-Mülheim"), ("Köln", "Koeln"), ("Koeln", "Köln"),
+                ("Cologne", "Köln"), ("München", "Munich"), ("Munich", "München"),
+                ("Nürnberg", "Nuremberg"), ("Hannover", "Hanover"),
+                ("Braunschweig", "Brunswick"), ("Frankfurt am Main", "Frankfurt"),
+                ("Frankfurt", "Frankfurt am Main")]
+    # Die Gegenrichtung, und sie misst mehr als „Berlin ist nicht Köln": Der alte
+    # Vergleich (`ort[:5] in text`) nahm „Neukölln" für eine Kölner Stelle und
+    # „Frankenthal" für Frankfurt – fünf Zeichen sind kein Ortsname.
+    _orte_nein = [("Köln", "Berlin"), ("Köln", "Munich"), ("Köln", ""),
+                  ("Köln", None), ("München", "Hanover"), ("Köln", "Neukölln"),
+                  ("Frankfurt am Main", "Frankenthal")]
+    _falsch_ja = [x for x in _orte_ja if not tf.ort_passt(*x)]
+    _falsch_nein = [x for x in _orte_nein if tf.ort_passt(*x)]
+    pruefe("Umlaut, Umschrift und englischer Name finden zusammen",
+           not _falsch_ja, _falsch_ja or f"{len(_orte_ja)} Schreibweisen")
+    pruefe("Ein anderer Ort passt darum noch lange nicht",
+           not _falsch_nein, _falsch_nein or f"{len(_orte_nein)} Gegenproben")
+    # Und der Adapter benutzt die Regel auch – gemessen an einer untergeschobenen
+    # Antwort in der Form, die Arbeitnow wirklich liefert (`location` als freier Text).
+    _an_antwort = json.dumps({"data": [
+        {"slug": "a", "title": "Lagerhelfer (m/w/d)", "company_name": "Firma A",
+         "location": "Cologne", "url": "https://example.invalid/a"},
+        {"slug": "b", "title": "Lagerhelfer gesucht", "company_name": "Firma B",
+         "location": "Deutschland / Köln", "url": "https://example.invalid/b"},
+        {"slug": "c", "title": "Lagerhelfer", "company_name": "Firma C",
+         "location": "Berlin", "url": "https://example.invalid/c"},
+        {"slug": "d", "title": "Lagerhelfer", "company_name": "Firma D",
+         "location": "", "url": "https://example.invalid/d"}]})
+    _echtes_get_an = tf._get
+    tf._get = lambda *a, **k: ("https://example.invalid", _an_antwort)
+    try:
+        _an_treffer = tf.jobs_arbeitnow(tf.suchspalte(begriffe="Lagerhelfer", ort="Köln"))
+    finally:
+        tf._get = _echtes_get_an
+    _an_orte = sorted(t["ort"] for t in _an_treffer)
+    pruefe("Arbeitnow nimmt Cologne und Deutschland / Köln, Berlin fällt heraus",
+           _an_orte == ["Cologne", "Deutschland / Köln"], _an_orte)
+
+    # --- MUSS 3: Adzuna und Jooble anschlussfertig ---------------------------------
+    # Beide sind nicht verbunden – die Zugangsdaten fehlen, und erfunden wird hier
+    # nichts. Prüfbar ist trotzdem das, was uns hier schon zweimal Wochen gekostet
+    # hat: **der stille Nulltreffer bei falschem Schlüssel.** Gemessen am 30.09.2026:
+    # Adzuna antwortet auf einen erfundenen Schlüssel mit HTTP 401, Jooble mit 403.
+    _fehler_401 = urllib.error.HTTPError("https://api.adzuna.com/v1/api/jobs/de/search/1",
+                                         401, "Unauthorized", {}, None)
+    _fehler_403 = urllib.error.HTTPError("https://de.jooble.org/api/x", 403,
+                                         "Forbidden", {}, None)
+    _fehler_500 = urllib.error.HTTPError("https://api.adzuna.com/x", 500,
+                                         "Internal Server Error", {}, None)
+    _alt_env = {k: os.environ.get(k) for k in
+                ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JOOBLE_KEY")}
+    _echtes_get_z, _echtes_post = tf._get, tf._post_json
+
+    def _wirft(f):
+        def _g(*a, **k):
+            raise f
+        return _g
+
+    _meldungen_zugang = {}
+    try:
+        os.environ.update({"ADZUNA_APP_ID": "probe", "ADZUNA_APP_KEY": "probe",
+                           "JOOBLE_KEY": "probe"})
+        _probe_p = tf.suchspalte(begriffe="Lagerhelfer", ort="Köln")
+        tf._get = _wirft(_fehler_401)
+        tf._post_json = _wirft(_fehler_403)
+        for _name_z, _fn in (("adzuna", tf.jobs_adzuna), ("jooble", tf.jobs_jooble)):
+            try:
+                _fn(_probe_p)
+                _meldungen_zugang[_name_z] = "keine Ausnahme"
+            except Exception as _e:
+                _meldungen_zugang[_name_z] = "%s: %s" % (type(_e).__name__, _e)
+        # Ein 500 des Anbieters ist KEIN falscher Schlüssel und darf nicht als einer
+        # ausgegeben werden – sonst sucht der Nächste am falschen Ende.
+        tf._get = _wirft(_fehler_500)
+        try:
+            tf.jobs_adzuna(_probe_p)
+            _fuenfhundert = "keine Ausnahme"
+        except Exception as _e:
+            _fuenfhundert = type(_e).__name__
+        # Und dasselbe eine Ebene höher: Die Direktsuche darf daraus nicht „nicht
+        # erreichbar" machen. Genau diese Auskunft schickt den Leser ins Netz statt
+        # in die `.env`.
+        tf._get = _wirft(_fehler_401)
+        _alt_q_z, _alt_f_z = tf.QUELLEN, tf.quellen_fuer
+        tf.quellen_fuer = lambda p: ["jobs.adzuna"]
+        try:
+            _, _meld_z = tf.direktsuche(_probe_p)
+        finally:
+            tf.QUELLEN, tf.quellen_fuer = _alt_q_z, _alt_f_z
+    finally:
+        tf._get, tf._post_json = _echtes_get_z, _echtes_post
+        for _k, _v in _alt_env.items():
+            os.environ.pop(_k, None) if _v is None else os.environ.update({_k: _v})
+    pruefe("Ein abgewiesener Schlüssel nennt das Feld und die Stelle, wo es herkommt",
+           all("weist den Zugang ab" in _meldungen_zugang.get(n, "")
+               and "RuntimeError" in _meldungen_zugang.get(n, "") for n in ("adzuna", "jooble"))
+           and "ADZUNA_APP_ID" in _meldungen_zugang["adzuna"]
+           and "developer.adzuna.com" in _meldungen_zugang["adzuna"]
+           and "JOOBLE_KEY" in _meldungen_zugang["jooble"]
+           and "jooble.org/api/about" in _meldungen_zugang["jooble"],
+           _meldungen_zugang)
+    pruefe("Ein 500 des Anbieters wird nicht als falscher Schlüssel ausgegeben",
+           _fuenfhundert == "HTTPError", _fuenfhundert)
+    _zeile_z = " · ".join(m for m in _meld_z if not m.startswith("Quellen:"))
+    pruefe("Die Suche meldet einen abgewiesenen Zugang statt einer unerreichbaren Quelle",
+           "weist den Zugang ab" in _zeile_z and "nicht erreichbar" not in _zeile_z
+           and any(m.startswith("Quellen:") for m in _meld_z),
+           _zeile_z or _meld_z)
+    # **Die Antwort kann gepackt kommen.** `UA` fragt mit `Accept-Encoding: gzip`, und
+    # Jooble antwortet auch so – gemessen am Rumpf der 403-Antwort. `_post_json` packte
+    # nicht aus: Die Quelle wäre auch mit gültigem Schlüssel nie angelaufen.
+    class _Antwort:
+        headers = {"Content-Encoding": "gzip"}
+
+        def read(self):
+            return gzip.compress(json.dumps({"totalCount": 1, "jobs": [
+                {"id": "1", "title": "Lagerhelfer", "company": "Firma",
+                 "location": "Köln", "link": "https://example.invalid/1"}]}).encode())
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    _echtes_urlopen = urllib.request.urlopen
+    urllib.request.urlopen = lambda *a, **k: _Antwort()
+    try:
+        os.environ["JOOBLE_KEY"] = "probe"
+        _jooble_treffer = tf.jobs_jooble(tf.suchspalte(begriffe="Lagerhelfer", ort="Köln"))
+    except Exception as _e:
+        _jooble_treffer = "%s: %s" % (type(_e).__name__, _e)
+    finally:
+        urllib.request.urlopen = _echtes_urlopen
+        os.environ.pop("JOOBLE_KEY", None)
+        if _alt_env["JOOBLE_KEY"] is not None:
+            os.environ["JOOBLE_KEY"] = _alt_env["JOOBLE_KEY"]
+    pruefe("Eine gepackte Antwort wird ausgepackt, nicht als Fehler gemeldet",
+           isinstance(_jooble_treffer, list) and len(_jooble_treffer) == 1
+           and _jooble_treffer[0]["titel"] == "Lagerhelfer", _jooble_treffer)
+    # Und der Weg zum Zugang steht dort, wo ihn jemand sucht, der die `.env` anlegt.
+    _env_text = open(os.path.join(HIER, "env.beispiel"), encoding="utf-8").read()
+    _env_fehlt = [x for x in ("developer.adzuna.com", "de.jooble.org/api/about",
+                              "ADZUNA_APP_ID=", "ADZUNA_APP_KEY=", "JOOBLE_KEY=")
+                  if x not in _env_text]
+    pruefe("env.beispiel sagt, wo die beiden Zugänge herkommen und was sie kosten",
+           not _env_fehlt and "kosten" in _env_text.casefold(), _env_fehlt)
+
+    # --- MUSS 4a: eine Zahl als TEXT umging die 64-Bit-Prüfung ---------------------
+    # `api._bindbar` gibt für jeden `str` „bindbar" zurück – einem Text sieht man nicht
+    # an, dass `tf._zahl` gleich eine Zahl daraus macht. Die Textform ist der Normalfall:
+    # jedes Formular schickt Text, und unsere eigenen Prüfungen schicken `"25"`.
+    _zahlen_proben = [
+        ("Zahl als Text, zu groß", "100000000000000000000", int, None),
+        ("Zahl als Zahl, zu groß", 10 ** 20, int, None),
+        ("negativ und zu groß", "-100000000000000000000", int, None),
+        ("unendlich über die Textform", "1e400", float, None),
+        ("unendlich ausgeschrieben", "inf", float, None),
+        # Die Gegenrichtung: was gültig ist, MUSS weiter durchkommen.
+        ("gewöhnliche Zahl als Text", "25", int, 25),
+        ("Komma als Dezimaltrennzeichen", "2,5", float, 2.5),
+        ("die größte Zahl, die SQLite nimmt", str(db.SQLITE_MAX), int, db.SQLITE_MAX),
+        ("leer heisst nicht angegeben", "", int, None),
+    ]
+    _zahl_kaputt = ["%s → %r statt %r" % (n, tf._zahl(v, t), s)
+                    for n, v, t, s in _zahlen_proben if tf._zahl(v, t) != s]
+    pruefe("Aus Text wird nur eine Zahl, die die Datenbank auch aufnehmen kann",
+           not _zahl_kaputt, _zahl_kaputt or f"{len(_zahlen_proben)} Formen")
+    # Und die Schnittstelle sagt es dem Aufrufer, statt stillschweigend auf die
+    # Vorgabe zurückzufallen.
+    _zu_gross = [
+        ("umkreis_km als Text", {"kunde": kid, "art": "job",
+                                 "umkreis_km": "100000000000000000000"}),
+        ("max_miete als Text", {"kunde": kid, "art": "wohnung",
+                                "max_miete": "99999999999999999999"}),
+        ("min_flaeche als Text", {"kunde": kid, "art": "wohnung",
+                                  "min_flaeche": "1" * 25}),
+        ("min_zimmer unendlich", {"kunde": kid, "art": "wohnung",
+                                  "min_zimmer": "1e400"}),
+    ]
+    _profile_vor_z = db.wert("SELECT COUNT(*) FROM tf_profil")
+    _zu_gross_kaputt = []
+    for _name_g, _koerper_g in _zu_gross:
+        _r_g = c.post("/api/taskforce/profil", json=_koerper_g)
+        if _r_g.status_code != 400 or not (_r_g.get_json() or {}).get("fehler"):
+            _zu_gross_kaputt.append("%s → %d" % (_name_g, _r_g.status_code))
+    # Derselbe Körper als FORMULAR – das ist der Weg, den curl und jedes Formular geht.
+    _r_form_g = c.post("/api/taskforce/profil",
+                       data={"kunde": str(kid), "art": "job",
+                             "umkreis_km": "99999999999999999999"})
+    if _r_form_g.status_code != 400:
+        _zu_gross_kaputt.append("Formularweg → %d" % _r_form_g.status_code)
+    pruefe("Eine Zahl, die die Datenbank nicht aufnehmen kann, gibt 400 – als JSON"
+           " wie als Formular",
+           not _zu_gross_kaputt
+           and db.wert("SELECT COUNT(*) FROM tf_profil") == _profile_vor_z,
+           _zu_gross_kaputt or "5 Formen, je 400, kein neues Profil")
+    # Und der Bildschirmweg fällt nicht um: Er meldet nichts zurück (dort steht ein
+    # Mensch, kein Aufrufer), aber er speichert die Vorgabe statt abzustürzen.
+    # Das Testprofil wird vorher ganz gemerkt und hinterher ganz zurückgesetzt: Ein
+    # Formularaufruf setzt auch die Haken neu (fehlend heisst abgewählt), und ein
+    # pausiertes Testprofil hat hier schon einmal fünf spätere Prüfungen gegen null
+    # Zeilen laufen lassen – grün gemeldet, nichts gemessen.
+    _pj_vorher = dict(tf.profil(pj))
+    _r_schirm = c.post(f"/taskforce/profil/{pj}/speichern",
+                       data={"formular": "1", "art": "job", "titel": "Test Job",
+                             "suchbegriffe": "Lagerhelfer, Reinigungskraft",
+                             "ort": "Köln", "umkreis_km": "99999999999999999999",
+                             "aktiv": "1", "zeitarbeit": "1"})
+    _km_nachher = tf.profil(pj)["umkreis_km"]
+    pruefe("Derselbe Wert über das Formular fällt nicht in einen 500er",
+           _r_schirm.status_code == 302 and _km_nachher == 25,
+           f"{_r_schirm.status_code} · {_pj_vorher['umkreis_km']} → {_km_nachher}")
+    with db.offen() as _con:      # den Testbestand wieder auf den Ausgangsstand
+        _con.execute("UPDATE tf_profil SET umkreis_km=?, aktiv=?, zeitarbeit=?,"
+                     " kriterien=?, quellen=? WHERE id=?",
+                     (_pj_vorher["umkreis_km"], _pj_vorher["aktiv"],
+                      _pj_vorher["zeitarbeit"], _pj_vorher["kriterien"],
+                      _pj_vorher["quellen"], pj))
+
+    # --- MUSS 4b: `kriterien` als Objekt wurde angenommen und weggeworfen ----------
+    # `/api/taskforce/profil` erlaubt das Objekt ausdrücklich und machte `json.dumps`
+    # daraus – aber `kriterien` stand nicht in `FELDER`, und der Zweig darunter setzte
+    # das Feld für ein neues Profil auf `None`. Gemessen am 30.09.2026: HTTP 200,
+    # Profil angelegt, `tf_profil.kriterien` NULL. Das CRM schickte WBS und Balkon, die
+    # Suche lief ohne beides, und niemand sah es.
+    _r_krit = c.post("/api/taskforce/profil",
+                     json={"kunde": kid, "art": "wohnung", "titel": "Kriterienprobe",
+                           "kriterien": {"wbs": True, "balkon": True,
+                                         "max_warmmiete": 750,
+                                         "wohnungstyp": ["groundfloor", "erfunden"],
+                                         "unbekannt": True}})
+    _pid_krit = (_r_krit.get_json() or {}).get("profil")
+    _krit_roh = db.wert("SELECT kriterien FROM tf_profil WHERE id=?", (_pid_krit,)) \
+        if _pid_krit else None
+    _krit_gelesen = tf.kriterien(tf.profil(_pid_krit)) if _pid_krit else {}
+    pruefe("Mitgeschickte Kriterien kommen in der Datenbank an, statt stillschweigend"
+           " zu verschwinden",
+           _r_krit.status_code == 200 and _krit_roh
+           and _krit_gelesen.get("wbs") is True and _krit_gelesen.get("balkon") is True
+           and _krit_gelesen.get("max_warmmiete") == 750,
+           _krit_gelesen or f"Status {_r_krit.status_code}, Spalte {_krit_roh!r}")
+    pruefe("Ein erfundener Schlüssel und ein erfundener Wohnungstyp werden dabei nicht"
+           " mitgespeichert",
+           "unbekannt" not in _krit_gelesen
+           and _krit_gelesen.get("wohnungstyp") == ["groundfloor"],
+           _krit_gelesen)
+    # Und sie stehen auch in der Auskunft, die das CRM zurückliest.
+    _j_krit = (c.get(f"/api/taskforce/profil/{_pid_krit}").get_json() or {}) \
+        if _pid_krit else {}
+    pruefe("Das CRM liest dieselben Kriterien wieder aus",
+           (_j_krit.get("profil") or {}).get("kriterien_gelesen", {}).get("wbs") is True,
+           (_j_krit.get("profil") or {}).get("kriterien_gelesen"))
+    # **Und der Filter muss danach wirken** – gespeichert und wirkungslos wäre nur die
+    # nächste Stufe desselben Fehlers. Geprüft an einem Jobprofil, dessen Ausschlusswort
+    # über die Schnittstelle kam.
+    _r_krit_j = c.post("/api/taskforce/profil",
+                       json={"kunde": kid, "art": "job", "titel": "Filterprobe",
+                             "suchbegriffe": "Lagerhelfer",
+                             "kriterien": {"ohne_woerter": "Zeitarbeit",
+                                           "min_gehalt": 2000}})
+    _pid_krit_j = (_r_krit_j.get_json() or {}).get("profil")
+    _p_krit_j = tf.profil(_pid_krit_j) if _pid_krit_j else {}
+    _probe_treffer = [
+        {"quelle": "x", "extern_id": "f1", "titel": "Lagerhelfer bei Zeitarbeit Müller",
+         "anbieter": "Müller", "ort": "Köln", "zusatz": {}},
+        {"quelle": "x", "extern_id": "f2", "titel": "Lagerhelfer", "anbieter": "Firma",
+         "ort": "Köln", "zusatz": {"gehalt": "1400 €"}},
+        {"quelle": "x", "extern_id": "f3", "titel": "Lagerhelfer", "anbieter": "Firma",
+         "ort": "Köln", "zusatz": {"gehalt": "2400 €"}}]
+    _bleibt, _weg = tf.job_filter(_p_krit_j, _probe_treffer)
+    pruefe("Die mitgeschickten Kriterien wirken im Filter, nicht nur in der Anzeige",
+           _weg == 2 and [t["extern_id"] for t in _bleibt] == ["f3"],
+           f"{_weg} aussortiert, übrig {[t['extern_id'] for t in _bleibt]}")
+    # Kommen Objekt und einzelner Regler zusammen, gewinnt der einzelne Regler – wer
+    # ein Kästchen anklickt, meint dieses Kästchen.
+    _r_beides = c.post("/api/taskforce/profil",
+                       json={"kunde": kid, "art": "wohnung", "titel": "Mischprobe",
+                             "kriterien": {"wbs": True, "max_zimmer": 3},
+                             "k_max_zimmer": 4})
+    _pid_beides = (_r_beides.get_json() or {}).get("profil")
+    _krit_beides = tf.kriterien(tf.profil(_pid_beides)) if _pid_beides else {}
+    pruefe("Objekt und einzelner Regler zusammen: der Regler sticht, das Objekt bleibt",
+           _krit_beides.get("max_zimmer") == 4 and _krit_beides.get("wbs") is True,
+           _krit_beides)
+    # Beim Ändern ohne Kriterien bleibt die Reglerstellung stehen – dieselbe Zusage wie
+    # für jedes andere Feld.
+    c.post("/api/taskforce/profil", json={"profil": _pid_krit, "titel": "Kriterienprobe 2"})
+    _krit_danach = tf.kriterien(tf.profil(_pid_krit)) if _pid_krit else {}
+    pruefe("Ein Änderungsaufruf ohne Kriterien lässt die Regler stehen",
+           _krit_danach.get("wbs") is True and _krit_danach.get("balkon") is True,
+           _krit_danach)
+    for _p_weg in (_pid_krit, _pid_krit_j, _pid_beides):
+        if _p_weg:
+            tf.profil_loeschen(_p_weg)
 
     fehl = [n for n, ok, _ in ergebnis if not ok]
     print(f"\n{len(ergebnis) - len(fehl)} von {len(ergebnis)} Prüfungen bestanden.")

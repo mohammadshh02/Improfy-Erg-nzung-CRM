@@ -7,7 +7,8 @@
     {% for code, name in jobwahlen.befristung %}<option value="{{ code }}" {{ 'selected' if (k.get('befristung') or '')==code }}>{{ name }}</option>{% endfor %}
   </select></label>
   <label class="marke">veröffentlicht in den letzten … Tagen<br>
-    <input type="text" name="k_tage" value="{{ k.get('tage') if k.get('tage') is not none else '' }}" placeholder="14" style="width:90px"></label>
+    {# Platzhalter = der Vorgabewert, mit dem wirklich gesucht wird (tf.BA_TAGE). #}
+    <input type="text" name="k_tage" value="{{ k.get('tage') if k.get('tage') is not none else '' }}" placeholder="{{ ba_tage }}" style="width:90px"></label>
 </dd>
 
 <dt>Arbeitszeit</dt><dd>
