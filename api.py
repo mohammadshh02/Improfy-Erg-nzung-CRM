@@ -219,9 +219,25 @@ def feld_zahl(wert):
             return None
         wert = int(wert)
     if isinstance(wert, str):
+        text = wert.strip()
         try:
-            wert = int(wert.strip())
+            wert = int(text)
         except (ValueError, TypeError):
+            return None
+        # **`int()` ist großzügiger, als ein Aufrufer denkt** – und das ist hier kein
+        # Entgegenkommen, sondern eine stille Umdeutung. Unterstriche sind erlaubt
+        # (`"5_0"` → 50), fremde Ziffernsätze auch (`"١٢٣"` → 123, `"５"` → 5).
+        # Gemessen am 23.09.2026: `{"ids": ["5_0"]}` setzte den Status von Angebot 50
+        # statt 5, `abgewiesen` blieb 0 – kein Absturz, keine Meldung, das falsche
+        # Angebot. Eine Nummer, die jemand so nicht gemeint haben kann, ist lieber
+        # unbrauchbar als anders gedeutet.
+        #
+        # Geprüft wird NACH dem Versuch, nicht davor: Umgewandelt wird weiter mit
+        # `int()` samt Fang (siehe oben, der Vortest war selbst die Fehlerquelle),
+        # und erst die gelungene Umwandlung wird auf gewöhnliche Ziffern nachgesehen.
+        # Führende Nullen bleiben erlaubt – manches System nummeriert so.
+        kern = text[1:] if text[:1] in "+-" else text
+        if not (kern.isascii() and kern.isdigit()):
             return None
     if not isinstance(wert, int):
         return None
@@ -286,7 +302,14 @@ def koerper_felder(daten, objekte=()):
 
       * ein Objekt ist nur erlaubt, wo die Route es ausdrücklich erwartet (`objekte`)
       * eine Liste darf nur einfache Werte enthalten, keine Listen und keine Objekte
-      * jede Zahl muss in 64 Bit passen und endlich sein
+      * jede ZAHL muss in 64 Bit passen und endlich sein
+
+    **Text geht durch, auch wenn Ziffern darin stehen**, und das ist Absicht: SQLite
+    bindet jeden Text. Dieselbe Zahl als Text (`"100000000000000000000"`) ist damit
+    hier kein Fall – sie wird es erst dort, wo aus dem Text eine Zahl wird, und das
+    ist `taskforce._zahl`. Die 64-Bit-Grenze steht deshalb ein zweites Mal DORT, und
+    zwar für beide Wege zugleich: Der Formularweg schickt ohnehin nur Text. Was diese
+    Prüfung hier über Text sagt, wäre sonst eine Zusage, die sie nicht halten kann.
 
     Was durchkommt, kann noch das falsche Feld treffen – dafür prüfen die Module
     weiter selbst. Was hier abgewiesen wird, hätte keine Chance mehr, sauber zu
@@ -611,9 +634,16 @@ def kunde_schreiben():
             "kundennummer": nummer,
             "gefunden": [{"kunde": t["id"], "name": t["name"],
                           "status_code": t["status_code"]} for t in treffer],
-            "hinweis": "es wurde nichts geändert – den Satz über seine Nummer im OS"
-                       " ansprechen (POST /api/kunde mit eindeutiger Nummer) oder die"
-                       " Dublette im Bestand auflösen"}), 409
+            # **Ein Hinweis, der nicht befolgbar ist, kostet drei weitere Aufrufe.**
+            # Hier stand „den Satz über seine Nummer ansprechen (POST /api/kunde mit
+            # eindeutiger Nummer)" – die Nummer ist gerade das Mehrdeutige, und diese
+            # Route kennt kein Feld für eine Satznummer. Die Gegenseite hätte dieselbe
+            # Anfrage geschickt, bis jemand hinsieht. Es gibt genau einen Weg, und der
+            # führt über einen Menschen: Die Dublette im OS auflösen.
+            "hinweis": "es wurde nichts geändert – die Dublette im OS auflösen."
+                       " Über diese Kundennummer ist keiner der beiden Sätze"
+                       " ansprechbar, und ein erneuter Aufruf ändert daran nichts;"
+                       " die beiden Sätze stehen oben unter 'gefunden'"}), 409
     vorhanden = treffer[0] if treffer else None
     if not vorhanden and felder.get("name"):
         vorhanden = db.eine("SELECT * FROM kunde WHERE name=? AND standort=?",
@@ -722,9 +752,19 @@ def tf_profil_schreiben():
     # sähe, warum. Über die Oberfläche kann das nicht passieren (dort stehen Haken),
     # über die Schnittstelle schon: `{"quellen": {"a": 1}}` legte die Quelle „a" an.
     # Leer bleibt leer und heisst weiter „alle Portale".
+    #
+    # **Und sie verschwindet auch nicht still, wenn eine bekannte danebensteht.**
+    # Gemessen am 23.09.2026: `{"quellen": ["jobs.ba", "jobs.monster"]}` → HTTP 200,
+    # gespeichert `jobs.ba`, kein Wort über „jobs.monster". Die Gegenseite glaubt
+    # danach, sie suche auf zwei Portalen. Der ganze Aufruf deswegen abzuweisen wäre
+    # falsch – die bekannte Quelle ist eine gültige Ansage –, aber genannt wird die
+    # unbekannte: `quellen_abgewiesen` steht in der Antwort, dieselbe Zusage wie
+    # `abgewiesen` beim Sammelstatus.
+    quellen_abgewiesen = []
     if d.get("quellen") not in (None, "", [], ()):
         _gewaehlt = tf._mehrfach(d, "quellen")
         _bekannt = [q for q in _gewaehlt if q in tf.QUELLEN]
+        quellen_abgewiesen = [q for q in _gewaehlt if q not in tf.QUELLEN]
         if not _bekannt:
             return jsonify({"fehler": "keine dieser Quellen ist angebunden",
                             "bekommen": _gewaehlt or repr(d["quellen"])[:80],
@@ -754,10 +794,19 @@ def tf_profil_schreiben():
         d.setdefault("standort", db.STANDORT_STANDARD)
         d["kunde_id"] = kid
     # Kriterien dürfen als verschachteltes Objekt kommen – das Formular kennt nur Text.
+    # Gespeichert werden sie in `tf.profil_speichern` über `tf.kriterien_objekt`, das
+    # sie mit derselben Elle prüft wie die Kästchen der Oberfläche. Bis zum 23.09.2026
+    # war das Feld hier ausdrücklich erlaubt und wurde eine Ebene tiefer in jedem Zweig
+    # überschrieben: 200 zurück, `kriterien` NULL in der Tafel.
     if isinstance(d.get("kriterien"), dict):
         d["kriterien"] = json.dumps(d["kriterien"], ensure_ascii=False)
     neu = tf.profil_speichern(d, pid=pid)
-    return jsonify({"stand": jetzt(), "profil": neu or pid, "angelegt": not pid})
+    antwort = {"stand": jetzt(), "profil": neu or pid, "angelegt": not pid}
+    if quellen_abgewiesen:
+        antwort["quellen_abgewiesen"] = quellen_abgewiesen
+        antwort["hinweis"] = ("nicht angebunden und deshalb nicht gespeichert: %s"
+                              % ", ".join(quellen_abgewiesen))
+    return jsonify(antwort)
 
 
 @api.route("/taskforce/profil/<int:pid>", methods=["DELETE"])
@@ -907,29 +956,68 @@ def tf_angebot_abgleich(aid):
     einen Maschinenaufrufer heisst 400 „wiederhol es nicht, so wie du fragst, geht es
     nie". Das stimmt für eine tote Adresse, und nur dafür:
 
-        Netz (`URLError`, `HTTPError`, `TimeoutError`)   400 – die Adresse trägt der
-                                                         Aufrufer, sie führt ins Leere
-        Datenbank belegt (`OperationalError`)            503 – trifft sich der Nachtlauf
-                                                         mit einem CRM-Aufruf, ist es
-                                                         in Sekunden vorbei; wer hier
-                                                         400 bekäme, verwürfe den
-                                                         Auftrag für immer
-        alles übrige                                     502 – das Portal hat etwas
-                                                         geliefert, das wir nicht lesen
-                                                         konnten. Unsere Seite, nicht
-                                                         seine Frage."""
+        Adresse tot (`HTTPError` 4xx,           400 – die Adresse trägt der Aufrufer,
+        `URLError`, `TimeoutError`)                    sie führt ins Leere
+        Portal drosselt oder ist in Wartung      503 – `HTTPError` 429/408/425 und
+                                                       jedes 5xx des Portals: morgen
+                                                       geht es wieder
+        Datenbank belegt (`OperationalError`     503 – trifft sich der Nachtlauf mit
+        mit „locked"/„busy")                           einem CRM-Aufruf, ist es in
+                                                       Sekunden vorbei; wer hier 400
+                                                       bekäme, verwürfe den Auftrag
+                                                       für immer
+        Datenbank kaputt (`OperationalError`     500 – `no such column` nach einer
+        ohne „locked"/„busy")                          halben Migration geht von
+                                                       allein NIE weg. 503 hiesse
+                                                       „gleich nochmal", und das CRM
+                                                       wiederholte endlos
+        alles übrige                             502 – das Portal hat etwas geliefert,
+                                                       das wir nicht lesen konnten.
+                                                       Unsere Seite, nicht seine Frage.
+
+    **Warum das je eine eigene Zeile braucht.** `urllib.error.HTTPError` IST eine
+    Unterklasse von `URLError`, und `tf.beschreibung_laden` lässt sie für jobs.ba,
+    StepStone, Kleinanzeigen und meinestadt durch (gefangen wird sie nur für Indeed).
+    Ein `429 Too Many Requests` von StepStone – der Normalfall nach ein paar Läufen –
+    kam damit als 400 zurück: „diese Anfrage geht nie". Das CRM verwirft den Auftrag endgültig, obwohl in zehn Minuten
+    alles wieder liefe. Umgekehrt hiess JEDER `OperationalError` 503 „in einer Minute
+    erneut versuchen", auch der, der nie wieder weggeht."""
     if not db.eine("SELECT id FROM tf_angebot WHERE id=?", (aid,)):
         return jsonify({"fehler": "Angebot nicht gefunden"}), 404
     try:
         ergebnis = tf.abgleich(aid)
+    except urllib.error.HTTPError as e:
+        # Zuerst, weil HTTPError eine URLError ist. Was das Portal selbst als
+        # „vorübergehend" meldet, bleibt vorübergehend: 429 (gedrosselt), 408/425
+        # (Zeit) und jedes 5xx (Wartung, Überlast).
+        if e.code in (408, 425, 429) or e.code >= 500:
+            return jsonify({"fehler": "das Portal antwortet gerade nicht",
+                            "grund": f"{type(e).__name__}: {e}"[:200],
+                            "portal_status": e.code,
+                            "hinweis": "das Portal drosselt oder ist in Wartung –"
+                                       " später erneut versuchen, die Anfrage ist in"
+                                       " Ordnung"}), 503
+        return jsonify({"fehler": "Abgleich nicht möglich",
+                        "grund": f"{type(e).__name__}: {e}"[:200],
+                        "portal_status": e.code,
+                        "hinweis": "die Adresse des Angebots führt ins Leere"}), 400
     except (urllib.error.URLError, TimeoutError, socket.timeout) as e:
         return jsonify({"fehler": "Abgleich nicht möglich",
                         "grund": f"{type(e).__name__}: {e}"[:200]}), 400
     except sqlite3.OperationalError as e:
-        return jsonify({"fehler": "gerade nicht möglich",
+        # „database is locked" und „database is busy" gehen von allein vorbei. Alles
+        # andere, was SQLite als `OperationalError` meldet, ist ein Schaden an unserer
+        # Seite – eine fehlende Spalte, eine halbe Migration. Ein Wiederholen hilft da
+        # nie, und ein 503 lädt genau dazu ein.
+        if any(w in str(e).lower() for w in ("locked", "busy")):
+            return jsonify({"fehler": "gerade nicht möglich",
+                            "grund": f"{type(e).__name__}: {e}"[:200],
+                            "hinweis": "die Datenbank ist belegt – in einer Minute"
+                                       " erneut versuchen"}), 503
+        return jsonify({"fehler": "die Datenbank des OS meldet einen Fehler",
                         "grund": f"{type(e).__name__}: {e}"[:200],
-                        "hinweis": "die Datenbank ist belegt – in einer Minute erneut"
-                                   " versuchen"}), 503
+                        "hinweis": "das geht nicht von allein weg – bitte im OS"
+                                   " nachsehen, Wiederholen hilft nicht"}), 500
     except Exception as e:
         return jsonify({"fehler": "Abgleich fehlgeschlagen",
                         "grund": f"{type(e).__name__}: {e}"[:200],

@@ -2426,6 +2426,213 @@ def main():
            and db.wert("SELECT COUNT(*) FROM tf_profil") == _profile_vor,
            "; ".join(_tiefer_kaputt) or f"{len(_tiefer)} Formen geprüft, nichts angelegt")
 
+    # **Dieselbe Zahl als TEXT.** Die Reihe oben schickt die JSON-Zahl (`10**20`) und
+    # bekommt zu Recht 400. `koerper_felder` lässt jeden TEXT durch – für SQLite ist
+    # das richtig –, umgewandelt wird aber eine Ebene tiefer in `tf._zahl`, und dort
+    # galt keine Grenze: `"100000000000000000000"` ergab einen `OverflowError` mitten
+    # in `with db.offen()` und damit einen 500er. Gemessen am 23.09.2026, auf allen
+    # drei Zahlenfeldern und auf dem Formularweg.
+    #
+    # Geprüft wird die TEXTform, weil sie der Normalfall ist: `request.form` liefert
+    # grundsätzlich nur Text, und die Prüfungen weiter oben schicken selbst `"25"`.
+    _text_zahlen = [
+        ("umkreis_km", {"kunde": kid, "art": "job", "titel": "Textzahl",
+                        "suchbegriffe": "Lagerhelfer",
+                        "umkreis_km": "100000000000000000000"}, "umkreis_km", 25),
+        ("max_miete", {"kunde": kid, "art": "wohnung", "titel": "Textzahl",
+                       "max_miete": "100000000000000000000"}, "max_miete", None),
+        ("min_flaeche", {"kunde": kid, "art": "wohnung", "titel": "Textzahl",
+                         "min_flaeche": "99999999999999999999"}, "min_flaeche", None),
+        # `min_zimmer` läuft über `_zahl(v, float)`. `"1e400"` ergibt `inf`, und `inf`
+        # bindet SQLite klaglos – geprüft: gespeichert als `Inf`. Das Profil träfe
+        # danach nie wieder eine Wohnung, lautlos und ohne Fehlermeldung.
+        ("min_zimmer", {"kunde": kid, "art": "wohnung", "titel": "Textzahl",
+                        "min_zimmer": "1e400"}, "min_zimmer", None),
+    ]
+    _textzahl_kaputt = []
+    for _name_z, _koerper_z, _spalte_z, _soll_z in _text_zahlen:
+        try:
+            _r_z = c.post("/api/taskforce/profil", json=_koerper_z)
+        except Exception as _e_z:              # ein 500er fliegt im Testbetrieb durch
+            _textzahl_kaputt.append(f"{_name_z}: {type(_e_z).__name__}")
+            continue
+        if _r_z.status_code >= 500:
+            _textzahl_kaputt.append(f"{_name_z}: HTTP {_r_z.status_code}")
+            continue
+        _pid_z = (_r_z.get_json() or {}).get("profil")
+        if _pid_z:
+            _wert_z = db.wert(f"SELECT {_spalte_z} FROM tf_profil WHERE id=?",
+                              (_pid_z,), None)
+            if _wert_z != _soll_z:
+                _textzahl_kaputt.append(f"{_name_z}: {_wert_z!r} statt {_soll_z!r}")
+            tf.profil_loeschen(_pid_z)
+    # Und derselbe Wert über das Formular – der Weg, den `curl -d` und jede Maske geht.
+    try:
+        _r_form_z = c.post("/api/taskforce/profil",
+                           data={"kunde": str(kid), "art": "job", "titel": "Textzahl Form",
+                                 "suchbegriffe": "Lagerhelfer",
+                                 "umkreis_km": "99999999999999999999"})
+        _pid_form_z = (_r_form_z.get_json() or {}).get("profil")
+        if _r_form_z.status_code >= 500:
+            _textzahl_kaputt.append(f"Formularweg: HTTP {_r_form_z.status_code}")
+        elif _pid_form_z:
+            if db.wert("SELECT umkreis_km FROM tf_profil WHERE id=?",
+                       (_pid_form_z,), None) != 25:
+                _textzahl_kaputt.append("Formularweg: umkreis_km nicht auf der Vorgabe")
+            tf.profil_loeschen(_pid_form_z)
+    except Exception as _e_z:
+        _textzahl_kaputt.append(f"Formularweg: {type(_e_z).__name__}")
+    pruefe("Eine Zahl jenseits von 64 Bit als TEXT fällt die Route nicht und legt"
+           " keinen Inf-Wert in der Tafel ab – auch über das Formular nicht",
+           not _textzahl_kaputt
+           and not db.wert("SELECT COUNT(*) FROM tf_profil WHERE min_zimmer > 1e18"),
+           "; ".join(_textzahl_kaputt)
+           or f"{len(_text_zahlen)} Textformen + Formularweg, jede auf ihrer Vorgabe")
+
+    # Die Gegenrichtung, und sie ist hier die wichtigere: Ein Wächter, der zu viel
+    # abwehrt, kostet jedes brauchbare Profil. Alle vier Zahlen als Text, so wie das
+    # Formular sie schickt – Komma inklusive.
+    _r_gut_z = c.post("/api/taskforce/profil",
+                      json={"kunde": kid, "art": "wohnung", "titel": "Gute Textzahlen",
+                            "umkreis_km": "30", "max_miete": "800", "min_zimmer": "2,5",
+                            "min_flaeche": "60"})
+    _pid_gut_z = (_r_gut_z.get_json() or {}).get("profil")
+    _p_gut_z = tf.profil(_pid_gut_z) if _pid_gut_z else {}
+    pruefe("Brauchbare Zahlen als Text kommen unverändert an – 30 km, 800 €,"
+           " 2,5 Zimmer, 60 m²",
+           _r_gut_z.status_code == 200 and _p_gut_z.get("umkreis_km") == 30
+           and _p_gut_z.get("max_miete") == 800 and _p_gut_z.get("min_zimmer") == 2.5
+           and _p_gut_z.get("min_flaeche") == 60,
+           f"{_r_gut_z.status_code} · {_p_gut_z.get('umkreis_km')} km ·"
+           f" {_p_gut_z.get('max_miete')} € · {_p_gut_z.get('min_zimmer')} Zi ·"
+           f" {_p_gut_z.get('min_flaeche')} m²")
+    if _pid_gut_z:
+        tf.profil_loeschen(_pid_gut_z)
+
+    # Dieselbe Regel eine Ebene tiefer, an der Stelle, an der sie steht: `_zahl` wird
+    # von beiden Wegen benutzt, und die Grenze ist dieselbe, die `feld_zahl` zieht.
+    _zahl_faelle = {
+        "64-Bit-Grenze selbst": tf._zahl(str(db.SQLITE_MAX)) == db.SQLITE_MAX,
+        "ein Schritt darüber": tf._zahl(str(db.SQLITE_MAX + 1)) is None,
+        "negativ darüber": tf._zahl("-" + str(db.SQLITE_MAX + 1)) is None,
+        "unendlich als Text": tf._zahl("1e400", float) is None,
+        "inf ausgeschrieben": tf._zahl("inf", float) is None,
+        "nan": tf._zahl("nan", float) is None,
+        "gewöhnliche Zahl": tf._zahl("25") == 25,
+        "Komma als Punkt": tf._zahl("2,5", float) == 2.5,
+    }
+    pruefe("`tf._zahl` hält die 64-Bit-Grenze und lässt nichts Unendliches durch –"
+           " eine Regel für Formular und Schnittstelle",
+           all(_zahl_faelle.values()),
+           ", ".join(k for k, v in _zahl_faelle.items() if not v)
+           or f"{len(_zahl_faelle)} Formen geprüft")
+
+    # **`kriterien` als Objekt wurde angenommen und weggeworfen.** Die Route erlaubt
+    # das Feld ausdrücklich als Objekt und macht `json.dumps` daraus; in
+    # `profil_speichern` stand `kriterien` aber nicht in `FELDER` und wurde in jedem
+    # Zweig neu gesetzt. Gemessen am 23.09.2026: WBS und Balkon hingeschickt, HTTP 200,
+    # Profil angelegt, `tf_profil.kriterien` NULL – die Suche lief ohne beides.
+    _r_krit = c.post("/api/taskforce/profil",
+                     json={"kunde": kid, "art": "wohnung", "titel": "Kriterienprobe",
+                           "kriterien": {"wbs": True, "balkon": True, "max_zimmer": 3,
+                                         "erfunden": "gibtesnicht"}})
+    _pid_krit = (_r_krit.get_json() or {}).get("profil")
+    _roh_krit = (db.wert("SELECT kriterien FROM tf_profil WHERE id=?", (_pid_krit,), None)
+                 if _pid_krit else None)
+    _gelesen_krit = ((((c.get(f"/api/taskforce/profil/{_pid_krit}").get_json() or {})
+                       .get("profil") or {}).get("kriterien_gelesen") or {})
+                     if _pid_krit else {})
+    pruefe("Kriterien als Objekt stehen hinterher wirklich in der Tafel – und ein"
+           " erfundener Regler nicht",
+           _r_krit.status_code == 200 and bool(_roh_krit)
+           and _gelesen_krit.get("wbs") is True and _gelesen_krit.get("balkon") is True
+           and _gelesen_krit.get("max_zimmer") == 3
+           and "erfunden" not in _gelesen_krit,
+           f"{_r_krit.status_code} · roh {_roh_krit!r} · gelesen {_gelesen_krit}")
+
+    # **Und sie müssen wirken, nicht nur dastehen.** Gemessen an den echten
+    # Portaltreffern aus `pruefdaten/adapter_beispiele.json`: vier Stellen, eine davon
+    # von der AURELIUM GmbH. Wer den Arbeitgeber über die Schnittstelle ausschliesst,
+    # muss danach drei sehen – „Kriterium gespeichert" allein ist keine Wirkung.
+    _beispiele_k = json.load(open(os.path.join(HIER, "pruefdaten", "adapter_beispiele.json"),
+                                  encoding="utf-8"))
+    _jobs_k = [t for _q_k, t in sorted(_beispiele_k.items()) if str(_q_k).startswith("jobs.")]
+    _r_filt = c.post("/api/taskforce/profil",
+                     json={"kunde": kid, "art": "job", "titel": "Filterprobe",
+                           "suchbegriffe": "Lagerhelfer",
+                           "kriterien": {"ohne_arbeitgeber": "AURELIUM"}})
+    _pid_filt = (_r_filt.get_json() or {}).get("profil")
+    _bleibt_k, _weg_k = (tf.job_filter(tf.profil(_pid_filt), _jobs_k) if _pid_filt
+                         else (list(_jobs_k), 0))
+    pruefe("Ein über die Schnittstelle gesetztes Kriterium sortiert danach wirklich"
+           " aus – von 4 echten Stellen bleiben 3",
+           _r_filt.status_code == 200 and len(_jobs_k) == 4 and _weg_k == 1
+           and not any("aurelium" in (t.get("anbieter") or "").casefold()
+                       for t in _bleibt_k),
+           f"{len(_jobs_k)} echte Stellen → {len(_bleibt_k)} bleiben, {_weg_k} weg")
+
+    # Die Gegenprobe zum neuen Zweig: Wer ein anderes Feld ändert und `kriterien` gar
+    # nicht mitschickt, darf die Reglerstellung nicht verlieren. Genau dafür steht der
+    # `elif` da.
+    if _pid_filt:
+        c.post("/api/taskforce/profil", json={"profil": _pid_filt, "notiz": "nur die Notiz"})
+        _krit_danach = tf.kriterien(tf.profil(_pid_filt))
+        pruefe("Ein Feld ändern ohne `kriterien` lässt die Regler stehen",
+               _krit_danach.get("ohne_arbeitgeber") == "AURELIUM", _krit_danach)
+        tf.profil_loeschen(_pid_filt)
+    if _pid_krit:
+        tf.profil_loeschen(_pid_krit)
+
+    # **Eine unbekannte Quelle verschwand still, sobald eine bekannte dabeistand.**
+    # Gemessen: `{"quellen": ["jobs.ba", "jobs.monster"]}` → HTTP 200, gespeichert
+    # `jobs.ba`, kein Wort über „jobs.monster". Die Gegenseite glaubt danach, sie suche
+    # auf zwei Portalen. Keine der Formen oben mischte bekannt und unbekannt.
+    _r_mix = c.post("/api/taskforce/profil",
+                    json={"kunde": kid, "art": "job", "titel": "Quellenprobe",
+                          "suchbegriffe": "Lagerhelfer",
+                          "quellen": ["jobs.ba", "jobs.monster"]})
+    _json_mix = _r_mix.get_json() or {}
+    _pid_mix = _json_mix.get("profil")
+    _quellen_mix = (db.wert("SELECT quellen FROM tf_profil WHERE id=?", (_pid_mix,), None)
+                    if _pid_mix else None)
+    pruefe("Eine unbekannte Quelle neben einer bekannten wird genannt, nicht"
+           " verschluckt – die bekannte wird gespeichert",
+           _r_mix.status_code == 200 and _quellen_mix == "jobs.ba"
+           and _json_mix.get("quellen_abgewiesen") == ["jobs.monster"],
+           f"{_r_mix.status_code} · gespeichert {_quellen_mix!r} ·"
+           f" abgewiesen {_json_mix.get('quellen_abgewiesen')}")
+    if _pid_mix:
+        tf.profil_loeschen(_pid_mix)
+
+    # **`int()` ist großzügiger, als ein Aufrufer denkt.** Unterstriche sind erlaubt
+    # (`"5_0"` → 50) und fremde Ziffernsätze auch („١٢٣" → 123, „５" → 5). Das ist kein
+    # Absturz, sondern eine stille Fehldeutung: Der Aufruf traf ein ANDERES Angebot,
+    # `abgewiesen` blieb 0, und der Aufrufer merkte nichts. Gemessen wird die Wirkung
+    # an dem Satz, der fälschlich getroffen wurde.
+    _aid_um = db.wert("SELECT id FROM tf_angebot WHERE id>=10 ORDER BY id LIMIT 1", (), None)
+    if _aid_um:
+        _text_um = f"{str(_aid_um)[0]}_{str(_aid_um)[1:]}"   # „50" → „5_0", `int()` liest 50
+        with db.offen() as _con:
+            _con.execute("UPDATE tf_angebot SET status='neu' WHERE id=?", (_aid_um,))
+        _r_um = c.post("/api/taskforce/angebote/status",
+                       json={"status": "verworfen", "ids": [_text_um]})
+        _json_um = _r_um.get_json() or {}
+        _status_um = db.wert("SELECT status FROM tf_angebot WHERE id=?", (_aid_um,), None)
+        # Dieselbe Frage mit arabisch-indischen und fernöstlichen Ziffern.
+        _r_ziffern = c.post("/api/taskforce/angebote/status",
+                            json={"status": "verworfen",
+                                  "ids": ["١٢", "５"]})
+        _json_ziffern = _r_ziffern.get_json() or {}
+        pruefe("Eine Nummer mit Unterstrich oder fremden Ziffern wird abgewiesen statt"
+               " still umgedeutet – das falsch getroffene Angebot bleibt unberührt",
+               _r_um.status_code == 400 and _json_um.get("abgewiesen") == 1
+               and _status_um == "neu"
+               and _r_ziffern.status_code == 400 and _json_ziffern.get("abgewiesen") == 2,
+               f"{_text_um!r} → {_r_um.status_code}, abgewiesen"
+               f" {_json_um.get('abgewiesen')}, Angebot {_aid_um} steht auf"
+               f" {_status_um!r} · fremde Ziffern → {_r_ziffern.status_code},"
+               f" abgewiesen {_json_ziffern.get('abgewiesen')}")
+
     # Die Gegenrichtung zu den Feldtypen: Was brauchbar ist, muss weiter durchgehen –
     # eine Nummer als Text („12"), eine Zahl an einem Textfeld (Telefonnummern kommen
     # aus manchen Systemen als Zahl), und der Sammelstatus über mehrere Angebote.
@@ -2620,26 +2827,57 @@ def main():
     if _pid_typ:
         tf.profil_loeschen(_pid_typ)
 
-    # **Drei Antworten statt einer.** Für einen Maschinenaufrufer heisst 400
-    # „wiederhol es nicht". Das stimmt für eine tote Adresse – nicht dafür, dass sich
-    # der Nachtlauf gerade mit dem CRM auf der Datenbank trifft (dann ist es in
-    # Sekunden vorbei) und nicht dafür, dass ein Portal etwas Unlesbares geliefert hat.
+    # **Sieben Fälle, fünf Antworten – und zwei Paare, die derselbe Typ sind.** Für
+    # einen Maschinenaufrufer heisst 400 „wiederhol es nicht, so wie du fragst, geht es
+    # nie". Das stimmt für eine tote Adresse und sonst für nichts. Zwei Stellen taten
+    # bis zum 23.09.2026 so, als gäbe es die Unterscheidung schon:
+    #
+    #   * `urllib.error.HTTPError` IST eine Unterklasse von `URLError`, und
+    #     `beschreibung_laden` lässt sie für jobs.ba, StepStone, Kleinanzeigen und
+    #     meinestadt durch. StepStones `429` (drosselt) und `503` (Wartung) kamen damit
+    #     als 400 zurück – das CRM verwirft den Auftrag endgültig, obwohl in zehn
+    #     Minuten alles wieder liefe.
+    #   * JEDER `sqlite3.OperationalError` war 503 „in einer Minute erneut versuchen" –
+    #     auch `no such column` nach einer halben Migration. Das CRM wiederholt endlos.
+    #
+    # Die Vorgängerprüfung schob je einen Fehler unter und prüfte nur den TYP; genau
+    # die Unterscheidung, die ihr Name behauptete, hat sie nicht gemessen. Hier stehen
+    # deshalb je ZWEI Fälle desselben Typs mit verschiedenen Antworten nebeneinander.
     _echte_abgleich = tf.abgleich
-    _antworten = {}
-    for _name_f, _fehler_f in (("netz", urllib.error.URLError("weg")),
-                               ("datenbank", sqlite3.OperationalError("database is locked")),
-                               ("portal", ValueError("Antwort nicht lesbar"))):
+    _url_f = "https://portal.invalid/anzeige"
+    _faelle_f = (
+        ("Adresse ohne Netz", urllib.error.URLError("weg"), 400),
+        ("Anzeige gelöscht (404)",
+         urllib.error.HTTPError(_url_f, 404, "Not Found", {}, None), 400),
+        ("Portal drosselt (429)",
+         urllib.error.HTTPError(_url_f, 429, "Too Many Requests", {}, None), 503),
+        ("Portal in Wartung (503)",
+         urllib.error.HTTPError(_url_f, 503, "Service Unavailable", {}, None), 503),
+        ("Datenbank belegt", sqlite3.OperationalError("database is locked"), 503),
+        ("Datenbank kaputt", sqlite3.OperationalError("no such column: x"), 500),
+        ("Portal unlesbar", ValueError("Antwort nicht lesbar"), 502),
+    )
+    _antworten, _abgleich_kaputt = {}, []
+    for _name_f, _fehler_f, _soll_f in _faelle_f:
         tf.abgleich = (lambda _f: lambda *a, **k: (_ for _ in ()).throw(_f))(_fehler_f)
         try:
             _r_f = c.post(f"/api/taskforce/angebot/{_aid_status}/abgleich")
         finally:
             tf.abgleich = _echte_abgleich
-        _antworten[_name_f] = (_r_f.status_code, bool((_r_f.get_json() or {}).get("grund")))
-    pruefe("Der Abgleich unterscheidet: Netzfehler 400, Datenbank belegt 503, Portal"
-           " unlesbar 502 – jede Antwort mit Grund",
-           _antworten == {"netz": (400, True), "datenbank": (503, True),
-                          "portal": (502, True)},
-           _antworten)
+        _json_f = _r_f.get_json() or {}
+        _antworten[_name_f] = _r_f.status_code
+        if _r_f.status_code != _soll_f:
+            _abgleich_kaputt.append(f"{_name_f}: {_r_f.status_code} statt {_soll_f}")
+        elif not _json_f.get("grund"):
+            _abgleich_kaputt.append(f"{_name_f}: ohne Grund")
+    # Und die Unterscheidung selbst, nicht nur die Liste: Zwei Fehler DESSELBEN Typs
+    # müssen verschieden beantwortet werden, sonst gibt es sie im Code nicht.
+    _http_unterschieden = _antworten["Anzeige gelöscht (404)"] != _antworten["Portal drosselt (429)"]
+    _db_unterschieden = _antworten["Datenbank belegt"] != _antworten["Datenbank kaputt"]
+    pruefe("Der Abgleich unterscheidet INNERHALB eines Fehlertyps: 404 tot → 400,"
+           " 429/503 gedrosselt → 503; Datenbank belegt → 503, Datenbank kaputt → 500",
+           not _abgleich_kaputt and _http_unterschieden and _db_unterschieden,
+           "; ".join(_abgleich_kaputt) or _antworten)
 
     # **`eintrittszeitraum` ist ein Objekt, kein Datum.** `str(…)[:10]` machte daraus
     # `{'von': '2`, und genau so stehen im Bestand 49 Zeilen – auf dem Bildschirm „ab
@@ -2694,6 +2932,26 @@ def main():
                and not db.wert("SELECT COUNT(*) FROM kunde WHERE name='Quintus Umbenannt'"),
                f"{_r_dopp.status_code} · {len(_json_dopp.get('gefunden') or [])} Sätze"
                f" genannt · Namen unverändert: {_namen_vor == _namen_nach}")
+        # **Der Hinweis muss befolgbar sein.** Er sagte „den Satz über seine Nummer im
+        # OS ansprechen (POST /api/kunde mit eindeutiger Nummer)" – die Nummer ist
+        # gerade das Mehrdeutige, und diese Route kennt kein Feld für eine Satznummer
+        # (`CRM_AUF_UNS` führt keines). Wer das befolgt, schickt dieselbe Anfrage noch
+        # dreimal und bekommt dreimal dasselbe 409. Gemessen wird beides: dass die
+        # Route keine Satznummer kennt, und dass die Wiederholung nichts ändert.
+        _hinweis_dopp = _json_dopp.get("hinweis") or ""
+        _r_wieder = c.post("/api/kunde", json={"customer_number": _dopp_nr,
+                                               "name": "Quintus Umbenannt",
+                                               "phone": "0221-000000"})
+        _namen_wieder = sorted(z["name"] for z in db.hole(
+            "SELECT name FROM kunde WHERE kundennummer=?", (_dopp_nr,)))
+        pruefe("Der Hinweis der 409 schickt die Gegenseite nicht in die Wiederholung,"
+               " sondern nennt die Auflösung der Dublette",
+               "POST /api/kunde" not in _hinweis_dopp and "Dublette" in _hinweis_dopp
+               and not ({"id", "kunde"} & set(api_modul.CRM_AUF_UNS)
+                        | {"id", "kunde"} & set(api_modul.CRM_AUF_UNS.values()))
+               and _r_wieder.status_code == 409 and _namen_wieder == _namen_vor,
+               f"{_hinweis_dopp!r} · Wiederholung {_r_wieder.status_code},"
+               f" Namen unverändert: {_namen_wieder == _namen_vor}")
         # Und der laute Fall derselben Stelle: Umbenennen auf einen Namen, den es schon
         # gibt. Der Formularweg fängt den `IntegrityError` seit jeher ab, die
         # Schnittstelle gab eine nackte 500er-Seite.

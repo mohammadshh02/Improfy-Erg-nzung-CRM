@@ -189,10 +189,34 @@ FELDER = ("kunde_id", "art", "titel", "suchbegriffe", "ort", "umkreis_km", "arbe
 
 
 def _zahl(v, typ=int):
+    """Text oder Zahl → eine Zahl, die die Datenbank auch aufnehmen kann – sonst `None`.
+
+    **Die Grenze steht hier, weil hier umgewandelt wird.** `api.koerper_felder` prüft
+    jede ZAHL im Körper auf 64 Bit und lässt jeden TEXT durch – für SQLite ist das
+    richtig, Text bindet immer. Nur wird der Text zwei Zeilen später hier zur Zahl, und
+    dann gilt die Grenze wieder: `int("1" + "0" * 20)` wirft beim `INSERT` einen
+    `OverflowError`, und zwar mitten in `with db.offen()`. Gemessen am 23.09.2026 über
+    `/api/taskforce/profil`: `{"umkreis_km": 10**20}` → 400, dieselbe Zahl als
+    `"100000000000000000000"` → 500. Dasselbe für `max_miete` und `min_flaeche`, und
+    der Formularweg (`request.form`) schickt grundsätzlich nur Text.
+
+    **`inf` ist der teurere Fall**, weil er gar nicht scheitert: SQLite legt ihn
+    klaglos als `Inf` ab. `"1e400"` an `min_zimmer` (`typ=float`) ergab ein Profil, das
+    danach nie wieder eine Wohnung trifft – ohne Fehler, ohne Meldung.
+
+    Eine unbrauchbare Zahl wird `None` und damit genauso behandelt wie unbrauchbarer
+    Text seit jeher: Der Aufrufer bekommt die Vorgabe des Feldes (`umkreis_km` → 25)
+    statt eines halb geschriebenen Datensatzes. Die Regel steht an EINER Stelle, weil
+    beide Wege – Formular und Schnittstelle – durch sie hindurchgehen."""
     try:
-        return typ(str(v).replace(",", ".")) if str(v).strip() else None
+        z = typ(str(v).replace(",", ".")) if str(v).strip() else None
     except ValueError:
         return None
+    if z is None:
+        return None
+    if isinstance(z, float) and not math.isfinite(z):
+        return None                    # inf/NaN: SQLite nimmt sie, rechnen kann damit niemand
+    return z if abs(z) <= db.SQLITE_MAX else None
 
 
 def profil_speichern(daten, pid=None):
@@ -238,9 +262,18 @@ def profil_speichern(daten, pid=None):
     d["quellen"] = (q or "").strip() or None
     for f in ("suchbegriffe", "ort", "arbeitszeit", "suchauftrag", "notiz"):
         d[f] = (d.get(f) or "").strip() or None
+    # **Fertige Kriterien dürfen direkt kommen.** Das Formular schickt einzelne
+    # `k_*`-Kästchen, das CRM ein fertiges Objekt (`{"wbs": true, "balkon": true}`).
+    # `kriterien` stand nicht in `FELDER` und wurde deshalb in JEDEM Zweig hier neu
+    # gesetzt: Das Objekt kam an, die Route antwortete 200 – und in der Tafel stand
+    # NULL. Gemessen am 23.09.2026: WBS und Balkon hingeschickt, Profil angelegt,
+    # `tf_profil.kriterien` leer, die Suche lief ohne beides und niemand sah es.
+    krit_direkt = kriterien_objekt(daten.get("kriterien"), d["art"]) if gesetzt("kriterien") else None
+    if krit_direkt is not None:
+        d["kriterien"] = json.dumps(krit_direkt, ensure_ascii=False) if krit_direkt else None
     # Kriterien nur anfassen, wenn welche mitkommen – sonst bliebe beim Ändern eines
     # anderen Feldes die ganze Reglerstellung auf der Strecke.
-    if not pid or vom_formular or any(str(f).startswith("k_") for f in daten):
+    elif not pid or vom_formular or any(str(f).startswith("k_") for f in daten):
         krit = kriterien_aus_formular(daten, d["art"])
         d["kriterien"] = json.dumps(krit, ensure_ascii=False) if krit else None
     else:
@@ -401,6 +434,41 @@ def kriterien_aus_formular(daten, art="wohnung"):
             if t:
                 krit[schl] = t
     return krit
+
+
+def kriterien_objekt(roh, art="wohnung"):
+    """Ein fertiges Kriterien-Objekt (so schickt es das CRM) auf die Form des Formulars
+    bringen. Gibt das geprüfte Dict zurück – oder `None`, wenn nichts Lesbares kam.
+
+    **Geprüft wird mit derselben Elle wie das Formular.** `kriterien_aus_formular` kennt
+    die erlaubten Schlüssel und Werte je Art; hier wird nur `{"wbs": …}` zu
+    `{"k_wbs": …}` umgeschrieben und dann durch dieselbe Funktion geschickt. Ein
+    erfundener Regler fällt damit über die Schnittstelle genauso heraus wie über die
+    Oberfläche – gespeichert wird nur, was es wirklich gibt.
+
+    `true`/`false` muss dabei übersetzt werden: Das Formular schickt „1", JSON schickt
+    `true`, und `str(True)` ist „True" – das stünde in keiner der erlaubten Formen und
+    fiele stillschweigend weg.
+
+    `None` heisst „kein brauchbares Objekt dabei" und NICHT „leer": Wer beim Ändern
+    eines anderen Feldes Unlesbares an `kriterien` hängt, soll nicht die ganze
+    Reglerstellung verlieren. Ein leeres Objekt (`{}`) ist dagegen eine Ansage und
+    löscht die Kriterien."""
+    if isinstance(roh, (bytes, bytearray)):
+        roh = roh.decode("utf-8", "ignore")
+    if isinstance(roh, str):
+        try:
+            roh = json.loads(roh or "{}")
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(roh, dict):
+        return None
+    formular = {}
+    for schl, wert in roh.items():
+        if isinstance(wert, bool):
+            wert = "1" if wert else ""
+        formular["k_" + str(schl)] = wert
+    return kriterien_aus_formular(formular, art)
 
 
 def kriterien(p):
